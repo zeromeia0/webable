@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Analysis — {{ instance.name }} — Webable</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/static/js/webable-currency.js"></script>
+  <script src="/static/js/webable-charts.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+  <div class="flex flex-col md:flex-row min-h-screen">
+    {% include "partials/app_sidebar.html" %}
+    <div class="flex-1 min-w-0 flex flex-col">
+    {% include "partials/app_topbar.html" %}
+  <main class="flex-1 max-w-7xl w-full mx-auto p-6 md:p-10 space-y-10 pb-20">
+    <header>
+      <h1 class="text-3xl font-bold tracking-tight">Analysis</h1>
+      <p class="text-slate-400 mt-2 text-sm md:text-base max-w-3xl">{{ instance.name }} — combined view of cash flow, categories, statements, and saved projections. Values are in EUR base; use the currency selector to display converted amounts.</p>
+    </header>
+
+    <div id="analysisEmpty" class="hidden rounded-2xl border border-dashed border-slate-700 bg-slate-900/50 p-10 text-center text-slate-400">
+      <p class="text-lg font-medium text-slate-300">Not enough data yet</p>
+      <p class="mt-2 text-sm max-w-md mx-auto">Add recurring income and expenses, log a few one-time transactions, or run a database calculation to unlock richer charts here.</p>
+    </div>
+
+    <section class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-5">
+        <p class="text-xs font-medium uppercase tracking-wide text-slate-500">This month net savings</p>
+        <p id="anHeadSav" class="text-2xl font-bold mt-2 tabular-nums">—</p>
+      </div>
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-5">
+        <p class="text-xs font-medium uppercase tracking-wide text-slate-500">vs prior month</p>
+        <p id="anMom" class="text-lg font-semibold mt-2 text-slate-200">—</p>
+      </div>
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-5">
+        <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Bank statements</p>
+        <p id="anStmt" class="text-lg font-semibold mt-2 text-slate-200">—</p>
+      </div>
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-5">
+        <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Saved projection</p>
+        <p id="anProj" class="text-sm font-medium mt-2 text-slate-200 leading-snug">—</p>
+      </div>
+    </section>
+
+    <div class="grid lg:grid-cols-2 gap-8">
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
+        <h2 class="text-lg font-semibold text-emerald-200 mb-4">Top income sources</h2>
+        <ul id="anTopInc" class="space-y-3 text-sm"></ul>
+      </div>
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
+        <h2 class="text-lg font-semibold text-rose-200 mb-4">Top expense sources</h2>
+        <ul id="anTopExp" class="space-y-3 text-sm"></ul>
+      </div>
+    </div>
+
+    <section class="grid lg:grid-cols-2 gap-8">
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 min-h-[300px]">
+        <h2 class="text-lg font-semibold mb-4">Savings trend (6 months)</h2>
+        <div class="relative h-72"><canvas id="anChartSav"></canvas></div>
+      </div>
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 min-h-[300px]">
+        <h2 class="text-lg font-semibold mb-4">One-off spend by category (6 months)</h2>
+        <div class="relative h-72"><canvas id="anChartCat"></canvas></div>
+      </div>
+    </section>
+
+    <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
+      <h2 class="text-lg font-semibold mb-3 text-indigo-200">Insights</h2>
+      <ul id="anInsights" class="list-disc pl-5 space-y-2 text-slate-300 text-sm"></ul>
+    </section>
+
+    <section class="rounded-2xl border border-cyan-900/40 bg-cyan-950/20 p-6">
+      <h2 class="text-lg font-semibold text-cyan-100 mb-2">Emergency buffer hint</h2>
+      <p id="anEmerg" class="text-sm text-slate-300 leading-relaxed">—</p>
+    </section>
+  </main>
+    </div>
+  </div>
+  <script id="wbAnalysisJson" type="application/json">{{ analysis_data | tojson }}</script>
+  <script>
+    (function () {
+      const raw = document.getElementById('wbAnalysisJson');
+      let DATA = {};
+      try { DATA = JSON.parse(raw.textContent || '{}'); } catch (e) { DATA = {}; }
+      function fmt(n) {
+        if (window.WebableCurrency && window.WebableCurrency.format) return window.WebableCurrency.format(Number(n));
+        return '€ ' + Number(n).toFixed(2);
+      }
+      function moneyClass(n) {
+        n = Number(n);
+        if (n > 0) return 'text-emerald-300';
+        if (n < 0) return 'text-rose-300';
+        return 'text-slate-300';
+      }
+      const hasRecurring = (DATA.top_income_sources && DATA.top_income_sources.length) || (DATA.top_expense_sources && DATA.top_expense_sources.length);
+      const hasTrend = DATA.monthly_trend && DATA.monthly_trend.some(function (x) { return x.savings_eur !== 0 || x.inflow_eur !== 0; });
+      if (!hasRecurring && !hasTrend) {
+        document.getElementById('analysisEmpty').classList.remove('hidden');
+      }
+      var hs = document.getElementById('anHeadSav');
+      hs.textContent = fmt(DATA.headline_savings_eur || 0);
+      hs.className = 'text-2xl font-bold mt-2 tabular-nums ' + moneyClass(DATA.headline_savings_eur || 0);
+      var mom = DATA.mom || {};
+      var momEl = document.getElementById('anMom');
+      var dp = mom.savings_delta_pct;
+      var de = mom.savings_delta_eur;
+      if (de != null && dp != null) {
+        momEl.innerHTML = '<span class="' + moneyClass(de) + '">' + fmt(de) + '</span> <span class="text-slate-500">(' + (dp >= 0 ? '+' : '') + Number(dp).toFixed(1) + '%)</span>';
+      }
+      var st = DATA.statements || {};
+      document.getElementById('anStmt').textContent = (st.count || 0) + ' uploaded' + (st.latest_month ? ' · latest ' + st.latest_month : '');
+      var pr = DATA.projection || {};
+      document.getElementById('anProj').textContent = pr.available
+        ? ('Saved run: ' + (pr.saved_months || 0) + ' months · end balance ' + fmt(pr.final_accumulated_eur || 0))
+        : 'No completed database calculation yet.';
+
+      function fillTop(id, rows) {
+        var ul = document.getElementById(id);
+        ul.innerHTML = '';
+        (rows || []).forEach(function (r) {
+          var li = document.createElement('li');
+          li.className = 'flex justify-between gap-3 border-b border-slate-800/80 pb-2';
+          li.innerHTML = '<span class="text-slate-300 truncate">' + (r.label || '') + '</span><span class="shrink-0 text-slate-100 font-medium">' + fmt(r.amount_eur) + ' <span class="text-slate-500 text-xs">(' + r.pct + '%)</span></span>';
+          ul.appendChild(li);
+        });
+        if (!(rows || []).length) {
+          var li = document.createElement('li');
+          li.className = 'text-slate-500';
+          li.textContent = 'No data yet.';
+          ul.appendChild(li);
+        }
+      }
+      fillTop('anTopInc', DATA.top_income_sources);
+      fillTop('anTopExp', DATA.top_expense_sources);
+
+      var insUl = document.getElementById('anInsights');
+      insUl.innerHTML = '';
+      (DATA.insights || []).forEach(function (t) {
+        var li = document.createElement('li');
+        li.textContent = t;
+        insUl.appendChild(li);
+      });
+      if (!(DATA.insights || []).length) {
+        var li = document.createElement('li');
+        li.textContent = 'Keep logging transactions — insights appear as patterns emerge.';
+        insUl.appendChild(li);
+      }
+      var eh = DATA.emergency_fund_hint || {};
+      document.getElementById('anEmerg').textContent = (eh.note || '') + ' Recurring expenses ≈ ' + fmt(eh.recurring_expenses_monthly_eur || 0) + '/mo; rough 6-month cushion ≈ ' + fmt(eh.suggested_6m_buffer_eur || 0) + '.';
+
+      let savChart, catChart;
+      function buildCharts() {
+        var base = window.WebableCharts.darkChartOptions();
+        var moneyTick = function (v) { return fmt(v); };
+        var trend = DATA.monthly_trend || [];
+        var labels = trend.map(function (x) { return x.month; });
+        var savings = trend.map(function (x) { return x.savings_eur; });
+        if (savChart) savChart.destroy();
+        savChart = new Chart(document.getElementById('anChartSav'), {
+          type: 'line',
+          data: {
+            labels: labels,
+            datasets: [{ label: 'Net savings', data: savings, borderColor: '#34d399', backgroundColor: 'rgba(52,211,153,0.15)', tension: 0.25, fill: true }]
+          },
+          options: Object.assign({}, base, {
+            scales: {
+              x: { ticks: { color: '#94a3b8' } },
+              y: { ticks: { color: '#94a3b8', callback: moneyTick } }
+            },
+            plugins: {
+              tooltip: Object.assign({}, base.plugins.tooltip, {
+                callbacks: {
+                  label: function (ctx) { return 'Savings: ' + fmt(ctx.parsed.y); }
+                }
+              })
+            }
+          })
+        });
+        var cats = DATA.category_spend_6m || [];
+        if (catChart) catChart.destroy();
+        catChart = new Chart(document.getElementById('anChartCat'), {
+          type: 'bar',
+          data: {
+            labels: cats.map(function (c) { return c.key; }),
+            datasets: [{ label: 'Spend', data: cats.map(function (c) { return c.total; }), backgroundColor: '#f472b6' }]
+          },
+          options: Object.assign({}, base, {
+            scales: {
+              x: { ticks: { color: '#94a3b8', maxRotation: 45, minRotation: 0 } },
+              y: { ticks: { color: '#94a3b8', callback: moneyTick } }
+            },
+            plugins: {
+              tooltip: Object.assign({}, base.plugins.tooltip, {
+                callbacks: {
+                  label: function (ctx) { return fmt(ctx.parsed.y); }
+                }
+              })
+            }
+          })
+        });
+        window.webableRefreshCharts = function () {
+          if (savChart && savChart.options.scales && savChart.options.scales.y) {
+            savChart.options.scales.y.ticks.callback = moneyTick;
+            savChart.update();
+          }
+          if (catChart && catChart.options.scales && catChart.options.scales.y) {
+            catChart.options.scales.y.ticks.callback = moneyTick;
+            catChart.update();
+          }
+        };
+      }
+      buildCharts();
+      document.addEventListener('webable:currency', function () {
+        if (typeof window.webableRefreshCharts === 'function') window.webableRefreshCharts();
+      });
+    })();
+  </script>
+</body>
+</html>

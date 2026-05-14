@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dashboard - Webable</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/static/js/webable-currency.js"></script>
+  <script src="/static/js/webable-charts.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+  <div class="flex flex-col md:flex-row min-h-screen">
+    {% include "partials/app_sidebar.html" %}
+    <div class="flex-1 min-w-0 flex flex-col">
+    {% include "partials/app_topbar.html" %}
+  <main class="flex-1 max-w-6xl w-full mx-auto p-6 md:p-8 space-y-8">
+    <header class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+      <div>
+        <h1 class="text-3xl font-bold">Financial intelligence dashboard</h1>
+        <p class="text-slate-300 mt-1">Welcome, {{ user.username }}.</p>
+      </div>
+      <form method="post" action="/logout"><button type="submit" class="px-4 py-2 rounded-lg bg-slate-800 border border-slate-700 text-sm hover:bg-slate-700">Logout</button></form>
+    </header>
+
+    {% if primary_instance %}
+    <section class="grid md:grid-cols-2 gap-4">
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4">
+        <h3 class="text-sm font-semibold text-slate-300 mb-2">Latest bank statement</h3>
+        {% if latest_bank_statement %}
+        <p class="text-sm text-slate-200">{{ latest_bank_statement.statement_month }} · {{ latest_bank_statement.original_filename }}</p>
+        <a href="/instances/{{ primary_instance.id }}/bank-statements/{{ latest_bank_statement.id }}/file" target="_blank" rel="noopener" class="text-indigo-400 text-sm mt-2 inline-block hover:text-indigo-300">View PDF</a>
+        {% else %}
+        <p class="text-sm text-slate-500">No statements yet. Upload from <a href="/instances/{{ primary_instance.id }}/reports" class="text-indigo-400 underline hover:text-indigo-300">Reports → Bank statements</a>.</p>
+        {% endif %}
+      </div>
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4">
+        <h3 class="text-sm font-semibold text-slate-300 mb-2">Budget vs spend ({{ current_month }})</h3>
+        {% if budget_alerts|length %}
+        <ul class="text-sm space-y-2">
+          {% for a in budget_alerts %}
+          <li class="{% if a.tone == 'over' %}text-rose-300{% elif a.tone == 'warn' %}text-amber-200{% else %}text-slate-300{% endif %}">
+            {{ a.category }}: <span class="wb-money" data-eur="{{ a.spent }}">{{ a.spent }}</span> / <span class="wb-money" data-eur="{{ a.limit }}">{{ a.limit }}</span> ({{ a.pct }}%)
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-sm text-slate-500">No category budgets yet. Set them on your <a href="/instances/{{ primary_instance.id }}" class="text-indigo-400 underline">workspace</a>.</p>
+        {% endif %}
+      </div>
+    </section>
+    {% endif %}
+
+    {% if not primary_instance %}
+    <section class="rounded-2xl border border-dashed border-slate-700 bg-slate-900/40 p-8 text-center text-slate-400">
+      <p>Create a workspace to unlock <strong class="text-slate-300">Reports</strong>, <strong class="text-slate-300">Analysis</strong>, the <strong class="text-slate-300">Investment calculator</strong>, and <strong class="text-slate-300">Database calculation</strong> in the sidebar.</p>
+    </section>
+    {% endif %}
+
+    <section class="grid md:grid-cols-4 gap-4">
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4"><p class="text-xs text-slate-400">Total income</p><p class="text-2xl font-bold text-emerald-300"><span class="wb-money" data-eur="{{ chart_data.income_total }}">{{ chart_data.income_total }}</span></p></div>
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4"><p class="text-xs text-slate-400">Total expenses</p><p class="text-2xl font-bold text-red-300"><span class="wb-money" data-eur="{{ chart_data.expense_total }}">{{ chart_data.expense_total }}</span></p></div>
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4"><p class="text-xs text-slate-400">Savings estimate</p><p class="text-2xl font-bold {% if chart_data.savings_total >= 0 %}text-emerald-300{% else %}text-red-300{% endif %}"><span class="wb-money" data-eur="{{ chart_data.savings_total }}">{{ chart_data.savings_total }}</span></p></div>
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4"><p class="text-xs text-slate-400">Financial health score</p><p class="text-2xl font-bold">{{ chart_data.health_score }}/100</p></div>
+    </section>
+
+    <section class="grid md:grid-cols-2 gap-4">
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 min-h-[280px]">
+        <h2 class="font-semibold mb-3">Income vs expenses by workspace</h2>
+        <div class="relative h-64"><canvas id="incomeExpenseChart"></canvas></div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 min-h-[280px]">
+        <h2 class="font-semibold mb-3">6-month savings trend</h2>
+        <div class="relative h-64"><canvas id="savingsTrendChart"></canvas></div>
+      </div>
+    </section>
+
+    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+      <h2 class="text-xl font-semibold">Mother insights output</h2>
+      <p class="text-slate-300 mt-1">{{ mother_output.headline }}</p>
+      <div class="grid md:grid-cols-3 gap-3 mt-4">
+        {% for card in mother_output.cards %}
+        <div class="rounded-xl border border-slate-800 p-3 {% if card.tone == 'positive' %}bg-emerald-500/10{% elif card.tone == 'negative' %}bg-red-500/10{% else %}bg-slate-800/70{% endif %}">
+          <p class="text-xs text-slate-300">{{ card.label }}</p>
+          <p class="font-bold text-lg mt-1">{% if card.value_eur is defined %}<span class="wb-money" data-eur="{{ card.value_eur }}">{{ card.value }}</span>{% else %}{{ card.value }}{% endif %}</p>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+      <h2 class="text-xl font-semibold mb-3">Create workspace</h2>
+      <form method="post" action="/instances/create" class="grid md:grid-cols-2 gap-3">
+        <input name="name" placeholder="Workspace name" required class="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" />
+        <button type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 font-medium">Create</button>
+      </form>
+    </section>
+
+    <section class="grid md:grid-cols-2 gap-4">
+      {% for ins in instances %}
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
+        <div class="flex justify-between items-start">
+          <div>
+            <h3 class="text-lg font-semibold">{{ ins.name }}</h3>
+            <p class="text-xs text-slate-400">{{ ins.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+          </div>
+          <form method="post" action="/instances/{{ ins.id }}/delete"><button type="submit" class="text-red-400 text-sm">Delete</button></form>
+        </div>
+        <p class="text-sm text-slate-300">{{ ins.last_sync_status }}</p>
+        <a href="/instances/{{ ins.id }}" class="inline-block px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm font-medium">Open workspace</a>
+      </div>
+      {% endfor %}
+    </section>
+
+    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+      <h2 class="text-xl font-semibold mb-3">Activity feed</h2>
+      <div class="space-y-2 text-sm">
+        {% for job in jobs_view %}
+        <details class="border border-slate-800 rounded-lg p-3">
+          <summary class="cursor-pointer font-semibold">{{ job.icon }} {{ job.title }}</summary>
+          <p class="text-slate-400 text-xs mt-1">{{ job.subtitle }}</p>
+          {% for section in job.sections %}
+          <ul class="list-disc pl-5 mt-2 text-slate-300">{% for item in section["items"][:2] %}<li>{{ item }}</li>{% endfor %}</ul>
+          {% endfor %}
+        </details>
+        {% endfor %}
+      </div>
+    </section>
+  </main>
+    </div>
+  </div>
+
+  <button type="button" id="globalAiFab" class="fixed bottom-6 right-6 bg-indigo-500 hover:bg-indigo-400 text-white rounded-full w-14 h-14 shadow-xl z-30">AI</button>
+  <div id="globalAiPanel" class="hidden fixed bottom-24 right-6 w-[360px] max-w-[92vw] bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl z-40">
+    <div class="p-3 border-b border-slate-700 font-semibold">AI financial assistant</div>
+    <div id="globalAiMessages" class="p-3 h-72 overflow-y-auto space-y-3 text-sm"></div>
+    <form id="globalAiForm" class="p-3 border-t border-slate-700 space-y-2">
+      <textarea id="globalAiQuestion" class="w-full h-20 rounded-lg bg-slate-800 p-2 border border-slate-700" placeholder="Ask about your finances..." required></textarea>
+      <button type="submit" class="w-full py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 font-medium">Send</button>
+    </form>
+  </div>
+
+  <script>
+    const chartData = {{ chart_data | tojson }};
+    const base = window.WebableCharts.darkChartOptions();
+    const moneyTick = function (v) {
+      if (window.WebableCurrency) return window.WebableCurrency.format(v);
+      return 'EUR ' + Number(v).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    };
+    const incChart = new Chart(document.getElementById('incomeExpenseChart'), {
+      type: 'bar',
+      data: {
+        labels: chartData.workspace_labels,
+        datasets: [
+          { label: 'Income', data: chartData.workspace_income, backgroundColor: '#34d399' },
+          { label: 'Expenses', data: chartData.workspace_expenses, backgroundColor: '#f87171' }
+        ]
+      },
+      options: Object.assign({}, base, {
+        plugins: Object.assign({}, base.plugins, {
+          tooltip: Object.assign({}, base.plugins.tooltip, {
+            callbacks: {
+              title: function (items) {
+                const i = items[0].dataIndex;
+                return chartData.workspace_labels[i] || '';
+              },
+              label: function (ctx) {
+                return ctx.dataset.label + ': ' + window.WebableCharts.fmtEUR(ctx.parsed.y);
+              },
+              footer: function (items) {
+                const i = items[0].dataIndex;
+                const inc = chartData.workspace_income[i] || 0;
+                const exp = chartData.workspace_expenses[i] || 0;
+                const net = inc - exp;
+                return 'Net: ' + window.WebableCharts.fmtEUR(net);
+              }
+            }
+          })
+        }),
+        scales: {
+          x: Object.assign({}, base.scales.x),
+          y: Object.assign({}, base.scales.y, { ticks: Object.assign({}, base.scales.y.ticks, { callback: moneyTick }) })
+        }
+      })
+    });
+    const savChart = new Chart(document.getElementById('savingsTrendChart'), {
+      type: 'line',
+      data: {
+        labels: chartData.monthly_labels,
+        datasets: [{
+          label: 'Savings',
+          data: chartData.monthly_savings,
+          borderColor: '#60a5fa',
+          backgroundColor: 'rgba(96,165,250,0.2)',
+          fill: true,
+          tension: 0.3,
+          pointRadius: 2,
+          pointHoverRadius: 5
+        }]
+      },
+      options: Object.assign({}, base, {
+        plugins: Object.assign({}, base.plugins, {
+          tooltip: Object.assign({}, base.plugins.tooltip, {
+            callbacks: {
+              title: function (items) {
+                const i = items[0].dataIndex;
+                return 'Month: ' + (chartData.monthly_labels[i] || '');
+              },
+              label: function (ctx) {
+                return 'Savings: ' + window.WebableCharts.fmtEUR(ctx.parsed.y);
+              }
+            }
+          })
+        }),
+        scales: {
+          x: Object.assign({}, base.scales.x),
+          y: Object.assign({}, base.scales.y, { ticks: Object.assign({}, base.scales.y.ticks, { callback: moneyTick }) })
+        }
+      })
+    });
+
+    window.webableRefreshCharts = function () {
+      if (incChart && incChart.options && incChart.options.scales && incChart.options.scales.y) {
+        incChart.options.scales.y.ticks.callback = moneyTick;
+        incChart.update();
+      }
+      if (savChart && savChart.options && savChart.options.scales && savChart.options.scales.y) {
+        savChart.options.scales.y.ticks.callback = moneyTick;
+        savChart.update();
+      }
+    };
+    const panel = document.getElementById('globalAiPanel');
+    const messages = document.getElementById('globalAiMessages');
+    const form = document.getElementById('globalAiForm');
+    const questionInput = document.getElementById('globalAiQuestion');
+
+    function addMessage(role, text) {
+      const wrapper = document.createElement('div');
+      wrapper.className = role === 'assistant' ? 'bg-slate-800 rounded-xl p-3 whitespace-pre-wrap' : 'bg-indigo-500/20 border border-indigo-500/40 rounded-xl p-3 whitespace-pre-wrap';
+      wrapper.textContent = text;
+      messages.appendChild(wrapper);
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    fab.addEventListener('click', function () { panel.classList.toggle('hidden'); });
+    form.addEventListener('submit', async function (e) {
+      e.preventDefault();
+      const q = questionInput.value.trim();
+      if (!q) return;
+      addMessage('user', q);
+      questionInput.value = '';
+      const fd = new FormData();
+      fd.append('question', q);
+      try {
+        const res = await fetch('/ai/global', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'failed');
+        addMessage('assistant', data.answer || 'No answer returned.');
+      } catch {
+        addMessage('assistant', "I couldn't connect to the local AI assistant. Make sure Ollama is running and the qwen2.5-coder:3b model is installed.");
+      }
+    });
+  </script>
+</body>
+</html>

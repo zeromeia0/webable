@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Learn Finance — Webable</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/static/js/webable-currency.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen antialiased">
+  <div class="flex flex-col md:flex-row min-h-screen">
+    {% include "partials/app_sidebar.html" %}
+    <div class="flex-1 min-w-0 flex flex-col">
+    {% include "partials/app_topbar.html" %}
+  <main class="flex-1 w-full max-w-[min(88rem,96vw)] mx-auto px-5 sm:px-8 md:px-12 lg:px-16 py-10 md:py-14 space-y-16 md:space-y-20 pb-24 text-[1.05rem] md:text-[1.1rem] leading-relaxed md:leading-loose text-slate-300">
+    <header class="max-w-4xl space-y-4">
+      <h1 class="text-4xl md:text-5xl font-bold tracking-tight text-slate-50">Learn finance basics</h1>
+      <p class="text-slate-400 text-lg md:text-xl leading-relaxed">
+        Plain-language explanations for beginners.
+        <strong class="text-amber-200/95 font-semibold">Nothing here is financial advice.</strong>
+        Past returns do not predict the future; markets change.
+      </p>
+    </header>
+
+    <section class="rounded-3xl border border-slate-800/90 bg-slate-900/50 p-8 md:p-12 lg:p-14 space-y-10 shadow-xl shadow-black/20">
+      <h2 class="text-2xl md:text-3xl font-bold text-indigo-200 border-b border-indigo-500/20 pb-4">A. Investment types</h2>
+
+      <div class="grid gap-10 lg:gap-12">
+        <article class="rounded-2xl border border-slate-800 bg-slate-950/40 p-6 md:p-8 space-y-4">
+          <h3 class="text-xl md:text-2xl font-semibold text-slate-100">Bonds</h3>
+          <ul class="space-y-3 list-none">
+            <li><span class="text-sky-300/90 font-semibold">What:</span> Loans you make to governments or companies; they pay interest and return principal later.</li>
+            <li><span class="text-sky-300/90 font-semibold">How it works:</span> You receive coupons; the bond’s price moves with interest rates.</li>
+            <li><span class="text-sky-300/90 font-semibold">Main risk:</span> Inflation, issuer default (rarer on high-quality government bonds), rising rates lowering bond prices.</li>
+            <li><span class="text-sky-300/90 font-semibold">Typical long-term range (very rough):</span> Often lower single-digit annual returns — <em>not guaranteed.</em></li>
+            <li><span class="text-sky-300/90 font-semibold">Who it may suit:</span> People wanting steadier income and willing to accept modest returns.</li>
+          </ul>
+          <p class="text-amber-200/90 text-sm md:text-base border-l-4 border-amber-500/50 pl-4 py-1"><strong>Beginner warning:</strong> “Safe” does not mean risk-free; long maturities can still lose value if rates rise.</p>
+        </article>
+
+        <article class="rounded-2xl border border-slate-800 bg-slate-950/40 p-6 md:p-8 space-y-4">
+          <h3 class="text-xl md:text-2xl font-semibold text-slate-100">Stock indexes</h3>
+          <ul class="space-y-3 list-none">
+            <li><span class="text-sky-300/90 font-semibold">What:</span> A basket tracking many companies (e.g. a broad market index).</li>
+            <li><span class="text-sky-300/90 font-semibold">How it works:</span> You buy diversification in one product; returns follow the average of that basket.</li>
+            <li><span class="text-sky-300/90 font-semibold">Main risk:</span> Market crashes, long drawdowns, currency exposure if not hedged.</li>
+            <li><span class="text-sky-300/90 font-semibold">Typical long-term range (very rough):</span> Historically equities have often beaten bonds over multi-decade periods — <em>not guaranteed every decade.</em></li>
+            <li><span class="text-sky-300/90 font-semibold">Who it may suit:</span> Long horizons willing to ride volatility.</li>
+          </ul>
+          <p class="text-amber-200/90 text-sm md:text-base border-l-4 border-amber-500/50 pl-4 py-1"><strong>Beginner warning:</strong> Index funds still drop sharply in recessions; past averages can change.</p>
+        </article>
+
+        <article class="rounded-2xl border border-slate-800 bg-slate-950/40 p-6 md:p-8 space-y-4">
+          <h3 class="text-xl md:text-2xl font-semibold text-slate-100">Individual stocks</h3>
+          <ul class="space-y-3 list-none">
+            <li><span class="text-sky-300/90 font-semibold">What:</span> Ownership slices of one company.</li>
+            <li><span class="text-sky-300/90 font-semibold">How it works:</span> Share price reflects expectations, earnings, and sentiment.</li>
+            <li><span class="text-sky-300/90 font-semibold">Main risk:</span> Company-specific failure, sector shocks, concentration.</li>
+            <li><span class="text-sky-300/90 font-semibold">Typical long-term range:</span> Extremely wide — big winners and total losers both exist.</li>
+            <li><span class="text-sky-300/90 font-semibold">Who it may suit:</span> People who enjoy research and accept binary outcomes.</li>
+          </ul>
+          <p class="text-amber-200/90 text-sm md:text-base border-l-4 border-amber-500/50 pl-4 py-1"><strong>Beginner warning:</strong> Picking stocks is harder than it looks; most beginners under-diversify.</p>
+        </article>
+
+        <article class="rounded-2xl border border-slate-800 bg-slate-950/40 p-6 md:p-8 space-y-4">
+          <h3 class="text-xl md:text-2xl font-semibold text-slate-100">Crypto</h3>
+          <ul class="space-y-3 list-none">
+            <li><span class="text-sky-300/90 font-semibold">What:</span> Digital assets on blockchains (e.g. Bitcoin, Ethereum).</li>
+            <li><span class="text-sky-300/90 font-semibold">How it works:</span> Supply/demand, network usage, regulation, liquidity.</li>
+            <li><span class="text-sky-300/90 font-semibold">Main risk:</span> Extreme volatility, exchange risk, regulatory change; total loss is possible.</li>
+            <li><span class="text-sky-300/90 font-semibold">Typical long-term range:</span> Unpredictable; treat as high-risk satellite, not core emergency savings.</li>
+            <li><span class="text-sky-300/90 font-semibold">Who it may suit:</span> Only people who can afford to lose the stake.</li>
+          </ul>
+          <p class="text-amber-200/90 text-sm md:text-base border-l-4 border-amber-500/50 pl-4 py-1"><strong>Beginner warning:</strong> Crypto can move faster than traditional assets; never borrow to buy crypto.</p>
+        </article>
+      </div>
+
+      <div class="overflow-x-auto rounded-2xl border border-slate-800">
+        <table class="w-full text-left min-w-[640px] md:min-w-0 md:text-base">
+          <thead class="bg-slate-800/90 text-slate-200 text-sm md:text-base">
+            <tr>
+              <th class="p-3 md:p-4 font-semibold">Asset type</th>
+              <th class="p-3 md:p-4 font-semibold">Risk</th>
+              <th class="p-3 md:p-4 font-semibold">Typical annual return (rough)</th>
+              <th class="p-3 md:p-4 font-semibold">Liquidity</th>
+              <th class="p-3 md:p-4 font-semibold">Volatility</th>
+              <th class="p-3 md:p-4 font-semibold">Beginner suitability</th>
+            </tr>
+          </thead>
+          <tbody class="text-slate-300">
+            <tr class="border-t border-slate-800 bg-slate-950/30"><td class="p-3 md:p-4">Bonds</td><td class="p-3 md:p-4">Lower–medium</td><td class="p-3 md:p-4">Low single digits (not guaranteed)</td><td class="p-3 md:p-4">Usually good</td><td class="p-3 md:p-4">Lower than stocks</td><td class="p-3 md:p-4">Easier entry; watch inflation</td></tr>
+            <tr class="border-t border-slate-800"><td class="p-3 md:p-4">Stock index</td><td class="p-3 md:p-4">Medium–high</td><td class="p-3 md:p-4">Historically higher over long periods</td><td class="p-3 md:p-4">High (listed funds)</td><td class="p-3 md:p-4">High short-term swings</td><td class="p-3 md:p-4">Good with long horizon + discipline</td></tr>
+            <tr class="border-t border-slate-800 bg-slate-950/30"><td class="p-3 md:p-4">Single stock</td><td class="p-3 md:p-4">High</td><td class="p-3 md:p-4">Very wide range</td><td class="p-3 md:p-4">High on major exchanges</td><td class="p-3 md:p-4">Can be extreme</td><td class="p-3 md:p-4">Risky until diversified</td></tr>
+            <tr class="border-t border-slate-800"><td class="p-3 md:p-4">Crypto</td><td class="p-3 md:p-4">Very high</td><td class="p-3 md:p-4">Unpredictable</td><td class="p-3 md:p-4">Varies</td><td class="p-3 md:p-4">Very high</td><td class="p-3 md:p-4">Only with “money I can lose” mindset</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="text-sm text-slate-500">Returns in the table are <strong class="text-slate-400">illustrative ranges</strong>, not promises. Historical averages can change.</p>
+    </section>
+
+    <section class="rounded-3xl border border-slate-800/90 bg-slate-900/50 p-8 md:p-12 lg:p-14 space-y-10 shadow-xl shadow-black/20">
+      <h2 class="text-2xl md:text-3xl font-bold text-emerald-200 border-b border-emerald-500/20 pb-4">B. Budgeting systems</h2>
+      <div class="grid lg:grid-cols-3 gap-8 lg:gap-10">
+        <article class="rounded-2xl border border-emerald-900/50 bg-emerald-950/25 p-6 md:p-8 space-y-4">
+          <h3 class="text-xl font-semibold text-emerald-100">1. Zero-based budgeting</h3>
+          <p><strong class="text-emerald-200/90">Definition:</strong> Income minus every planned euro (expenses + savings + goals) equals zero — every euro has a job.</p>
+          <ul class="list-disc pl-5 space-y-2 text-slate-300">
+            <li><strong class="text-slate-200">Pros:</strong> maximum awareness; less “mystery spending”.</li>
+            <li><strong class="text-slate-200">Cons:</strong> time-intensive; very rigid months can feel stressful.</li>
+            <li><strong class="text-slate-200">Best for:</strong> detail-oriented people fixing overspending.</li>
+          </ul>
+          <p class="text-sm text-slate-400 border-t border-emerald-900/30 pt-3"><strong class="text-slate-300">Example:</strong> €2,000 in → €900 rent, €300 groceries, €200 transport, €400 savings, €200 fun… until €0 left unassigned.</p>
+        </article>
+        <article class="rounded-2xl border border-teal-900/50 bg-teal-950/25 p-6 md:p-8 space-y-4">
+          <h3 class="text-xl font-semibold text-teal-100">2. Envelope system</h3>
+          <p><strong class="text-teal-200/90">Definition:</strong> Split cash or accounts into category “envelopes” with hard caps.</p>
+          <ul class="list-disc pl-5 space-y-2 text-slate-300">
+            <li><strong class="text-slate-200">Pros:</strong> strong guardrails; easy to see when an envelope is empty.</li>
+            <li><strong class="text-slate-200">Cons:</strong> moving money between envelopes can get fiddly.</li>
+            <li><strong class="text-slate-200">Best for:</strong> impulse spenders who need visible limits.</li>
+          </ul>
+          <p class="text-sm text-slate-400 border-t border-teal-900/30 pt-3"><strong class="text-slate-300">Example:</strong> €150 “Dining out” envelope — when it hits €0, you wait until next month.</p>
+        </article>
+        <article class="rounded-2xl border border-cyan-900/50 bg-cyan-950/25 p-6 md:p-8 space-y-4">
+          <h3 class="text-xl font-semibold text-cyan-100">3. Pay yourself first</h3>
+          <p><strong class="text-cyan-200/90">Definition:</strong> Automate savings/investments when you are paid; live on what remains.</p>
+          <ul class="list-disc pl-5 space-y-2 text-slate-300">
+            <li><strong class="text-slate-200">Pros:</strong> builds wealth on autopilot; simple mentally.</li>
+            <li><strong class="text-slate-200">Cons:</strong> can feel tight if fixed costs rise without review.</li>
+            <li><strong class="text-slate-200">Best for:</strong> steady earners prioritising long-term goals.</li>
+          </ul>
+          <p class="text-sm text-slate-400 border-t border-cyan-900/30 pt-3"><strong class="text-slate-300">Example:</strong> Day 1: €300 to savings + €200 to investments, then bills from what’s left.</p>
+        </article>
+      </div>
+    </section>
+  </main>
+    </div>
+  </div>
+</body>
+</html>

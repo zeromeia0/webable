@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Emergency fund — {{ instance.name }} — Webable</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/static/js/webable-currency.js"></script>
+  <script src="/static/js/webable-charts.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+  <div class="flex flex-col md:flex-row min-h-screen">
+    {% include "partials/app_sidebar.html" %}
+    <div class="flex-1 min-w-0 flex flex-col">
+    {% include "partials/app_topbar.html" %}
+  <main class="flex-1 max-w-4xl w-full mx-auto p-6 md:p-8 space-y-8">
+    <header>
+      <h1 class="text-3xl font-bold">Savings calculator</h1>
+      <p class="text-slate-400 mt-1 text-sm">Emergency fund targets from <strong class="text-slate-200">essential monthly expenses</strong> — not salary.</p>
+    </header>
+    {% if instances|length > 1 %}
+    <label class="text-sm text-slate-400 block max-w-xs">Workspace
+      <select class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" onchange="location.href='/instances/'+this.value+'/savings-calculator'">
+        {% for ins in instances %}
+        <option value="{{ ins.id }}" {% if ins.id == instance.id %}selected{% endif %}>{{ ins.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% endif %}
+
+    <section class="rounded-2xl border border-slate-800 bg-slate-900/80 p-6 space-y-4">
+      <h2 class="text-lg font-semibold">Monthly essentials (EUR base)</h2>
+      <div class="grid sm:grid-cols-2 gap-3 text-sm">
+        <label class="space-y-1"><span class="text-slate-400">Rent / housing</span><input id="f_housing" type="number" step="0.01" min="0" value="0" class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2" /></label>
+        <label class="space-y-1"><span class="text-slate-400">Food / groceries</span><input id="f_food" type="number" step="0.01" min="0" value="0" class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2" /></label>
+        <label class="space-y-1"><span class="text-slate-400">Transport</span><input id="f_transport" type="number" step="0.01" min="0" value="0" class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2" /></label>
+        <label class="space-y-1"><span class="text-slate-400">Utilities / bills</span><input id="f_utilities" type="number" step="0.01" min="0" value="0" class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2" /></label>
+        <label class="space-y-1"><span class="text-slate-400">Subscriptions</span><input id="f_subscriptions" type="number" step="0.01" min="0" value="0" class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2" /></label>
+        <label class="space-y-1"><span class="text-slate-400">Insurance / health</span><input id="f_insurance" type="number" step="0.01" min="0" value="0" class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2" /></label>
+        <label class="space-y-1"><span class="text-slate-400">Debt payments</span><input id="f_debt" type="number" step="0.01" min="0" value="0" class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2" /></label>
+        <label class="space-y-1"><span class="text-slate-400">Other essentials</span><input id="f_other" type="number" step="0.01" min="0" value="0" class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2" /></label>
+        <label class="space-y-1"><span class="text-slate-400">Safety buffer %</span><input id="f_buffer" type="number" step="0.5" min="0" max="50" value="0" class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2" /></label>
+        <label class="space-y-1"><span class="text-slate-400">Current savings</span><input id="f_savings" type="number" step="0.01" min="0" value="0" class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2" /></label>
+      </div>
+      <div class="flex flex-wrap gap-3">
+        <button type="button" id="btnCalc" class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-medium">Calculate</button>
+        <button type="button" id="btnPdf" class="px-5 py-2.5 rounded-xl bg-slate-800 border border-slate-600 hover:border-indigo-500/50 font-medium text-sm">Export PDF</button>
+        <span id="calcMsg" class="text-sm text-rose-300 self-center"></span>
+      </div>
+    </section>
+
+    <section id="results" class="hidden space-y-6">
+      <div class="grid sm:grid-cols-2 gap-4">
+        <div class="rounded-xl border border-slate-800 p-4">
+          <p class="text-xs text-slate-500 uppercase">Monthly essentials + buffer</p>
+          <p id="outMonthly" class="text-2xl font-bold text-slate-100 mt-1">—</p>
+        </div>
+        <div class="rounded-xl border border-slate-800 p-4">
+          <p class="text-xs text-slate-500 uppercase">Current savings</p>
+          <p id="outSavings" class="text-2xl font-bold text-emerald-300 mt-1">—</p>
+        </div>
+      </div>
+      <div class="grid sm:grid-cols-3 gap-4" id="targetCards"></div>
+      <div class="rounded-xl border border-slate-800 p-4 h-56"><canvas id="savChart"></canvas></div>
+    </section>
+  </main>
+    </div>
+  </div>
+  <script>
+    const INSTANCE_ID = {{ instance.id }};
+    let chart;
+    function fmt(n) {
+      if (window.WebableCurrency && window.WebableCurrency.format) return window.WebableCurrency.format(n);
+      return '€ ' + Number(n).toFixed(2);
+    }
+    function payload() {
+      return {
+        housing: parseFloat(document.getElementById('f_housing').value) || 0,
+        food: parseFloat(document.getElementById('f_food').value) || 0,
+        transport: parseFloat(document.getElementById('f_transport').value) || 0,
+        utilities: parseFloat(document.getElementById('f_utilities').value) || 0,
+        subscriptions: parseFloat(document.getElementById('f_subscriptions').value) || 0,
+        insurance: parseFloat(document.getElementById('f_insurance').value) || 0,
+        debt: parseFloat(document.getElementById('f_debt').value) || 0,
+        other: parseFloat(document.getElementById('f_other').value) || 0,
+        buffer_pct: parseFloat(document.getElementById('f_buffer').value) || 0,
+        current_savings: parseFloat(document.getElementById('f_savings').value) || 0
+      };
+    }
+    async function runCalc() {
+      document.getElementById('calcMsg').textContent = '';
+      var res = await fetch('/instances/' + INSTANCE_ID + '/savings-calculator/calculate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify(payload())
+      });
+      var data = await res.json();
+      if (!res.ok) { document.getElementById('calcMsg').textContent = 'Could not calculate'; return; }
+      document.getElementById('results').classList.remove('hidden');
+      document.getElementById('outMonthly').textContent = fmt(data.monthly_with_buffer);
+      document.getElementById('outSavings').textContent = fmt(data.current_savings);
+      var tc = document.getElementById('targetCards');
+      tc.innerHTML = '';
+      [3, 6, 9].forEach(function (m) {
+        var p = data.progress[String(m)];
+        var div = document.createElement('div');
+        div.className = 'rounded-xl border border-indigo-500/30 bg-indigo-950/30 p-4';
+        var pct = Math.min(100, p.progress_pct || 0);
+        var fulfilled = pct >= 99.5;
+        var needClass = fulfilled ? 'text-emerald-300' : 'text-amber-200';
+        var barColor = fulfilled ? 'bg-emerald-500' : 'bg-indigo-500';
+        div.innerHTML = '<p class="text-xs text-indigo-200/80">' + m + '-month target</p>' +
+          '<p class="text-xl font-bold text-indigo-100 mt-1">' + fmt(p.target) + '</p>' +
+          '<p class="text-xs mt-2 ' + needClass + '">' + (fulfilled ? 'Goal met for this horizon' : 'Still need: ' + fmt(p.still_needed)) + '</p>' +
+          '<div class="mt-3 h-2 rounded bg-slate-800"><div class="h-2 rounded ' + barColor + '" style="width:' + pct + '%"></div></div>' +
+          '<p class="text-[10px] text-slate-500 mt-1">' + pct.toFixed(0) + '% funded</p>';
+        tc.appendChild(div);
+      });
+      var base = window.WebableCharts.darkChartOptions();
+      if (chart) chart.destroy();
+      chart = new Chart(document.getElementById('savChart'), {
+        type: 'bar',
+        data: {
+          labels: ['3 mo', '6 mo', '9 mo'],
+          datasets: [
+            { label: 'Target', data: [data.targets[3], data.targets[6], data.targets[9]], backgroundColor: '#6366f1' },
+            { label: 'Saved', data: [data.current_savings, data.current_savings, data.current_savings], backgroundColor: '#34d399' }
+          ]
+        },
+        options: Object.assign({}, base, { plugins: { legend: { labels: { color: '#cbd5e1' } } } })
+      });
+    }
+    document.getElementById('btnCalc').addEventListener('click', runCalc);
+    document.getElementById('btnPdf').addEventListener('click', async function () {
+      var body = payload();
+      if (window.WebableCurrency && window.WebableCurrency.getCode) body.display_currency = window.WebableCurrency.getCode();
+      var res = await fetch('/instances/' + INSTANCE_ID + '/savings-calculator/pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify(body)
+      });
+      if (!res.ok) { alert('PDF export failed'); return; }
+      var blob = await res.blob();
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = 'webable-emergency-fund-' + INSTANCE_ID + '.pdf';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+    document.addEventListener('webable:currency', function () { if (!document.getElementById('results').classList.contains('hidden')) runCalc(); });
+  </script>
+</body>
+</html>

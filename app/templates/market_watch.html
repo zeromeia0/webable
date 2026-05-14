@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Market Watch — {{ instance.name }} — Webable</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/static/js/webable-currency.js"></script>
+  <script src="/static/js/webable-charts.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+  <div class="flex flex-col md:flex-row min-h-screen">
+    {% include "partials/app_sidebar.html" %}
+    <div class="flex-1 min-w-0 flex flex-col">
+    {% include "partials/app_topbar.html" %}
+  <main class="flex-1 max-w-7xl w-full mx-auto p-6 md:p-10 space-y-8 pb-20">
+    <header>
+      <h1 class="text-3xl font-bold tracking-tight">Market Watch</h1>
+      <p class="text-slate-400 mt-2 text-sm md:text-base">{{ instance.name }} — delayed snapshots, not live trading data.</p>
+    </header>
+    <p class="text-xs md:text-sm text-amber-200/90 border border-amber-500/30 rounded-xl px-4 py-3 bg-amber-500/5 leading-relaxed max-w-4xl">
+      <strong class="text-slate-100">Informational only — not investment advice.</strong>
+      S&amp;P 500 is shown via the <strong class="text-slate-200">SPY ETF</strong> as a proxy; Bitcoin and Ethereum use public EUR rates. Charts load historical series from the same providers, cached on the server to limit requests.
+    </p>
+
+    <div class="flex flex-wrap gap-2 items-center">
+      <span class="text-xs text-slate-500 uppercase tracking-wide mr-2">Range</span>
+      <button type="button" data-range="24h" class="mw-range px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-700 bg-slate-800/80 hover:border-indigo-500/50 transition">24H</button>
+      <button type="button" data-range="7d" class="mw-range px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-700 bg-slate-800/80 hover:border-indigo-500/50 transition">7D</button>
+      <button type="button" data-range="1m" class="mw-range px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-700 bg-slate-800/80 hover:border-indigo-500/50 transition">1M</button>
+      <button type="button" data-range="6m" class="mw-range px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-700 bg-slate-800/80 hover:border-indigo-500/50 transition">6M</button>
+      <button type="button" data-range="1y" class="mw-range px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-700 bg-slate-800/80 hover:border-indigo-500/50 transition">1Y</button>
+      <button type="button" data-range="max" class="mw-range px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-700 bg-slate-800/80 hover:border-indigo-500/50 transition">MAX</button>
+    </div>
+
+    <div id="marketSpotLoading" class="text-sm text-slate-400">Loading spot prices…</div>
+    <div id="marketSpotError" class="hidden text-sm text-rose-300"></div>
+    <div id="marketCards" class="grid sm:grid-cols-3 gap-4 hidden"></div>
+
+    <div id="chartGlobalLoading" class="text-sm text-slate-500 hidden">Updating charts…</div>
+    <div id="chartGlobalError" class="hidden text-sm text-amber-300/90"></div>
+
+    <div class="grid xl:grid-cols-3 gap-8">
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 md:p-5 flex flex-col min-h-[320px]">
+        <div class="flex justify-between items-start gap-2 mb-2">
+          <h2 class="font-semibold text-slate-100">S&amp;P 500 <span class="text-xs font-normal text-slate-500">(SPY)</span></h2>
+          <button type="button" data-reset="SP500" class="text-xs px-2 py-1 rounded border border-slate-600 text-slate-400 hover:text-white hover:border-slate-400">Reset zoom</button>
+        </div>
+        <p class="text-[11px] text-slate-500 mb-2 mw-meta" data-sym="SP500"></p>
+        <div class="relative flex-1 min-h-[220px]"><canvas id="chartSP500"></canvas></div>
+        <p class="text-[10px] text-slate-600 mt-2">Drag to pan · wheel or pinch to zoom (horizontal).</p>
+      </div>
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 md:p-5 flex flex-col min-h-[320px]">
+        <div class="flex justify-between items-start gap-2 mb-2">
+          <h2 class="font-semibold text-slate-100">Bitcoin</h2>
+          <button type="button" data-reset="BTC" class="text-xs px-2 py-1 rounded border border-slate-600 text-slate-400 hover:text-white hover:border-slate-400">Reset zoom</button>
+        </div>
+        <p class="text-[11px] text-slate-500 mb-2 mw-meta" data-sym="BTC"></p>
+        <div class="relative flex-1 min-h-[220px]"><canvas id="chartBTC"></canvas></div>
+        <p class="text-[10px] text-slate-600 mt-2">Drag to pan · wheel or pinch to zoom (horizontal).</p>
+      </div>
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 md:p-5 flex flex-col min-h-[320px]">
+        <div class="flex justify-between items-start gap-2 mb-2">
+          <h2 class="font-semibold text-slate-100">Ethereum</h2>
+          <button type="button" data-reset="ETH" class="text-xs px-2 py-1 rounded border border-slate-600 text-slate-400 hover:text-white hover:border-slate-400">Reset zoom</button>
+        </div>
+        <p class="text-[11px] text-slate-500 mb-2 mw-meta" data-sym="ETH"></p>
+        <div class="relative flex-1 min-h-[220px]"><canvas id="chartETH"></canvas></div>
+        <p class="text-[10px] text-slate-600 mt-2">Drag to pan · wheel or pinch to zoom (horizontal).</p>
+      </div>
+    </div>
+
+    <p class="text-xs text-slate-500">Spot rows refresh from the server about every 12 hours. Chart history uses separate caches (minutes to hours) per range to avoid hammering APIs.</p>
+    {% if instances|length > 1 %}
+    <label class="text-sm text-slate-400 block max-w-xs">Workspace
+      <select class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" onchange="location.href='/instances/'+this.value+'/market-watch'">
+        {% for ins in instances %}
+        <option value="{{ ins.id }}" {% if ins.id == instance.id %}selected{% endif %}>{{ ins.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% endif %}
+  </main>
+    </div>
+  </div>
+  <script>
+    (function () {
+      var RANGE = '1m';
+      var charts = {};
+      function fmtEur(n) {
+        if (n == null || n === '') return '—';
+        if (window.WebableCurrency && window.WebableCurrency.format) return window.WebableCurrency.format(Number(n));
+        return '€ ' + Number(n).toFixed(2);
+      }
+      function fmtPct(a, b) {
+        if (a == null || b == null || b === 0) return null;
+        return ((Number(a) - Number(b)) / Number(b) * 100).toFixed(2);
+      }
+      async function loadSpot() {
+        var loading = document.getElementById('marketSpotLoading');
+        var errEl = document.getElementById('marketSpotError');
+        var cards = document.getElementById('marketCards');
+        loading.classList.remove('hidden');
+        errEl.classList.add('hidden');
+        cards.classList.add('hidden');
+        try {
+          var res = await fetch('/api/market', { credentials: 'same-origin' });
+          var data = await res.json();
+          if (!res.ok) throw new Error('spot');
+          loading.classList.add('hidden');
+          cards.classList.remove('hidden');
+          cards.innerHTML = '';
+          (data.items || []).forEach(function (it) {
+            var d = document.createElement('div');
+            d.className = 'rounded-2xl border border-slate-800 bg-slate-900/80 p-4 space-y-1 transition hover:border-slate-600';
+            var ch = it.change_pct != null ? (Number(it.change_pct) >= 0 ? 'text-emerald-400' : 'text-rose-400') : 'text-slate-400';
+            d.innerHTML = '<p class="text-xs text-slate-500">' + (it.label || it.symbol) + '</p>' +
+              '<p class="text-2xl font-bold text-slate-100">' + fmtEur(it.price_eur) + '</p>' +
+              '<p class="text-sm ' + ch + '">' + (it.change_pct != null ? (Number(it.change_pct).toFixed(2) + '% vs prior close') : '—') + '</p>' +
+              '<p class="text-[10px] text-slate-500 mt-2">Updated: ' + (it.fetched_at || '—') + '</p>' +
+              (it.fetch_error ? '<p class="text-[10px] text-amber-400/90">Cache note: ' + it.fetch_error + '</p>' : '');
+            cards.appendChild(d);
+          });
+        } catch (e) {
+          loading.classList.add('hidden');
+          errEl.textContent = 'Could not load spot prices.';
+          errEl.classList.remove('hidden');
+        }
+      }
+      function zoomOpts() {
+        return {
+          pan: { enabled: true, mode: 'x' },
+          zoom: {
+            wheel: { enabled: true },
+            pinch: { enabled: true },
+            mode: 'x',
+          },
+        };
+      }
+      function buildChart(sym, canvasId, bundle) {
+        var ser = (bundle.series || {})[sym] || {};
+        var pts = ser.points || [];
+        var labels = pts.map(function (p) { return p.t; });
+        var vals = pts.map(function (p) { return p.v; });
+        var meta = document.querySelector('.mw-meta[data-sym="' + sym + '"]');
+        if (meta) {
+          var line = 'Points: ' + pts.length;
+          if (ser.cached_at) line += ' · cached ' + ser.cached_at.replace('T', ' ').slice(0, 19) + 'Z';
+          if (ser.error) line += ' · ' + ser.error;
+          meta.textContent = line;
+        }
+        var base = window.WebableCharts.darkChartOptions();
+        var prev = [];
+        for (var i = 0; i < vals.length; i++) {
+          prev.push(i ? fmtPct(vals[i], vals[i - 1]) : null);
+        }
+        if (charts[sym]) charts[sym].destroy();
+        var ctx = document.getElementById(canvasId);
+        if (!ctx) return;
+        charts[sym] = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: labels,
+            datasets: [{
+              label: 'Price (EUR)',
+              data: vals,
+              borderColor: sym === 'BTC' ? '#f97316' : sym === 'ETH' ? '#a78bfa' : '#38bdf8',
+              backgroundColor: sym === 'BTC' ? 'rgba(249,115,22,0.12)' : sym === 'ETH' ? 'rgba(167,139,250,0.12)' : 'rgba(56,189,248,0.12)',
+              tension: 0.2,
+              pointRadius: 0,
+              borderWidth: 2,
+              fill: true,
+            }],
+          },
+          options: Object.assign({}, base, {
+            plugins: Object.assign({}, base.plugins, {
+              zoom: zoomOpts(),
+              tooltip: Object.assign({}, base.plugins.tooltip, {
+                callbacks: {
+                  title: function (items) {
+                    var i = items[0].dataIndex;
+                    return labels[i] ? String(labels[i]).replace('T', ' ').slice(0, 19) + ' UTC' : '';
+                  },
+                  label: function (item) {
+                    var i = item.dataIndex;
+                    var v = vals[i];
+                    var lines = ['Price: ' + fmtEur(v)];
+                    if (prev[i]) lines.push('Δ vs prev: ' + prev[i] + '%');
+                    return lines;
+                  },
+                },
+              }),
+            }),
+            scales: {
+              x: {
+                ticks: { color: '#94a3b8', maxTicksLimit: 8, maxRotation: 0 },
+                grid: { color: 'rgba(51,65,85,0.35)' },
+              },
+              y: {
+                ticks: {
+                  color: '#94a3b8',
+                  callback: function (v) { return fmtEur(v); },
+                },
+                grid: { color: 'rgba(51,65,85,0.35)' },
+              },
+            },
+          }),
+        });
+      }
+      async function loadHist() {
+        var gLoad = document.getElementById('chartGlobalLoading');
+        var gErr = document.getElementById('chartGlobalError');
+        gLoad.classList.remove('hidden');
+        gErr.classList.add('hidden');
+        try {
+          var res = await fetch('/api/market/history?range=' + encodeURIComponent(RANGE), { credentials: 'same-origin' });
+          var bundle = await res.json();
+          if (!res.ok) throw new Error('hist');
+          gLoad.classList.add('hidden');
+          buildChart('SP500', 'chartSP500', bundle);
+          buildChart('BTC', 'chartBTC', bundle);
+          buildChart('ETH', 'chartETH', bundle);
+          window.webableRefreshCharts = function () {
+            Object.keys(charts).forEach(function (k) {
+              var ch = charts[k];
+              if (!ch || !ch.options || !ch.options.scales || !ch.options.scales.y) return;
+              ch.options.scales.y.ticks.callback = function (v) { return fmtEur(v); };
+              ch.update();
+            });
+          };
+          if (window.webableRefreshCharts) window.webableRefreshCharts();
+        } catch (e) {
+          gLoad.classList.add('hidden');
+          gErr.textContent = 'Could not refresh all chart series; any previous chart may remain.';
+          gErr.classList.remove('hidden');
+        }
+      }
+      function setActiveRangeBtn() {
+        document.querySelectorAll('.mw-range').forEach(function (b) {
+          var on = b.getAttribute('data-range') === RANGE;
+          b.classList.toggle('ring-2', on);
+          b.classList.toggle('ring-indigo-500/60', on);
+          b.classList.toggle('bg-indigo-600/30', on);
+          b.classList.toggle('border-indigo-500/50', on);
+        });
+      }
+      document.querySelectorAll('.mw-range').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          RANGE = btn.getAttribute('data-range') || '1m';
+          setActiveRangeBtn();
+          loadHist();
+        });
+      });
+      document.querySelectorAll('[data-reset]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var s = btn.getAttribute('data-reset');
+          if (charts[s] && charts[s].resetZoom) charts[s].resetZoom();
+        });
+      });
+      setActiveRangeBtn();
+      loadSpot();
+      loadHist();
+      document.addEventListener('webable:currency', function () {
+        loadSpot();
+        loadHist();
+      });
+    })();
+  </script>
+</body>
+</html>

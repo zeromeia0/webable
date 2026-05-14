@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Reports — {{ instance.name }} — Webable</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/static/js/webable-currency.js"></script>
+  <script src="/static/js/webable-charts.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+  <div class="flex flex-col md:flex-row min-h-screen">
+    {% include "partials/app_sidebar.html" %}
+    <div class="flex-1 min-w-0 flex flex-col">
+    {% include "partials/app_topbar.html" %}
+  <main class="flex-1 max-w-7xl w-full mx-auto p-6 md:p-8 space-y-8">
+    <header class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+      <div>
+        <h1 class="text-3xl font-bold">Spending reports</h1>
+        <p class="text-slate-400 mt-1">{{ instance.name }} — past activity, categories, and trends.</p>
+      </div>
+      {% if instances|length > 1 %}
+      <label class="text-sm text-slate-400 shrink-0">Workspace
+        <select class="mt-1 block w-full lg:w-56 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" onchange="location.href='/instances/'+this.value+'/reports'">
+          {% for ins in instances %}
+          <option value="{{ ins.id }}" {% if ins.id == instance.id %}selected{% endif %}>{{ ins.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% endif %}
+    </header>
+
+    <section class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 md:p-5" id="bankStatementsSection">
+      <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-2">Bank statements</h2>
+      <p class="text-xs text-slate-500 mb-4">Upload monthly PDF statements (max 10&nbsp;MB). Duplicates by file hash, filename, or same bank+month are rejected.</p>
+      <form id="stmtUploadForm" class="flex flex-wrap gap-3 items-end mb-6">
+        <label class="text-xs text-slate-400">Statement month<br/><input type="month" name="statement_month" required class="mt-1 rounded-lg bg-slate-800 border border-slate-600 px-2 py-1.5 text-sm" /></label>
+        <label class="text-xs text-slate-400">Bank (optional)<br/><input name="bank_name" class="mt-1 rounded-lg bg-slate-800 border border-slate-600 px-2 py-1.5 text-sm w-44" placeholder="e.g. N26" /></label>
+        <label class="text-xs text-slate-400">PDF file<br/><input type="file" name="file" accept="application/pdf,.pdf" required class="mt-1 block text-sm max-w-[14rem]" /></label>
+        <button type="submit" id="stmtUploadBtn" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm font-medium">Upload</button>
+        <span id="stmtUploadMsg" class="text-xs text-amber-300/90 max-w-xs"></span>
+      </form>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm text-left">
+          <thead><tr class="text-slate-400 border-b border-slate-800"><th class="py-2">Month</th><th>Bank</th><th>File</th><th>Uploaded (UTC)</th><th>Size</th><th class="text-right">Actions</th></tr></thead>
+          <tbody id="stmtTableBody">
+            {% for s in bank_statements %}
+            <tr class="border-b border-slate-800/80" data-stmt-id="{{ s.id }}">
+              <td class="py-2 font-mono">{{ s.statement_month }}</td>
+              <td>{{ s.bank_name or '—' }}</td>
+              <td class="max-w-[10rem] truncate" title="{{ s.original_filename }}">{{ s.original_filename }}</td>
+              <td class="text-slate-400 text-xs">{{ s.created_at.strftime('%Y-%m-%d %H:%M') if s.created_at else '—' }}</td>
+              <td>{{ (s.file_size / 1024)|round(1) }} KB</td>
+              <td class="text-right space-x-2 whitespace-nowrap">
+                <a href="/instances/{{ instance.id }}/bank-statements/{{ s.id }}/file" target="_blank" rel="noopener" class="text-indigo-400 hover:text-indigo-300 text-xs font-medium">View</a>
+                <button type="button" class="text-rose-400 hover:text-rose-300 text-xs stmt-del" data-id="{{ s.id }}">Delete</button>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <p id="stmtEmpty" class="{% if bank_statements|length %}hidden{% endif %} text-sm text-slate-500 py-4">No statements yet. Upload your first bank statement PDF above.</p>
+      </div>
+    </section>
+
+    <section class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 md:p-5">
+      <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-3">Time range &amp; export</h2>
+      <div class="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-4 xl:gap-6">
+        <div class="flex flex-wrap items-center gap-2 min-w-0">
+          <span class="hidden sm:inline text-xs text-slate-500 mr-1">Presets</span>
+          <button type="button" data-preset="last_7_days" class="preset px-3 py-2 rounded-lg bg-slate-800 text-sm border border-slate-700 hover:border-indigo-500/50 whitespace-nowrap">Last 7 days</button>
+          <button type="button" data-preset="last_30_days" class="preset px-3 py-2 rounded-lg bg-slate-800 text-sm border border-slate-700 hover:border-indigo-500/50 whitespace-nowrap">Last 30 days</button>
+          <button type="button" data-preset="last_3_months" class="preset px-3 py-2 rounded-lg bg-slate-800 text-sm border border-slate-700 hover:border-indigo-500/50 whitespace-nowrap">Last 3 months</button>
+          <button type="button" data-preset="last_6_months" class="preset px-3 py-2 rounded-lg bg-slate-800 text-sm border border-slate-700 hover:border-indigo-500/50 whitespace-nowrap">Last 6 months</button>
+          <button type="button" data-preset="last_12_months" class="preset px-3 py-2 rounded-lg bg-slate-800 text-sm border border-slate-700 hover:border-indigo-500/50 whitespace-nowrap">Last 12 months</button>
+          <button type="button" data-preset="all_time" class="preset px-3 py-2 rounded-lg bg-slate-800 text-sm border border-slate-700 hover:border-indigo-500/50 whitespace-nowrap">All time</button>
+        </div>
+        <div class="flex-1 min-w-[220px] max-w-3xl space-y-2">
+          <p class="text-xs text-slate-400">Pick dates (calendar) or drag the range — selection updates live.</p>
+          <div class="flex flex-wrap items-end gap-2">
+            <label class="text-xs text-slate-400">Start <input type="date" id="dateStart" class="mt-0.5 block w-full min-w-[10rem] rounded-lg bg-slate-800 border border-slate-600 px-2 py-1.5 text-sm" /></label>
+            <label class="text-xs text-slate-400">End <input type="date" id="dateEnd" class="mt-0.5 block w-full min-w-[10rem] rounded-lg bg-slate-800 border border-slate-600 px-2 py-1.5 text-sm" /></label>
+          </div>
+          <div class="relative pt-8 pb-1 px-1">
+            <div id="bubbleLo" class="pointer-events-none absolute top-0 z-10 text-[10px] font-mono text-indigo-100 bg-slate-900/95 border border-indigo-500/50 px-1.5 py-0.5 rounded shadow whitespace-nowrap" style="left:0%; transform:translateX(-50%)">—</div>
+            <div id="bubbleHi" class="pointer-events-none absolute top-0 z-10 text-[10px] font-mono text-violet-100 bg-slate-900/95 border border-violet-500/50 px-1.5 py-0.5 rounded shadow whitespace-nowrap" style="left:100%; transform:translateX(-50%)">—</div>
+            <div class="relative h-9">
+              <input type="range" id="rangeLo" min="0" max="1000" value="0" class="absolute w-full h-2 opacity-90 accent-indigo-500 cursor-pointer z-[1]" />
+              <input type="range" id="rangeHi" min="0" max="1000" value="1000" class="absolute w-full h-2 opacity-90 accent-violet-400 cursor-pointer z-[2]" />
+            </div>
+          </div>
+          <p id="rangeLabel" class="text-sm text-slate-200 font-mono"></p>
+        </div>
+        <div class="flex items-end shrink-0">
+          <button type="button" id="exportReportsPdf" class="w-full xl:w-auto px-4 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium border border-indigo-500/40">Export PDF</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="grid lg:grid-cols-2 gap-6">
+      <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+        <h2 class="font-semibold mb-4">Totals</h2>
+        <dl id="totalsBox" class="grid grid-cols-2 gap-3 text-sm"></dl>
+      </section>
+      <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+        <h2 class="font-semibold mb-4">Top 7 categories</h2>
+        <div class="overflow-x-auto"><table class="w-full text-sm text-left" id="catTable"><thead><tr class="text-slate-400 border-b border-slate-800"><th class="py-2">Category</th><th>Total</th><th>%</th><th>#</th><th>Avg</th></tr></thead><tbody></tbody></table></div>
+      </section>
+    </div>
+
+    <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+      <h2 class="font-semibold mb-4">Top 7 descriptions / merchants</h2>
+      <div class="overflow-x-auto"><table class="w-full text-sm text-left" id="merchTable"><thead><tr class="text-slate-400 border-b border-slate-800"><th class="py-2">Description</th><th>Total</th><th>%</th><th>#</th><th>Avg</th></tr></thead><tbody></tbody></table></div>
+    </section>
+
+    <div class="grid lg:grid-cols-2 gap-6">
+      <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 min-h-[280px]">
+        <h2 class="font-semibold mb-3">Spending by category</h2>
+        <div class="relative h-64"><canvas id="chartCat"></canvas></div>
+        <p id="chartCatEmpty" class="hidden text-sm text-slate-500 mt-2">No category spending in this range.</p>
+      </section>
+      <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 min-h-[280px]">
+        <h2 class="font-semibold mb-3">Top categories</h2>
+        <div class="relative h-64"><canvas id="chartTop"></canvas></div>
+      </section>
+    </div>
+    <div class="grid lg:grid-cols-2 gap-6">
+      <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 min-h-[280px]">
+        <h2 class="font-semibold mb-3">Spending over time</h2>
+        <div class="relative h-64"><canvas id="chartSpendTime"></canvas></div>
+      </section>
+      <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 min-h-[280px]">
+        <h2 class="font-semibold mb-3">Income vs expenses (incl. recurring)</h2>
+        <div class="relative h-64"><canvas id="chartIncExp"></canvas></div>
+      </section>
+    </div>
+  </main>
+    </div>
+  </div>
+  <script>
+    const INSTANCE_ID = {{ instance.id }};
+    const BOOT = {{ report_bootstrap | tojson }};
+    const base = window.WebableCharts.darkChartOptions();
+    let charts = {};
+    let deb;
+    let activePreset = 'last_6_months';
+    let currentReportParams = { preset: 'last_6_months', start: null, end: null };
+    let lastReportData = null;
+
+    function parseISODate(s) {
+      if (!s) return null;
+      const d = new Date(s + 'T12:00:00');
+      return isNaN(d) ? null : d;
+    }
+
+    function fmtEUR(n) {
+      if (window.WebableCurrency && window.WebableCurrency.format) return window.WebableCurrency.format(n);
+      return window.WebableCharts.fmtEUR(n);
+    }
+
+    function moneyTick(v) {
+      return fmtEUR(v);
+    }
+
+    function bounds() {
+      const mn = parseISODate(BOOT.date_bounds.min);
+      const mx = parseISODate(BOOT.date_bounds.max);
+      if (!mn || !mx) return { min: new Date(), max: new Date(), span: 1 };
+      const span = Math.max(1, Math.round((mx - mn) / 86400000));
+      return { min: mn, max: mx, span };
+    }
+
+    function ordToDate(o) {
+      const b = bounds();
+      const t = b.min.getTime() + (o / 1000) * (b.max - b.min);
+      return new Date(Math.min(b.max.getTime(), Math.max(b.min.getTime(), t)));
+    }
+
+    function dateToISO(d) {
+      return d.toISOString().slice(0, 10);
+    }
+
+    function fetchReport(params) {
+      const q = new URLSearchParams(params);
+      return fetch('/instances/' + INSTANCE_ID + '/reports/data?' + q.toString(), { credentials: 'same-origin' }).then(function (r) { return r.json(); });
+    }
+
+    function dateIsoToOrd(iso) {
+      const d = parseISODate(iso);
+      const b = bounds();
+      if (!d || !b.min || !b.max) return 0;
+      const span = b.max.getTime() - b.min.getTime();
+      if (span <= 0) return 0;
+      const t = (d.getTime() - b.min.getTime()) / span;
+      return Math.round(Math.max(0, Math.min(1000, t * 1000)));
+    }
+
+    function updateSliderVisual() {
+      const loEl = document.getElementById('rangeLo');
+      const hiEl = document.getElementById('rangeHi');
+      const lo = Math.min(parseInt(loEl.value, 10), parseInt(hiEl.value, 10));
+      const hi = Math.max(parseInt(loEl.value, 10), parseInt(hiEl.value, 10));
+      const d0 = ordToDate(lo);
+      const d1 = ordToDate(hi);
+      const s = dateToISO(d0);
+      const e = dateToISO(d1);
+      document.getElementById('rangeLabel').textContent = s + ' → ' + e;
+      var ds = document.getElementById('dateStart');
+      var de = document.getElementById('dateEnd');
+      if (ds && de && document.activeElement !== ds && document.activeElement !== de) {
+        ds.value = s;
+        de.value = e;
+      }
+      var bl = document.getElementById('bubbleLo');
+      var bh = document.getElementById('bubbleHi');
+      if (bl) {
+        bl.textContent = s;
+        bl.style.left = ((lo / 1000) * 100) + '%';
+      }
+      if (bh) {
+        bh.textContent = e;
+        bh.style.left = ((hi / 1000) * 100) + '%';
+      }
+    }
+
+    function syncSlidersFromRange(data) {
+      const r = (data && data.range) || {};
+      let s = r.start;
+      let e = r.end;
+      if (!s || !e) {
+        s = (BOOT.date_bounds && BOOT.date_bounds.min) || null;
+        e = (BOOT.date_bounds && BOOT.date_bounds.max) || null;
+      }
+      if (!s || !e) return;
+      const lo = document.getElementById('rangeLo');
+      const hi = document.getElementById('rangeHi');
+      if (!lo || !hi) return;
+      lo.value = String(dateIsoToOrd(s));
+      hi.value = String(dateIsoToOrd(e));
+    }
+
+    function render(data) {
+      lastReportData = data;
+      const t = data.totals || {};
+      document.getElementById('totalsBox').innerHTML =
+        '<div class="text-slate-400">One-off expenses</div><div class="font-semibold">' + fmtEUR(t.oneoff_expenses || 0) + '</div>' +
+        '<div class="text-slate-400">One-off income</div><div class="font-semibold">' + fmtEUR(t.oneoff_income || 0) + '</div>' +
+        '<div class="text-slate-400">Recurring / mo</div><div class="text-xs">' + fmtEUR(t.recurring_expense_monthly || 0) + ' exp · ' + fmtEUR(t.recurring_income_monthly || 0) + ' inc</div>' +
+        '<div class="text-slate-400">Txn counts</div><div>' + (t.transaction_count_expenses || 0) + ' exp · ' + (t.transaction_count_income || 0) + ' inc</div>';
+
+      function fillTable(id, rows) {
+        const tb = document.querySelector('#' + id + ' tbody');
+        tb.innerHTML = '';
+        (rows || []).forEach(function (r) {
+          const tr = document.createElement('tr');
+          tr.className = 'border-b border-slate-800/80';
+          tr.innerHTML = '<td class="py-2 pr-2">' + r.key + '</td><td>' + fmtEUR(r.total) + '</td><td>' + r.pct_of_total + '%</td><td>' + r.count + '</td><td>' + fmtEUR(r.average) + '</td>';
+          tb.appendChild(tr);
+        });
+      }
+      fillTable('catTable', data.top_categories);
+      fillTable('merchTable', data.top_merchants);
+
+      const months = (data.monthly || []).map(function (m) { return m.month; });
+      const spend = (data.monthly || []).map(function (m) { return m.oneoff_expenses; });
+      const inc = (data.monthly || []).map(function (m) { return m.oneoff_income; });
+      const totExp = (data.monthly || []).map(function (m) { return m.total_expenses; });
+      const totInc = (data.monthly || []).map(function (m) { return m.total_income; });
+
+      function ensureChart(id, cfg) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (charts[id]) charts[id].destroy();
+        charts[id] = new Chart(el, cfg);
+      }
+
+      const catTotals = (data.charts && data.charts.category_totals) ? data.charts.category_totals : {};
+      const labels = Object.keys(catTotals);
+      const vals = labels.map(function (k) { return catTotals[k]; });
+      const catEmpty = document.getElementById('chartCatEmpty');
+      if (labels.length) {
+        catEmpty.classList.add('hidden');
+        const totalOneoff = Number((data.totals || {}).oneoff_expenses || 0) || 1;
+        ensureChart('chartCat', {
+          type: 'doughnut',
+          data: {
+            labels: labels,
+            datasets: [{ data: vals, backgroundColor: ['#6366f1','#8b5cf6','#ec4899','#f97316','#eab308','#22c55e','#14b8a6','#64748b'] }]
+          },
+          options: Object.assign({}, base, {
+            plugins: Object.assign({}, base.plugins, {
+              legend: { position: 'right', labels: { color: '#cbd5e1' } },
+              tooltip: Object.assign({}, base.plugins.tooltip, {
+                callbacks: {
+                  title: function (items) { return items[0].label || ''; },
+                  label: function (ctx) {
+                    const v = ctx.parsed;
+                    const raw = typeof v === 'number' ? v : (v && typeof v === 'object' && v.r != null ? v.r : 0);
+                    const pct = totalOneoff > 0 ? (raw / totalOneoff) * 100 : 0;
+                    return ['Amount: ' + fmtEUR(raw), 'Share of one-off spend: ' + window.WebableCharts.fmtPct(pct, 1)];
+                  }
+                }
+              })
+            })
+          })
+        });
+      } else {
+        if (charts.chartCat) { charts.chartCat.destroy(); charts.chartCat = null; }
+        catEmpty.classList.remove('hidden');
+      }
+
+      const topLabels = (data.charts && data.charts.top_category_labels) ? data.charts.top_category_labels : [];
+      const topVals = (data.charts && data.charts.top_category_values) ? data.charts.top_category_values : [];
+      const topRows = data.top_categories || [];
+      ensureChart('chartTop', {
+        type: 'bar',
+        data: { labels: topLabels, datasets: [{ label: 'Spent', data: topVals, backgroundColor: '#6366f1' }] },
+        options: Object.assign({}, base, {
+          plugins: Object.assign({}, base.plugins, {
+            tooltip: Object.assign({}, base.plugins.tooltip, {
+              callbacks: {
+                title: function (items) { return items[0].label || ''; },
+                label: function (ctx) {
+                  const idx = ctx.dataIndex;
+                  const row = topRows[idx];
+                  const v = ctx.parsed.y;
+                  const lines = ['Amount: ' + fmtEUR(v)];
+                  if (row) {
+                    lines.push('Share of spend: ' + window.WebableCharts.fmtPct(row.pct_of_total, 1));
+                    lines.push('Transactions: ' + (row.count != null ? row.count : '—'));
+                    lines.push('Average: ' + fmtEUR(row.average || 0));
+                  }
+                  return lines;
+                }
+              }
+            })
+          }),
+          scales: {
+            x: Object.assign({}, base.scales.x),
+            y: Object.assign({}, base.scales.y, { ticks: Object.assign({}, base.scales.y.ticks, { callback: moneyTick }) })
+          }
+        })
+      });
+
+      ensureChart('chartSpendTime', {
+        type: 'line',
+        data: { labels: months, datasets: [{ label: 'One-off expenses', data: spend, borderColor: '#f87171', tension: 0.25, fill: true, backgroundColor: 'rgba(248,113,113,0.15)' }] },
+        options: Object.assign({}, base, {
+          plugins: Object.assign({}, base.plugins, {
+            tooltip: Object.assign({}, base.plugins.tooltip, {
+              callbacks: {
+                title: function (items) { return 'Month: ' + (months[items[0].dataIndex] || ''); },
+                label: function (ctx) {
+                  return 'One-off expenses: ' + fmtEUR(ctx.parsed.y);
+                },
+                afterBody: function (items) {
+                  const i = items[0].dataIndex;
+                  const m = (data.monthly || [])[i];
+                  if (!m) return [];
+                  return [
+                    'One-off income: ' + fmtEUR(m.oneoff_income || 0),
+                    'Total expenses (incl. recurring): ' + fmtEUR(m.total_expenses || 0),
+                    'Total income: ' + fmtEUR(m.total_income || 0)
+                  ];
+                }
+              }
+            })
+          }),
+          scales: {
+            x: Object.assign({}, base.scales.x),
+            y: Object.assign({}, base.scales.y, { ticks: Object.assign({}, base.scales.y.ticks, { callback: moneyTick }) })
+          }
+        })
+      });
+
+      ensureChart('chartIncExp', {
+        type: 'bar',
+        data: {
+          labels: months,
+          datasets: [
+            { label: 'Total income', data: totInc, backgroundColor: '#34d399' },
+            { label: 'Total expenses', data: totExp, backgroundColor: '#f87171' }
+          ]
+        },
+        options: Object.assign({}, base, {
+          scales: {
+            x: Object.assign({}, base.scales.x, { stacked: false }),
+            y: Object.assign({}, base.scales.y, {
+              stacked: false,
+              ticks: Object.assign({}, base.scales.y.ticks, { callback: moneyTick })
+            })
+          },
+          plugins: Object.assign({}, base.plugins, {
+            tooltip: Object.assign({}, base.plugins.tooltip, {
+              callbacks: {
+                title: function (items) { return 'Month: ' + (months[items[0].dataIndex] || ''); },
+                label: function (ctx) {
+                  return ctx.dataset.label + ': ' + fmtEUR(ctx.parsed.y);
+                }
+              }
+            })
+          })
+        })
+      });
+      window.webableRefreshCharts = function () {
+        Object.keys(charts).forEach(function (k) {
+          var ch = charts[k];
+          if (!ch || !ch.options || !ch.options.scales || !ch.options.scales.y) return;
+          ch.options.scales.y.ticks.callback = moneyTick;
+          ch.update();
+        });
+      };
+      syncSlidersFromRange(data);
+      updateSliderVisual();
+    }
+
+    function load(preset, start, end) {
+      currentReportParams = { preset: preset || null, start: start || null, end: end || null };
+      const params = {};
+      if (preset) params.preset = preset;
+      if (start && end) { params.start_date = start; params.end_date = end; }
+      fetchReport(params).then(render).catch(function () {});
+    }
+
+    function scheduleLoad() {
+      clearTimeout(deb);
+      deb = setTimeout(function () {
+        updateSliderVisual();
+        const lo = Math.min(parseInt(document.getElementById('rangeLo').value, 10), parseInt(document.getElementById('rangeHi').value, 10));
+        const hi = Math.max(parseInt(document.getElementById('rangeLo').value, 10), parseInt(document.getElementById('rangeHi').value, 10));
+        const d0 = ordToDate(lo);
+        const d1 = ordToDate(hi);
+        activePreset = 'custom';
+        document.querySelectorAll('.preset').forEach(function (b) { b.classList.remove('ring-2', 'ring-indigo-400'); });
+        load(null, dateToISO(d0), dateToISO(d1));
+      }, 160);
+    }
+
+    function onRangeSliderInput() {
+      updateSliderVisual();
+      scheduleLoad();
+    }
+
+    document.querySelectorAll('.preset').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        document.querySelectorAll('.preset').forEach(function (b) { b.classList.remove('ring-2', 'ring-indigo-400'); });
+        btn.classList.add('ring-2', 'ring-indigo-400');
+        activePreset = btn.getAttribute('data-preset');
+        load(activePreset, null, null);
+      });
+    });
+    document.getElementById('rangeLo').addEventListener('input', onRangeSliderInput);
+    document.getElementById('rangeHi').addEventListener('input', onRangeSliderInput);
+
+    function applyDateInputsToRange() {
+      var ds = document.getElementById('dateStart');
+      var de = document.getElementById('dateEnd');
+      if (!ds || !de || !ds.value || !de.value) return;
+      document.getElementById('rangeLo').value = String(dateIsoToOrd(ds.value));
+      document.getElementById('rangeHi').value = String(dateIsoToOrd(de.value));
+      updateSliderVisual();
+      activePreset = 'custom';
+      document.querySelectorAll('.preset').forEach(function (b) { b.classList.remove('ring-2', 'ring-indigo-400'); });
+      load(null, ds.value, de.value);
+    }
+    document.getElementById('dateStart').addEventListener('change', applyDateInputsToRange);
+    document.getElementById('dateEnd').addEventListener('change', applyDateInputsToRange);
+
+    document.getElementById('exportReportsPdf').addEventListener('click', async function () {
+      const fd = new FormData();
+      if (currentReportParams.start && currentReportParams.end) {
+        fd.append('start_date', currentReportParams.start);
+        fd.append('end_date', currentReportParams.end);
+      } else if (currentReportParams.preset) {
+        fd.append('preset', currentReportParams.preset);
+      }
+      if (window.WebableCurrency && typeof window.WebableCurrency.getCode === 'function') {
+        fd.append('display_currency', window.WebableCurrency.getCode());
+      }
+      try {
+        const res = await fetch('/instances/' + INSTANCE_ID + '/reports/pdf', { method: 'POST', body: fd, credentials: 'same-origin' });
+        if (!res.ok) throw new Error('pdf');
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'webable-spending-report-' + INSTANCE_ID + '.pdf';
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        alert('Could not export PDF. Check that you are logged in and server dependencies are installed.');
+      }
+    });
+
+    document.getElementById('stmtUploadForm').addEventListener('submit', async function (e) {
+      e.preventDefault();
+      var msg = document.getElementById('stmtUploadMsg');
+      var btn = document.getElementById('stmtUploadBtn');
+      msg.textContent = '';
+      var fd = new FormData(e.target);
+      btn.disabled = true;
+      try {
+        var res = await fetch('/instances/' + INSTANCE_ID + '/bank-statements/upload', { method: 'POST', body: fd, credentials: 'same-origin' });
+        var data = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error((data.detail) || 'Upload failed');
+        msg.textContent = 'Uploaded.';
+        e.target.reset();
+        location.reload();
+      } catch (err) {
+        msg.textContent = err.message || 'Upload failed';
+      } finally {
+        btn.disabled = false;
+      }
+    });
+    document.querySelectorAll('.stmt-del').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        var id = btn.getAttribute('data-id');
+        if (!confirm('Delete this statement?')) return;
+        var res = await fetch('/instances/' + INSTANCE_ID + '/bank-statements/' + id, { method: 'DELETE', credentials: 'same-origin' });
+        if (res.ok) location.reload();
+      });
+    });
+
+    document.addEventListener('webable:currency', function () {
+      if (lastReportData) render(lastReportData);
+    });
+
+    (function initSlider() {
+      document.getElementById('rangeLabel').textContent = (BOOT.date_bounds.min || '—') + ' → ' + (BOOT.date_bounds.max || '—');
+    })();
+    document.querySelector('[data-preset="last_6_months"]').click();
+  </script>
+</body>
+</html>

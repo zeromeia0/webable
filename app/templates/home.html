@@ -1,0 +1,40 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Webable</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/static/js/webable-currency.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+  {% include "partials/app_topbar.html" %}
+  <main class="max-w-5xl mx-auto p-8">
+    <h1 class="text-4xl font-bold mb-2">Webable</h1>
+    <p class="text-slate-300 mb-8">AI-powered personal finance dashboard.</p>
+    <div class="grid md:grid-cols-2 gap-6">
+      <form method="post" action="/register" class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-3">
+        <h2 class="text-xl font-semibold">Create Account</h2>
+        <input name="username" placeholder="Username or email" required class="w-full px-3 py-2 rounded bg-slate-800" />
+        <input name="password" placeholder="Password" required type="password" class="w-full px-3 py-2 rounded bg-slate-800" />
+        <button class="w-full py-2 rounded bg-indigo-500 hover:bg-indigo-400">Register</button>
+      </form>
+      <form method="post" action="/login" class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-3">
+        <h2 class="text-xl font-semibold">Login</h2>
+        <input name="username" placeholder="Username or email" required class="w-full px-3 py-2 rounded bg-slate-800" />
+        <input name="password" placeholder="Password" required type="password" class="w-full px-3 py-2 rounded bg-slate-800" />
+        <button class="w-full py-2 rounded bg-emerald-500 hover:bg-emerald-400">Login</button>
+      </form>
+    </div>
+  </main>
+
+  <button id="globalAiFab" class="fixed bottom-6 right-6 bg-indigo-500 hover:bg-indigo-400 text-white rounded-full w-14 h-14 shadow-xl">AI</button>
+  <div id="globalAiPanel" class="hidden fixed bottom-24 right-6 w-[360px] max-w-[92vw] bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl">
+    <div class="p-3 border-b border-slate-700 font-semibold">AI Financial Assistant</div>
+    <div id="globalAiMessages" class="p-3 h-72 overflow-y-auto space-y-3 text-sm"><div class="bg-slate-800 rounded-xl p-3">Login first to ask questions about your finances.</div></div>
+  </div>
+  <script>
+    document.getElementById('globalAiFab').addEventListener('click', () => document.getElementById('globalAiPanel').classList.toggle('hidden'));
+  </script>
+</body>
+</html>

@@ -1,0 +1,746 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Workspace - Webable</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/static/js/webable-currency.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+  <div class="flex flex-col md:flex-row min-h-screen">
+    {% include "partials/app_sidebar.html" %}
+    <div class="flex-1 min-w-0 flex flex-col">
+    {% include "partials/app_topbar.html" %}
+  <main class="max-w-6xl mx-auto p-6 md:p-8 space-y-8">
+    <header class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+      <div>
+        <h1 class="text-3xl font-bold">{{ instance.name }}</h1>
+        <p class="text-slate-400 text-sm mt-1">Workspace — add data, run projections, review results.</p>
+      </div>
+      <form method="post" action="/logout"><button type="submit" class="px-4 py-2 rounded-lg bg-slate-800 border border-slate-700 text-sm hover:bg-slate-700">Logout</button></form>
+    </header>
+
+    {% if msg %}
+    <div class="{% if msg == 'oneoff_category_required' %}bg-amber-500/10 border border-amber-500/40 text-amber-100{% else %}bg-emerald-500/10 border border-emerald-500/30 text-emerald-200{% endif %} rounded-xl p-3 text-sm">
+      {% if msg == 'oneoff_category_required' %}Expense transactions require a category. Please choose one from the list.{% elif msg == 'expense_deleted' %}Expense deleted successfully. Your monthly summary has been updated.{% elif msg == 'income_deleted' %}Income deleted successfully. Your monthly summary has been updated.{% elif msg == 'income_not_found' %}Income entry was already removed.{% elif msg == 'expense_not_found' %}Expense entry was already removed.{% else %}Transaction deleted successfully. Your monthly summary has been updated.{% endif %}
+    </div>
+    {% endif %}
+
+    <section class="rounded-xl border border-slate-800 bg-slate-900/60 p-4 flex flex-wrap gap-4 items-center text-sm">
+      <span class="text-slate-400">Export all transactions:</span>
+      <a href="/instances/{{ instance.id }}/export/transactions.csv" class="text-indigo-400 hover:text-indigo-300 font-medium">CSV</a>
+      <a href="/instances/{{ instance.id }}/export/transactions.json" class="text-indigo-400 hover:text-indigo-300 font-medium">JSON</a>
+    </section>
+
+    <section class="rounded-xl border border-slate-800 bg-slate-900/60 p-4 space-y-4">
+      <h3 class="font-semibold">Category budgets — {{ current_month }}</h3>
+      <p class="text-xs text-slate-500">Set a monthly spending cap per category. Warnings at 80% and when exceeded (dashboard + here).</p>
+      <div class="grid md:grid-cols-2 gap-6">
+        <form method="post" action="/instances/{{ instance.id }}/budgets" class="space-y-2">
+          <select name="category" required class="w-full px-3 py-2 rounded bg-slate-800 border border-slate-700">
+            <option value="">Category…</option>
+            {% for c in oneoff_categories %}
+            <option value="{{ c }}">{{ c }}</option>
+            {% endfor %}
+          </select>
+          <input name="monthly_limit_eur" type="number" step="0.01" min="0" placeholder="Monthly limit (EUR base)" required class="w-full px-3 py-2 rounded bg-slate-800 border border-slate-700" />
+          <button type="submit" class="px-3 py-2 rounded bg-emerald-600 text-sm font-medium">Save budget</button>
+        </form>
+        <div class="space-y-3 text-sm">
+          {% for a in budget_alerts %}
+          <div class="rounded-lg border px-3 py-2 {% if a.tone == 'over' %}border-rose-500/50 bg-rose-950/30{% elif a.tone == 'warn' %}border-amber-500/50 bg-amber-950/20{% else %}border-slate-700 bg-slate-800/50{% endif %}">
+            <div class="flex justify-between gap-2">
+              <span class="font-medium">{{ a.category }}</span>
+              <form method="post" action="/instances/{{ instance.id }}/budgets/{{ a.budget_id }}/delete" class="inline" onsubmit="return confirm('Remove this budget?');">
+                <button type="submit" class="text-rose-400 text-xs hover:underline">Remove</button>
+              </form>
+            </div>
+            <p class="text-xs text-slate-400 mt-1">Spent <span class="wb-money" data-eur="{{ a.spent }}">{{ a.spent }}</span> of <span class="wb-money" data-eur="{{ a.limit }}">{{ a.limit }}</span> ({{ a.pct }}%)</p>
+          </div>
+          {% else %}
+          <p class="text-slate-500 text-sm">No budgets yet.</p>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+
+    <section class="rounded-xl border border-slate-800 bg-slate-900/60 p-4 space-y-3">
+      <h3 class="font-semibold">Search one-time transactions</h3>
+      <div class="flex flex-wrap gap-2 items-end">
+        <input id="txq" type="search" placeholder="Description" class="px-3 py-2 rounded bg-slate-800 border border-slate-700 text-sm flex-1 min-w-[8rem]" />
+        <select id="txcat" class="px-3 py-2 rounded bg-slate-800 border border-slate-700 text-sm">
+          <option value="all">All categories</option>
+          {% for c in oneoff_categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+        </select>
+        <select id="txsort" class="px-3 py-2 rounded bg-slate-800 border border-slate-700 text-sm">
+          <option value="newest">Newest</option>
+          <option value="oldest">Oldest</option>
+          <option value="highest">Highest amount</option>
+          <option value="lowest">Lowest amount</option>
+        </select>
+        <button type="button" id="txsearch" class="px-4 py-2 rounded-lg bg-indigo-600 text-sm font-medium">Search</button>
+      </div>
+      <div id="txresults" class="text-sm text-slate-400 max-h-64 overflow-y-auto border border-slate-800 rounded-lg p-2 hidden"></div>
+    </section>
+
+    <div class="grid md:grid-cols-3 gap-4">
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4"><p class="text-xs text-slate-400">Current Status</p><p class="text-emerald-300 font-semibold">{{ state_summary.ready }}</p></div>
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4"><p class="text-xs text-slate-400">Health</p><p class="font-semibold">{{ state_summary.health }}</p></div>
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4"><p class="text-xs text-slate-400">Last Updated</p><p class="font-semibold">{{ state_summary.updated }}</p></div>
+    </div>
+
+    <section class="grid md:grid-cols-2 gap-4">
+      <form method="post" action="/instances/{{ instance.id }}/income" class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
+        <h3 class="font-semibold">Add income</h3>
+        <input name="nome" placeholder="Name" required class="w-full px-3 py-2 rounded bg-slate-800" />
+        <input name="valor" placeholder="Amount (EUR / month)" type="number" step="0.01" required class="w-full px-3 py-2 rounded bg-slate-800" />
+        <label class="text-xs text-slate-400 block">Recurrence
+          <select name="recurrence" class="w-full mt-0.5 px-3 py-2 rounded bg-slate-800 border border-slate-700">
+            <option value="monthly" selected>Monthly</option>
+            <option value="weekly">Weekly</option>
+            <option value="daily">Daily</option>
+            <option value="yearly">Yearly</option>
+          </select>
+        </label>
+        <button class="px-3 py-2 rounded bg-indigo-500">Save</button>
+      </form>
+      <form method="post" action="/instances/{{ instance.id }}/expense" class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
+        <h3 class="font-semibold">Add expense</h3>
+        <input name="nome" placeholder="Name" required class="w-full px-3 py-2 rounded bg-slate-800" />
+        <input name="valor" placeholder="Amount (EUR / month)" type="number" step="0.01" required class="w-full px-3 py-2 rounded bg-slate-800" />
+        <label class="text-xs text-slate-400 block">Recurrence
+          <select name="recurrence" class="w-full mt-0.5 px-3 py-2 rounded bg-slate-800 border border-slate-700">
+            <option value="monthly" selected>Monthly</option>
+            <option value="weekly">Weekly</option>
+            <option value="daily">Daily</option>
+            <option value="yearly">Yearly</option>
+          </select>
+        </label>
+        <button class="px-3 py-2 rounded bg-indigo-500">Save</button>
+      </form>
+      <form method="post" action="/instances/{{ instance.id }}/oneoff" id="oneoffForm" class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
+        <h3 class="font-semibold">Add one-time transaction</h3>
+        <div class="flex flex-wrap gap-4 text-sm">
+          <label class="inline-flex items-center gap-2 cursor-pointer"><input type="radio" name="txn_type" value="expense" checked class="accent-rose-500" data-oneoff-type /> Expense</label>
+          <label class="inline-flex items-center gap-2 cursor-pointer"><input type="radio" name="txn_type" value="income" class="accent-emerald-500" data-oneoff-type /> Income</label>
+        </div>
+        <input name="data" type="date" required class="w-full px-3 py-2 rounded bg-slate-800 border border-slate-700" />
+        <input name="nome" placeholder="Description / merchant" required class="w-full px-3 py-2 rounded bg-slate-800" />
+        <input name="valor" placeholder="Amount" type="number" step="0.01" min="0" required class="w-full px-3 py-2 rounded bg-slate-800" />
+        <div id="oneoffCategoryWrap" class="space-y-1">
+          <label class="text-xs text-slate-400">Category <span class="text-rose-300">(required for expenses)</span></label>
+          <select name="category" id="oneoffCategory" class="w-full px-3 py-2 rounded bg-slate-800 border border-slate-700">
+            <option value="">Select…</option>
+            {% for c in oneoff_categories %}
+            <option value="{{ c }}">{{ c }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button class="px-3 py-2 rounded bg-indigo-500">Save</button>
+      </form>
+      <script>
+        (function () {
+          const form = document.getElementById('oneoffForm');
+          if (!form) return;
+          const cat = document.getElementById('oneoffCategory');
+          const types = form.querySelectorAll('[data-oneoff-type]');
+          function sync() {
+            const exp = form.querySelector('input[name=txn_type][value=expense]').checked;
+            cat.required = exp;
+            document.getElementById('oneoffCategoryWrap').classList.toggle('opacity-60', !exp);
+            if (!exp) cat.value = cat.options[0] ? '' : '';
+          }
+          types.forEach(function (el) { el.addEventListener('change', sync); });
+          sync();
+          form.addEventListener('submit', function (e) {
+            const exp = form.querySelector('input[name=txn_type][value=expense]').checked;
+            if (exp && !cat.value) { e.preventDefault(); alert('Please select a category for expenses.'); }
+          });
+        })();
+      </script>
+      {% if show_iefp %}
+      <form method="post" action="/instances/{{ instance.id }}/absence" class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
+        <h3 class="font-semibold">Add absence (legacy)</h3>
+        <input name="data" type="date" required class="w-full px-3 py-2 rounded bg-slate-800 border border-slate-700" />
+        <input name="modulo" placeholder="Module code" required class="w-full px-3 py-2 rounded bg-slate-800" />
+        <input name="horas" placeholder="Hours" type="number" step="0.1" required class="w-full px-3 py-2 rounded bg-slate-800" />
+        <input name="observacao" placeholder="Note" class="w-full px-3 py-2 rounded bg-slate-800" />
+        <button class="px-3 py-2 rounded bg-indigo-500">Save</button>
+      </form>
+      {% endif %}
+    </section>
+
+    <section class="grid md:grid-cols-2 gap-4">
+      <form method="post" action="/instances/{{ instance.id }}/calculate-month" class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
+        <h3 class="font-semibold text-lg">Calculate month</h3>
+        <p class="text-xs text-slate-500">Pick month and year only (no day).</p>
+        <div class="wb-my-picker" data-default="{{ current_month }}">
+          <div class="flex flex-wrap gap-3 items-end">
+            <label class="text-xs text-slate-400 block">Month
+              <select class="wb-my-m w-full min-w-[10rem] mt-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-100"></select>
+            </label>
+            <label class="text-xs text-slate-400 block">Year
+              <select class="wb-my-y w-full min-w-[6rem] mt-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-100"></select>
+            </label>
+          </div>
+          <input type="hidden" name="month" class="wb-my-hidden" value="{{ current_month }}" required />
+        </div>
+        <button class="px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm font-medium">Run analysis</button>
+      </form>
+      <form method="post" action="/instances/{{ instance.id }}/calculate-range" id="long-range-section" class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3 scroll-mt-24">
+        <h3 class="font-semibold text-lg">Database calculation</h3>
+        <p class="text-xs text-slate-500">Start month (year + month), then number of months to simulate.</p>
+        <div class="wb-my-picker" data-default="{{ current_month }}">
+          <div class="flex flex-wrap gap-3 items-end">
+            <label class="text-xs text-slate-400 block">Start month
+              <select class="wb-my-m w-full min-w-[10rem] mt-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-100"></select>
+            </label>
+            <label class="text-xs text-slate-400 block">Year
+              <select class="wb-my-y w-full min-w-[6rem] mt-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-100"></select>
+            </label>
+          </div>
+          <input type="hidden" name="start_month" class="wb-my-hidden" value="{{ current_month }}" required />
+        </div>
+        <input name="months" placeholder="Number of months" type="number" min="1" max="60" required class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" />
+        <button class="px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm font-medium">Run analysis</button>
+      </form>
+    </section>
+
+    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+      <h2 class="text-xl font-semibold">Results</h2>
+
+      <div id="projection-export-area" class="space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <p class="font-semibold text-lg">{{ latest_output.icon }} {{ latest_output.title }}</p>
+          <span class="px-2 py-1 text-xs rounded-full border {{ latest_output.badge_class }}">{{ latest_output.badge }}</span>
+        </div>
+        <p class="text-slate-400 text-sm">{{ latest_output.subtitle }}</p>
+
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {% for card in latest_output.cards %}
+          <div class="rounded-xl border p-3 {% if card.tone == 'positive' %}border-emerald-500/40 bg-emerald-500/10{% elif card.tone == 'negative' %}border-rose-500/40 bg-rose-500/10{% elif card.tone == 'info' %}border-sky-500/35 bg-sky-500/10{% else %}border-slate-700 bg-slate-800/70{% endif %}">
+            <p class="text-xs text-slate-400">{{ card.label }}</p>
+            <p class="font-bold text-lg mt-1 {% if card.tone == 'positive' %}text-emerald-200{% elif card.tone == 'negative' %}text-rose-200{% elif card.tone == 'info' %}text-sky-100{% else %}text-slate-100{% endif %}">{% if card.value_eur is defined %}<span class="wb-money" data-eur="{{ card.value_eur }}">{{ card.value }}</span>{% else %}{{ card.value }}{% endif %}</p>
+          </div>
+          {% endfor %}
+        </div>
+
+        {% if latest_output.month_breakdown %}
+        <div class="rounded-xl border border-slate-700 bg-slate-900/50 p-4 md:p-5 space-y-6">
+          <h3 class="font-semibold text-lg text-slate-100">Monthly breakdown — {{ latest_output.month_breakdown.month }}</h3>
+          <div class="grid md:grid-cols-2 gap-6">
+            <div>
+              <h4 class="text-sm font-semibold text-emerald-300 mb-2">Recurring income</h4>
+              {% if latest_output.month_breakdown.recurring_income|length %}
+              <div class="overflow-x-auto rounded-lg border border-slate-800">
+                <table class="w-full text-sm text-left">
+                  <thead class="bg-slate-800 text-slate-400 text-xs uppercase"><tr><th class="p-2">Description</th><th class="p-2">Cadence</th><th class="p-2 text-right">Amount</th></tr></thead>
+                  <tbody class="text-slate-200">
+                    {% for r in latest_output.month_breakdown.recurring_income %}
+                    <tr class="border-t border-slate-800"><td class="p-2">{{ r.name }}</td><td class="p-2 text-slate-500">{{ r.recurrence }}</td><td class="p-2 text-right font-medium text-emerald-300"><span class="wb-money" data-eur="{{ r.amount_eur }}">—</span></td></tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+              {% else %}<p class="text-slate-500 text-sm">None recorded.</p>{% endif %}
+            </div>
+            <div>
+              <h4 class="text-sm font-semibold text-rose-300 mb-2">Recurring expenses</h4>
+              {% if latest_output.month_breakdown.recurring_expense|length %}
+              <div class="overflow-x-auto rounded-lg border border-slate-800">
+                <table class="w-full text-sm text-left">
+                  <thead class="bg-slate-800 text-slate-400 text-xs uppercase"><tr><th class="p-2">Description</th><th class="p-2">Cadence</th><th class="p-2 text-right">Amount</th></tr></thead>
+                  <tbody class="text-slate-200">
+                    {% for r in latest_output.month_breakdown.recurring_expense %}
+                    <tr class="border-t border-slate-800"><td class="p-2">{{ r.name }}</td><td class="p-2 text-slate-500">{{ r.recurrence }}</td><td class="p-2 text-right font-medium text-rose-300"><span class="wb-money" data-eur="{{ r.amount_eur }}">—</span></td></tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+              {% else %}<p class="text-slate-500 text-sm">None recorded.</p>{% endif %}
+            </div>
+          </div>
+          <div>
+            <h4 class="text-sm font-semibold text-indigo-200 mb-2">One-time transactions</h4>
+            {% if latest_output.month_breakdown.oneoff_rows|length %}
+            <div class="overflow-x-auto rounded-lg border border-slate-800">
+              <table class="w-full text-sm text-left">
+                <thead class="bg-slate-800 text-slate-400 text-xs uppercase"><tr><th class="p-2">Date</th><th class="p-2">Description</th><th class="p-2">Category</th><th class="p-2 text-right">Amount</th></tr></thead>
+                <tbody class="text-slate-200">
+                  {% for r in latest_output.month_breakdown.oneoff_rows %}
+                  <tr class="border-t border-slate-800">
+                    <td class="p-2 whitespace-nowrap text-slate-400">{{ r.date }}</td>
+                    <td class="p-2">{{ r.description }}</td>
+                    <td class="p-2 text-slate-500">{{ r.category }}</td>
+                    <td class="p-2 text-right font-medium {% if r.signed_eur >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}"><span class="wb-money" data-eur="{{ r.signed_eur }}">—</span></td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% else %}
+            <p class="text-slate-500 text-sm rounded-lg border border-dashed border-slate-700 p-4">No one-time transactions in this month.</p>
+            {% endif %}
+          </div>
+        </div>
+        {% endif %}
+
+        <div class="grid md:grid-cols-2 gap-4">
+          {% for section in latest_output.sections %}
+          <div class="border border-slate-800 rounded-xl p-4">
+            <h3 class="font-semibold mb-2">{{ section.title }}</h3>
+            <ul class="list-disc pl-5 text-slate-200 space-y-1">{% for item in section["items"] %}<li>{{ item }}</li>{% endfor %}</ul>
+          </div>
+          {% endfor %}
+        </div>
+
+        {% if latest_output.bars %}
+        <div class="border border-slate-800 rounded-xl p-4">
+          <h3 class="font-semibold mb-3">Projection trend</h3>
+          <div class="space-y-2">
+            {% for bar in latest_output.bars %}
+            <div><div class="flex justify-between text-xs mb-1"><span>{{ bar.label }}</span><span>{% if bar.value_eur is defined %}<span class="wb-money" data-eur="{{ bar.value_eur }}">{{ bar.value }}</span>{% else %}{{ bar.value }}{% endif %}</span></div><div class="w-full h-2 rounded bg-slate-800"><div class="h-2 rounded {% if bar.tone == 'positive' %}bg-emerald-400{% else %}bg-red-400{% endif %}" style="width: {{ bar.pct }}%"></div></div></div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+        <div class="border border-indigo-600/30 bg-indigo-500/10 rounded-xl p-4"><p class="text-sm text-indigo-100">💡 {{ latest_output.recommendation }}</p></div>
+      </div>
+
+      <details class="mt-2"><summary class="cursor-pointer text-slate-300">Advanced technical logs</summary><pre class="mt-2 whitespace-pre-wrap text-xs text-slate-300">{{ latest_output.technical_logs }}</pre></details>
+    </section>
+
+    {% if latest_output.job_type == 'calculate_range' and latest_output.projection_series %}
+    <section class="bg-slate-900 border border-violet-500/25 rounded-2xl p-6 md:p-8 space-y-6" aria-labelledby="lr-proj-heading">
+      <div class="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 id="lr-proj-heading" class="text-xl font-semibold text-violet-100">From saved database calculation</h2>
+          <p class="text-sm text-slate-400 mt-1">Compound growth using your last completed multi-month run from this workspace. Adjust assumptions to explore alternatives; values match the PDF export.</p>
+        </div>
+        <button type="button" id="exportProjectionPdf" class="text-sm px-4 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium shrink-0">Export PDF</button>
+      </div>
+
+      <div class="border border-slate-800 rounded-xl p-4 space-y-4">
+        <h3 class="font-semibold text-lg">Compound growth</h3>
+        <p class="text-xs text-slate-400">Monthly rate = (1 + APR)<sup>1/12</sup> − 1. Each month: add contribution at the <strong class="text-slate-300">beginning</strong>, then apply growth. After the stored projection ends, contributions use the extended savings base (see investment calculator docs).</p>
+        <div class="relative w-full min-h-[260px] max-h-[380px] sm:max-h-[420px]">
+          <canvas id="investmentGrowthChart"></canvas>
+        </div>
+      </div>
+
+      <div class="border border-amber-500/25 bg-amber-500/5 rounded-xl p-4 md:p-5 space-y-4">
+        <h3 class="font-semibold text-lg text-amber-100">Investment assumptions</h3>
+        <p class="text-xs text-slate-400">Contribution = your % of each month’s projected savings during the projection; after it ends, the same monthly amount continues using the <strong class="text-slate-300">last projected month’s savings</strong> (if positive) or the <strong class="text-slate-300">latest earlier positive</strong> month × your %. Chart, totals, and PDF use the same engine.</p>
+        <div class="grid sm:grid-cols-3 gap-4">
+          <label class="block space-y-1.5">
+            <span class="text-xs text-slate-300">Invest % of monthly projected savings</span>
+            <input type="number" id="invPct" min="0" max="100" step="1" value="15" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-100" />
+          </label>
+          <label class="block space-y-1.5">
+            <span class="text-xs text-slate-300">Expected annual return (%)</span>
+            <input type="number" id="invAnnual" min="0" max="30" step="0.1" value="5" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-100" />
+          </label>
+          <label class="block space-y-1.5">
+            <span class="text-xs text-slate-300">Investment horizon (years)</span>
+            <input type="number" id="invHorizon" min="0.25" max="40" step="0.25" value="5" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-100" />
+          </label>
+        </div>
+        <div class="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
+          <p class="text-xs text-emerald-200/90 uppercase tracking-wide">Final projected investment balance</p>
+          <p id="invFinalAmount" class="text-2xl md:text-3xl font-bold text-emerald-300 mt-1 tabular-nums">—</p>
+          <div id="invBreakdown" class="text-sm text-slate-300 space-y-1 mt-3 pt-3 border-t border-emerald-500/20">
+            <p><span class="text-slate-400">Total invested (contributions):</span> <span id="invTotalInvested" class="text-slate-100 font-medium">—</span></p>
+            <p><span class="text-slate-400">Compounded profit:</span> <span id="invProfit" class="text-slate-100 font-medium">—</span></p>
+          </div>
+        </div>
+      </div>
+    </section>
+    <script src="/static/js/webable-charts.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+      (function () {
+        const INSTANCE_ID = {{ instance.id }};
+        const JOB_ID = {{ latest_output.id }};
+        const canvas = document.getElementById('investmentGrowthChart');
+        if (!canvas) return;
+        const finalEl = document.getElementById('invFinalAmount');
+        const invPct = document.getElementById('invPct');
+        const invAnnual = document.getElementById('invAnnual');
+        const invHorizon = document.getElementById('invHorizon');
+        const invTotalInvested = document.getElementById('invTotalInvested');
+        const invProfit = document.getElementById('invProfit');
+        let chart;
+        let debTimer;
+        let abortCtl;
+        let projectionTooltipRows = [];
+
+        let lastInvPayload = null;
+
+        function fmtMoney(n) {
+          if (window.WebableCurrency && window.WebableCurrency.format) return window.WebableCurrency.format(n);
+          return window.WebableCharts.fmtEUR(n);
+        }
+
+        function invYAxisTitle() {
+          return (window.WebableCurrency && window.WebableCurrency.getCode) ? window.WebableCurrency.getCode() : 'EUR';
+        }
+
+        const baseOpts = window.WebableCharts.darkChartOptions();
+        const chartOpts = Object.assign({}, baseOpts, {
+          interaction: { mode: 'index', intersect: false },
+          plugins: Object.assign({}, baseOpts.plugins, {
+            legend: { labels: { color: '#cbd5e1', boxWidth: 12, padding: 10 } },
+            tooltip: Object.assign({}, baseOpts.plugins.tooltip, {
+              callbacks: {
+                label: function (ctx) {
+                  const v = ctx.parsed.y;
+                  if (v == null || Number.isNaN(v)) return ctx.dataset.label + ': —';
+                  return ctx.dataset.label + ': ' + fmtMoney(v);
+                },
+                afterBody: function (items) {
+                  const i = items[0] && items[0].dataIndex;
+                  const pt = projectionTooltipRows[i];
+                  if (!pt) return [];
+                  if (pt.note) return [pt.note];
+                  const lines = [];
+                  if (pt.month) lines.push('Period: ' + pt.month);
+                  if (pt.projected_income != null) lines.push('Projected income (total in): ' + fmtMoney(pt.projected_income));
+                  if (pt.projected_expenses != null) lines.push('Projected expenses: ' + fmtMoney(pt.projected_expenses));
+                  if (pt.projected_savings != null) lines.push('Projected savings: ' + fmtMoney(pt.projected_savings));
+                  if (pt.net_result != null) lines.push('Net (savings): ' + fmtMoney(pt.net_result));
+                  return lines;
+                }
+              }
+            })
+          }),
+          scales: {
+            x: { ticks: { color: '#94a3b8', maxRotation: 45, minRotation: 0, maxTicksLimit: 18 } },
+            y: {
+              ticks: { color: '#94a3b8', callback: function (v) { return fmtMoney(v); } },
+              title: { display: true, text: invYAxisTitle(), color: '#94a3b8', font: { size: 11 } }
+            }
+          }
+        });
+
+        function applySummary(sum) {
+          if (!sum) return;
+          finalEl.textContent = fmtMoney(sum.final_investment_balance || 0);
+          invTotalInvested.textContent = fmtMoney(sum.final_cumulative_contributed || 0);
+          invProfit.textContent = fmtMoney(sum.final_compounded_profit || 0);
+        }
+
+        function drawFromPayload(payload) {
+          lastInvPayload = payload;
+          projectionTooltipRows = payload.projection_tooltip || [];
+          const c = payload.chart;
+          const sum = payload.summary;
+          applySummary(sum);
+          if (chart) chart.destroy();
+          chart = new Chart(canvas, {
+            type: 'line',
+            data: {
+              labels: c.months,
+              datasets: [
+                {
+                  label: 'Total projected wealth',
+                  data: c.accumulated_wealth,
+                  borderColor: '#60a5fa',
+                  backgroundColor: 'rgba(96,165,250,0.08)',
+                  borderWidth: 2.2,
+                  tension: 0.35,
+                  cubicInterpolationMode: 'monotone',
+                  spanGaps: false,
+                  pointRadius: 0,
+                  pointHoverRadius: 5
+                },
+                {
+                  label: 'Investment balance (compounded)',
+                  data: c.investment_balance,
+                  borderColor: '#fbbf24',
+                  backgroundColor: 'rgba(251,191,36,0.08)',
+                  borderWidth: 2.4,
+                  tension: 0.35,
+                  cubicInterpolationMode: 'monotone',
+                  pointRadius: 0,
+                  pointHoverRadius: 5
+                },
+                {
+                  label: 'Cumulative invested',
+                  data: c.cumulative_contributed,
+                  borderColor: '#a78bfa',
+                  borderDash: [6, 4],
+                  borderWidth: 2,
+                  tension: 0.35,
+                  cubicInterpolationMode: 'monotone',
+                  pointRadius: 0,
+                  pointHoverRadius: 4
+                },
+                {
+                  label: 'Compounded profit',
+                  data: c.compounded_profit,
+                  borderColor: '#34d399',
+                  backgroundColor: 'rgba(52,211,153,0.06)',
+                  borderWidth: 2,
+                  tension: 0.35,
+                  cubicInterpolationMode: 'monotone',
+                  pointRadius: 0,
+                  pointHoverRadius: 4
+                }
+              ]
+            },
+            options: chartOpts
+          });
+          if (chart.options.scales && chart.options.scales.y && chart.options.scales.y.title) {
+            chart.options.scales.y.title.text = invYAxisTitle();
+          }
+          window.webableRefreshCharts = function () {
+            if (!chart || !chart.options || !chart.options.scales || !chart.options.scales.y) return;
+            chart.options.scales.y.ticks.callback = function (v) { return fmtMoney(v); };
+            if (chart.options.scales.y.title) chart.options.scales.y.title.text = invYAxisTitle();
+            chart.update();
+          };
+        }
+
+        async function refreshChart() {
+          if (abortCtl) abortCtl.abort();
+          abortCtl = new AbortController();
+          const q = new URLSearchParams({
+            job_id: String(JOB_ID),
+            invest_pct: String(invPct.value || 0),
+            annual_rate: String(invAnnual.value || 0),
+            horizon_years: String(invHorizon.value || 1)
+          });
+          try {
+            const res = await fetch('/instances/' + INSTANCE_ID + '/investment-simulation?' + q.toString(), {
+              credentials: 'same-origin',
+              signal: abortCtl.signal
+            });
+            if (!res.ok) throw new Error('simulation failed');
+            const payload = await res.json();
+            drawFromPayload(payload);
+          } catch (e) {
+            if (e.name === 'AbortError') return;
+            finalEl.textContent = '—';
+            invTotalInvested.textContent = '—';
+            invProfit.textContent = '—';
+          }
+        }
+
+        function scheduleRefresh() {
+          clearTimeout(debTimer);
+          debTimer = setTimeout(refreshChart, 280);
+        }
+
+        ['input', 'change'].forEach(function (ev) {
+          invPct.addEventListener(ev, scheduleRefresh);
+          invAnnual.addEventListener(ev, scheduleRefresh);
+          invHorizon.addEventListener(ev, scheduleRefresh);
+        });
+        refreshChart();
+
+        document.addEventListener('webable:currency', function () {
+          if (lastInvPayload && lastInvPayload.summary) applySummary(lastInvPayload.summary);
+          if (typeof window.webableRefreshCharts === 'function') window.webableRefreshCharts();
+          if (window.WebableCurrency && window.WebableCurrency.scanMoney) window.WebableCurrency.scanMoney(document);
+        });
+
+        const exportBtn = document.getElementById('exportProjectionPdf');
+        if (exportBtn) {
+          exportBtn.addEventListener('click', async function () {
+            const fd = new FormData();
+            fd.append('job_id', String(JOB_ID));
+            fd.append('invest_pct', String(invPct.value || 0));
+            fd.append('annual_rate', String(invAnnual.value || 0));
+            fd.append('horizon_years', String(invHorizon.value || 1));
+            if (window.WebableCurrency && typeof window.WebableCurrency.getCode === 'function') {
+              fd.append('display_currency', window.WebableCurrency.getCode());
+            }
+            try {
+              const res = await fetch('/instances/' + INSTANCE_ID + '/projection-report', {
+                method: 'POST',
+                body: fd,
+                credentials: 'same-origin'
+              });
+              if (!res.ok) throw new Error('pdf failed');
+              const blob = await res.blob();
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = 'webable-projection-' + INSTANCE_ID + '.pdf';
+              a.click();
+              URL.revokeObjectURL(url);
+            } catch (e) {
+              alert('Could not generate PDF. Check that you are logged in and dependencies are installed on the server.');
+            }
+          });
+        }
+      })();
+    </script>
+    {% endif %}
+
+    <section class="grid md:grid-cols-3 gap-4">
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <h3 class="font-semibold mb-2">Income Entries</h3>
+        {% for row in finance_items.incomes %}
+        <div class="flex items-center justify-between text-sm py-1 border-b border-slate-800">
+          <span>🟢 {{ row.name }} — <span data-eur="{{ row.amount }}">{{ row.amount }}</span>{% if row.recurrence %} <span class="text-[10px] text-slate-500">({{ row.recurrence }})</span>{% endif %}</span>
+          <button type="button" class="text-red-400 open-delete-modal" data-action="/instances/{{ instance.id }}/income/{{ row.id }}/delete" data-title="Delete {{ row.name }} - {{ row.amount }}?" data-text="This will remove it from your monthly income.">Delete</button>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <h3 class="font-semibold mb-2">Expense Entries</h3>
+        {% for row in finance_items.expenses %}
+        <div class="flex items-center justify-between text-sm py-1 border-b border-slate-800">
+          <span>🔴 {{ row.name }} — <span data-eur="{{ row.amount }}">{{ row.amount }}</span>{% if row.recurrence %} <span class="text-[10px] text-slate-500">({{ row.recurrence }})</span>{% endif %}</span>
+          <button type="button" class="text-red-400 open-delete-modal" data-action="/instances/{{ instance.id }}/expense/{{ row.id }}/delete" data-title="Delete {{ row.name }} - {{ row.amount }}?" data-text="This will remove it from your monthly expenses.">Delete</button>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <h3 class="font-semibold mb-2">One-Time Transactions</h3>
+        {% for row in finance_items.oneoffs %}
+        <div class="flex items-center justify-between text-sm py-1 border-b border-slate-800">
+          <span>📅 {{ row.date }} — {{ row.name }} — <span class="text-slate-400">{{ row.txn_type|default('expense') }}</span> / {{ row.category|default('Other') }} — <span data-eur="{{ row.amount }}">{{ row.amount }}</span></span>
+          <button type="button" class="text-red-400 open-delete-modal" data-action="/instances/{{ instance.id }}/oneoff/{{ row.id }}/delete" data-title="Delete {{ row.name }} - {{ row.amount }}?" data-text="This will remove it from one-time transactions.">Delete</button>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-3">
+      <h2 class="text-xl font-semibold">Ask AI about my finances</h2>
+      <form method="post" action="/instances/{{ instance.id }}/ai-chat" class="space-y-2">
+        <textarea name="question" placeholder="How much will I save in the next 12 months?" class="w-full h-24 px-3 py-2 rounded bg-slate-800" required></textarea>
+        <button class="px-3 py-2 rounded bg-indigo-500">Ask AI</button>
+      </form>
+      {% if ai_answer %}
+      <div class="border border-slate-800 rounded-xl p-4 whitespace-pre-wrap leading-relaxed">{{ ai_answer }}</div>
+      {% endif %}
+    </section>
+  </main>
+    </div>
+  </div>
+
+  <div id="confirmModal" class="hidden fixed inset-0 bg-black/60 items-center justify-center p-4 z-50">
+    <div class="bg-slate-900 border border-slate-700 rounded-xl p-5 max-w-md w-full space-y-3">
+      <h3 id="modalTitle" class="text-lg font-semibold">Confirm deletion</h3>
+      <p id="modalText" class="text-sm text-slate-300"></p>
+      <p class="text-xs text-slate-400">This action cannot be undone.</p>
+      <div class="flex justify-end gap-2">
+        <button type="button" onclick="closeDeleteModal()" class="px-3 py-2 rounded bg-slate-700">Cancel</button>
+        <form id="modalForm" method="post"><button type="submit" class="px-3 py-2 rounded bg-red-600">Delete</button></form>
+      </div>
+    </div>
+  </div>
+
+  <button id="globalAiFab" class="fixed bottom-6 right-6 bg-indigo-500 hover:bg-indigo-400 text-white rounded-full w-14 h-14 shadow-xl">AI</button>
+  <div id="globalAiPanel" class="hidden fixed bottom-24 right-6 w-[360px] max-w-[92vw] bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl z-40">
+    <div class="p-3 border-b border-slate-700 font-semibold">AI Financial Assistant</div>
+    <div id="globalAiMessages" class="p-3 h-72 overflow-y-auto space-y-3 text-sm"></div>
+    <form id="globalAiForm" class="p-3 border-t border-slate-700 space-y-2">
+      <textarea id="globalAiQuestion" class="w-full h-20 rounded bg-slate-800 p-2" placeholder="Ask about this workspace or your finances..." required></textarea>
+      <button class="w-full py-2 rounded bg-indigo-500">Send</button>
+    </form>
+  </div>
+
+  <script>
+    function openDeleteModal(action, title, text) {
+      document.getElementById('modalForm').action = action;
+      document.getElementById('modalTitle').innerText = title;
+      document.getElementById('modalText').innerText = text;
+      const modal = document.getElementById('confirmModal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+    function closeDeleteModal() {
+      const modal = document.getElementById('confirmModal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+    document.addEventListener('click', function (event) {
+      const trigger = event.target.closest('.open-delete-modal');
+      if (!trigger) return;
+      openDeleteModal(trigger.dataset.action || '', trigger.dataset.title || 'Confirm deletion', trigger.dataset.text || 'This action cannot be undone.');
+    });
+
+    const fab = document.getElementById('globalAiFab');
+    const panel = document.getElementById('globalAiPanel');
+    const messages = document.getElementById('globalAiMessages');
+    const form = document.getElementById('globalAiForm');
+    const questionInput = document.getElementById('globalAiQuestion');
+
+    function addMessage(role, text) {
+      const wrapper = document.createElement('div');
+      wrapper.className = role === 'assistant' ? 'bg-slate-800 rounded-xl p-3 whitespace-pre-wrap' : 'bg-indigo-500/20 border border-indigo-500/40 rounded-xl p-3 whitespace-pre-wrap';
+      wrapper.textContent = text;
+      messages.appendChild(wrapper);
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    fab.addEventListener('click', () => panel.classList.toggle('hidden'));
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const q = questionInput.value.trim();
+      if (!q) return;
+      addMessage('user', q);
+      questionInput.value = '';
+      const fd = new FormData();
+      fd.append('question', q);
+      fd.append('instance_id', '{{ instance.id }}');
+      try {
+        const res = await fetch('/ai/global', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'failed');
+        addMessage('assistant', data.answer || 'No answer returned.');
+      } catch {
+        addMessage('assistant', "I couldn't connect to the local AI assistant. Make sure Ollama is running and the qwen2.5-coder:3b model is installed.");
+      }
+    });
+
+    (function () {
+      var INSTANCE_ID = {{ instance.id }};
+      var txdeb;
+      function fmtTx(n) {
+        if (window.WebableCurrency && window.WebableCurrency.format) return window.WebableCurrency.format(n);
+        return String(Number(n).toFixed(2));
+      }
+      function runTxSearch() {
+        var el = document.getElementById('txresults');
+        if (!el) return;
+        var q = new URLSearchParams({
+          q: document.getElementById('txq').value,
+          category: document.getElementById('txcat').value,
+          sort: document.getElementById('txsort').value
+        });
+        fetch('/instances/' + INSTANCE_ID + '/transactions/search?' + q.toString(), { credentials: 'same-origin' })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            el.classList.remove('hidden');
+            if (!data.items || !data.items.length) {
+              el.innerHTML = '<p class="text-slate-500 p-2">No matching transactions.</p>';
+              return;
+            }
+            el.innerHTML = '<ul class="space-y-1">' + data.items.map(function (t) {
+              return '<li class="border-b border-slate-800 py-1">' + t.date + ' — ' + (t.name || '') + ' — ' + fmtTx(t.amount) + ' <span class="text-slate-500">' + (t.category || '') + '</span> <span class="text-slate-600 text-xs">' + (t.txn_type || '') + '</span></li>';
+            }).join('') + '</ul>';
+          })
+          .catch(function () {
+            el.classList.remove('hidden');
+            el.textContent = 'Search failed.';
+          });
+      }
+      var btn = document.getElementById('txsearch');
+      var inp = document.getElementById('txq');
+      if (btn) btn.addEventListener('click', runTxSearch);
+      if (inp) inp.addEventListener('input', function () {
+        clearTimeout(txdeb);
+        txdeb = setTimeout(runTxSearch, 450);
+      });
+    })();
+  </script>
+  <script src="/static/js/webable-month-year.js"></script>
+</body>
+</html>
