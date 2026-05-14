@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Webable — install locally</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0c1117;
+      --card: #151c26;
+      --border: #243044;
+      --text: #e8edf5;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent2: #34d399;
+      --warn: #fbbf24;
+      --radius: 14px;
+      --max: 720px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "DM Sans", system-ui, sans-serif;
+      background: radial-gradient(1200px 600px at 20% -10%, #1e293b 0%, transparent 55%),
+                  radial-gradient(900px 500px at 100% 0%, #0f172a 0%, transparent 50%),
+                  var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+      font-size: 1.02rem;
+    }
+    .wrap { max-width: var(--max); margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+    header { margin-bottom: 2rem; }
+    .badge {
+      display: inline-block;
+      font-size: 0.75rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--accent);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      padding: 0.25rem 0.6rem;
+      border-radius: 999px;
+      margin-bottom: 0.75rem;
+    }
+    h1 { font-size: clamp(1.75rem, 4vw, 2.25rem); font-weight: 700; margin: 0 0 0.5rem; letter-spacing: -0.02em; }
+    .lead { color: var(--muted); font-size: 1.05rem; margin: 0 0 1.5rem; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.35rem;
+      margin-bottom: 1rem;
+    }
+    .card h2 { font-size: 1.05rem; margin: 0 0 0.65rem; font-weight: 600; }
+    .card p { margin: 0.5rem 0; color: var(--muted); }
+    .card p:first-of-type { margin-top: 0; }
+    ul { margin: 0.35rem 0 0; padding-left: 1.2rem; color: var(--muted); }
+    li { margin: 0.35rem 0; }
+    pre, code {
+      font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, monospace;
+      font-size: 0.88rem;
+    }
+    pre {
+      background: #0a0e14;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem 1.1rem;
+      overflow-x: auto;
+      margin: 0.75rem 0 0;
+      color: #cbd5e1;
+    }
+    .note {
+      border-left: 3px solid var(--warn);
+      padding-left: 0.85rem;
+      margin-top: 0.75rem;
+      color: #fde68a;
+      font-size: 0.95rem;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    footer { margin-top: 2.5rem; font-size: 0.9rem; color: var(--muted); text-align: center; }
+    .grid { display: grid; gap: 1rem; }
+    @media (min-width: 560px) {
+      .grid.two { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="badge">Local-first</div>
+      <h1>Webable</h1>
+      <p class="lead">
+        Personal finance app that runs on <strong>your computer</strong>. This GitHub Pages site is only a
+        quick install guide — not the application itself.
+      </p>
+    </header>
+
+    <div class="grid two">
+      <div class="card">
+        <h2>What runs where</h2>
+        <p><strong>GitHub Pages</strong> hosts this documentation page only.</p>
+        <p><strong>The real app</strong> is a Python (FastAPI) server you run with Docker on your machine.</p>
+        <p><strong>Your data</strong> (SQLite databases, uploaded bank PDFs, caches) stays in a <code>data/</code> folder next to the project on your disk — not in the cloud.</p>
+      </div>
+      <div class="card">
+        <h2>What you need</h2>
+        <ul>
+          <li><a href="https://git-scm.com/downloads">Git</a></li>
+          <li><a href="https://docs.docker.com/get-docker/">Docker</a></li>
+          <li><a href="https://docs.docker.com/compose/install/">Docker Compose</a> (often included with Docker Desktop)</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Install and start</h2>
+      <p>In a terminal:</p>
+      <pre>git clone https://github.com/zeromeia0/webable.git
+cd webable
+docker compose up -d --build</pre>
+      <p>Then open the app in your browser:</p>
+      <pre>http://localhost:8080</pre>
+    </div>
+
+    <div class="grid two">
+      <div class="card">
+        <h2>Stop</h2>
+        <pre>docker compose down</pre>
+      </div>
+      <div class="card">
+        <h2>Restart</h2>
+        <pre>docker compose restart</pre>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Update</h2>
+      <pre>git pull
+docker compose up -d --build</pre>
+    </div>
+
+    <div class="card">
+      <h2>View logs</h2>
+      <pre>docker compose logs -f</pre>
+    </div>
+
+    <div class="card">
+      <h2>Backup</h2>
+      <p>Copy the entire <code>data/</code> folder somewhere safe (external drive, encrypted archive, etc.). That folder holds your app database and uploads.</p>
+      <div class="note">
+        <strong>Warning:</strong> Do not delete <code>data/</code> unless you intend to remove your local Webable data.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Privacy reminder</h2>
+      <p>Webable is intended for <strong>local</strong> use. Do not expose it to the public internet without authentication, HTTPS, a reverse proxy, and a proper security review.</p>
+    </div>
+
+    <footer>
+      <a href="https://github.com/zeromeia0/webable">Repository on GitHub</a>
+      · Webable
+    </footer>
+  </div>
+</body>
+</html>

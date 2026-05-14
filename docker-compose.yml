@@ -1,0 +1,21 @@
+# Local-first Webable: app runs in Docker; data stays on your machine in ./data
+services:
+  webable:
+    build: .
+    image: webable:local
+    container_name: webable
+    restart: unless-stopped
+    ports:
+      # Host port : container port (uvicorn listens on 8000 inside the container)
+      - "8080:8000"
+    environment:
+      APP_ENV: production
+      WEBABLE_DATA_DIR: /app/data
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s

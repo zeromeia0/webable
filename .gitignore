@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Secrets / local config
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# Flask / local instance
+instance/
+
+# App data (SQLite, uploads, caches) — never commit (keep empty dir placeholder)
+/data/**
+!/data/.gitkeep
+
+*.db
+*.sqlite
+*.sqlite3
+
+# Uploaded / generated artifacts (also under data/)
+*.pdf
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
+
+# Coverage
+htmlcov/
+.coverage
+coverage.xml

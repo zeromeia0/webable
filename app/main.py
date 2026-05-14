@@ -4,7 +4,6 @@ import json
 import logging
 import os
 from datetime import date, datetime
-from pathlib import Path
 from urllib import request as urlrequest
 from urllib.error import URLError
 from uuid import uuid4
@@ -19,7 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from .auth import SESSION_COOKIE, current_user, hash_password, issue_session, verify_password
-from .db import Base, SessionLocal, engine, get_db
+from .db import DATA_ROOT, Base, SessionLocal, engine, get_db
 from .models import BankStatement, CategoryBudget, DatabaseInstance, FinanceAuditLog, JobRun, MotherInsightEvent, User
 from .services import (
     analysis_service,
@@ -62,8 +61,7 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
 Base.metadata.create_all(bind=engine)
-ROOT = Path("data")
-ROOT.mkdir(exist_ok=True)
+ROOT = DATA_ROOT
 
 
 def ensure_schema_updates():
@@ -1433,6 +1431,11 @@ def ai_chat(instance_id: int, request: Request, question: str = Form(...), db: S
 
     run_job(db, user, inst, "ai_chat", _call_ai)
     return RedirectResponse(f"/instances/{instance_id}", status_code=302)
+
+
+@app.get("/health")
+def health():
+    return JSONResponse({"status": "ok"})
 
 
 @app.get("/health/live")
