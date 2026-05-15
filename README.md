@@ -43,6 +43,57 @@
 - **Git**
 - **Docker** and **Docker Compose** (Compose v2: `docker compose …`)
 
+### Downloading prequesities and running the program
+
+**Linux (Terminal):**
+
+```bash
+# Arch Linux
+sudo pacman -Syu git docker docker-compose
+sudo systemctl enable --now docker
+docker compose up -d --build
+
+# Debian / Ubuntu
+sudo apt update && sudo apt install -y git docker.io docker-compose-plugin
+sudo systemctl enable --now docker
+docker compose up -d --build
+
+# Fedora / RHEL / Rocky
+sudo dnf install -y git docker docker-compose-plugin
+sudo systemctl enable --now docker
+docker compose up -d --build
+
+# (Optional)Add your user to the docker group (avoids needing sudo every time)
+sudo usermod -aG docker $USER && newgrp docker
+```
+
+> **Windows (PowerShell):** paste this to install prerequisites and start the app:
+> ```powershell
+> winget install -e --id Git.Git
+> winget install -e --id Docker.DockerDesktop
+> # After Docker Desktop finishes installing, restart PowerShell, then:
+> git clone https://github.com/zeromeia0/webable.git
+> cd webable
+> docker compose up -d --build
+> ```
+<!-- > The `make` shortcuts require GNU Make (`winget install -e --id GnuWin32.Make`), otherwise use the raw `docker compose` commands directly. -->
+>
+
+Restart PowerShell after Docker Desktop finishes installing before running any `docker` commands.
+
+**macOS (Terminal):**
+
+```bash
+brew install --cask docker
+brew install git
+open /Applications/Docker.app
+```
+
+> If you don't have Homebrew: `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"`
+
+> Docker Desktop must be running (whale icon in the menu bar) before any `docker` command will work.
+
+
 ### Run with Docker (recommended)
 
 From the repository root:
@@ -54,6 +105,7 @@ docker compose up -d --build
 Open **http://localhost:8080** in your browser.
 
 The container runs **uvicorn** on port **8000** inside the network namespace; Compose maps **host 8080 → container 8000**. Data is stored under **`./data` on the host**, mounted at `/app/data` in the container (`WEBABLE_DATA_DIR=/app/data`).
+
 
 ### Optional Makefile shortcuts
 
@@ -67,15 +119,29 @@ make update   # git pull && docker compose up -d --build
 
 ### Run without Docker (developers)
 
+**macOS / Linux:**
+
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
 export WEBABLE_DATA_DIR="${PWD}/data"   # optional; defaults to ./data
 uvicorn webapp:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-Then open http://127.0.0.1:8000 (dev default port is **8000** unless you change it).
+**Windows (PowerShell):**
+
+```powershell
+git clone https://github.com/zeromeia0/webable.git
+cd webable
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+$env:WEBABLE_DATA_DIR = "$PWD\data"
+uvicorn webapp:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Then open http://127.0.0.1:8000.
 
 ## Technology stack
 
@@ -126,7 +192,7 @@ Response: `{"status":"ok"}`.
 - `./data` is mounted into the container, so SQLite files, `statements/`, and currency/market JSON caches survive **restarts**, **`docker compose down`**, and **rebuilds**.
 - The Docker **image** does not include your personal databases; first run creates an empty app database if none exists.
 - **Backup:** copy the whole `data/` folder somewhere safe.
-- **Warning:** deleting `data/` removes local app data (workspaces, uploads, app DB).
+- **Warning:** deleting `data/` removes all local app data (workspaces, uploads, app DB).
 
 ## Security notes
 
@@ -140,17 +206,19 @@ Response: `{"status":"ok"}`.
 2. Repository **Settings → Pages**.
 3. **Build and deployment**: Source = **Deploy from a branch**.
 4. Branch = **`main`** (or your default), folder = **`/docs`**.
-5. Save. After a short build, the site URL will look like `https://<user>.github.io/webable/` (exact URL is shown in Pages settings).
+5. Save. After a short build, the site URL will look like `https://<user>.github.io/webable/`.
 
 ## Troubleshooting
 
 | Problem | What to try |
 |---------|----------------|
 | **Port 8080 already in use** | Change host port in `docker-compose.yml` to e.g. `"8081:8000"`, then `docker compose up -d --build`. |
-| **Docker daemon not running** | Start Docker Desktop (macOS/Windows) or the `docker` service on Linux (`sudo systemctl start docker` on systemd distros). |
-| **Permission denied on Linux** | Add your user to the `docker` group, log out/in, or use `sudo docker compose …` as a temporary workaround. |
-| **`docker compose` not found** | Install Docker Compose v2 plugin, or use Docker Desktop which includes it. Legacy `docker-compose` (hyphen) may still work if installed separately. |
-| **Browser cannot open localhost** | Run `docker compose ps` — container should be “running”. Check logs: `docker compose logs -f`. Try `curl -sS http://127.0.0.1:8080/health`. |
+| **Docker daemon not running** | **Windows/macOS:** launch Docker Desktop and wait for it to finish starting. **Linux:** `sudo systemctl start docker`. |
+| **Permission denied on Linux** | Add your user to the `docker` group (`sudo usermod -aG docker $USER`), log out/in, or use `sudo docker compose …` temporarily. |
+| **`docker compose` not found** | **Windows/macOS:** open Docker Desktop — Compose v2 is bundled. **Linux:** install the `docker-compose-plugin` package. |
+| **File sharing / bind-mount errors (Windows or macOS)** | In Docker Desktop → Settings → Resources → File Sharing, make sure the drive or folder containing the project is shared. |
+| **WSL 2 not installed (Windows)** | Run `wsl --install` in an admin PowerShell, reboot, then reopen Docker Desktop. |
+| **Browser cannot open localhost** | Run `docker compose ps` — container should be "running". Check logs: `docker compose logs -f`. Try `curl -sS http://127.0.0.1:8080/health`. |
 | **Container exits immediately** | `docker compose logs webable` for tracebacks (e.g. missing bind mount permissions). |
 
 ## Repository hygiene (removing accidentally tracked junk)
@@ -158,7 +226,6 @@ Response: `{"status":"ok"}`.
 If `__pycache__`, `*.pyc`, `data/*.db`, or other local files were committed by mistake, **keep files on disk** but stop tracking them:
 
 ```bash
-# Remove from the Git index only (does not delete your working copy)
 git rm -r --cached __pycache__ app/__pycache__ app/services/__pycache__ tests/__pycache__ 2>/dev/null || true
 git rm -r --cached data/
 git rm --cached financas.db iefp_bolsas.db 2>/dev/null || true
