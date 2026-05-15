@@ -76,7 +76,6 @@ sudo usermod -aG docker $USER && newgrp docker
 > cd webable
 > docker compose up -d --build
 > ```
-<!-- > The `make` shortcuts require GNU Make (`winget install -e --id GnuWin32.Make`), otherwise use the raw `docker compose` commands directly. -->
 >
 
 Restart PowerShell after Docker Desktop finishes installing before running any `docker` commands.
@@ -116,6 +115,7 @@ make logs     # docker compose logs -f
 make restart  # docker compose restart
 make update   # git pull && docker compose up -d --build
 ```
+> The `make` shortcuts require GNU Make (`winget install -e --id GnuWin32.Make`), otherwise use the raw `docker compose` commands directly.
 
 ### Run without Docker (developers)
 
