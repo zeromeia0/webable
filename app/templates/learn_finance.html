@@ -136,5 +136,7 @@
   </main>
     </div>
   </div>
+  {% set fab_instance_id = primary_instance.id if primary_instance else none %}
+  {% include "partials/global_fab_stack.html" %}
 </body>
 </html>

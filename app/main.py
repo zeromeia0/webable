@@ -1650,6 +1650,28 @@ def savings_calculator_page(instance_id: int, request: Request, db: Session = De
     )
 
 
+@app.get("/instances/{instance_id}/api/savings/saved-expenses-summary")
+def api_savings_saved_expenses_summary(
+    instance_id: int,
+    request: Request,
+    month: str | None = None,
+    db: Session = Depends(get_db),
+):
+    from .services import savings_expenses_service
+
+    user = require_user(request, db)
+    inst = require_instance(db, user, instance_id)
+    try:
+        summary = savings_expenses_service.summarize_saved_expenses(inst.finance_db_path, month)
+        return JSONResponse(summary)
+    except Exception as exc:
+        log.warning("saved expenses summary failed: %s", exc)
+        return JSONResponse(
+            {"error": "Could not load saved expenses.", "has_data": False, "categories": {}, "monthly_total": 0},
+            status_code=500,
+        )
+
+
 @app.post("/instances/{instance_id}/savings-calculator/calculate")
 async def savings_calculator_calculate(instance_id: int, request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)

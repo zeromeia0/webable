@@ -1,0 +1,96 @@
+/* Fixed calculator + AI controls (shared across pages) */
+.webable-fab-ai {
+  position: fixed;
+  right: 1.5rem;
+  bottom: 1.5rem;
+  z-index: 30;
+}
+.webable-fab-calc {
+  position: fixed;
+  right: 1.5rem;
+  bottom: 5.75rem;
+  z-index: 30;
+}
+.webable-fab-btn {
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 9999px;
+  box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.35), 0 8px 10px -6px rgb(0 0 0 / 0.25);
+  font-weight: 600;
+  font-size: 0.75rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+.webable-fab-btn:active {
+  transform: scale(0.96);
+}
+.webable-fab-calc-btn {
+  background: rgb(14 165 233);
+  color: white;
+}
+.webable-fab-calc-btn:hover {
+  background: rgb(56 189 248);
+}
+.webable-fab-ai-btn {
+  background: rgb(99 102 241);
+  color: white;
+}
+.webable-fab-ai-btn:hover {
+  background: rgb(129 140 248);
+}
+.webable-fab-panel {
+  position: fixed;
+  right: 1.5rem;
+  z-index: 40;
+  max-width: min(92vw, 360px);
+  background: rgb(15 23 42);
+  border: 1px solid rgb(51 65 85);
+  border-radius: 1rem;
+  box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.55);
+}
+.webable-fab-calc-panel {
+  bottom: 11.75rem;
+  width: min(92vw, 280px);
+}
+.webable-fab-ai-panel {
+  bottom: 6.5rem;
+  width: min(92vw, 360px);
+}
+.webable-calc-display {
+  font-family: ui-monospace, monospace;
+  font-size: 1.35rem;
+  text-align: right;
+  min-height: 2rem;
+  word-break: break-all;
+}
+.webable-calc-error {
+  color: rgb(251 113 133);
+  font-size: 0.75rem;
+  min-height: 1rem;
+}
+.webable-calc-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.35rem;
+}
+.webable-calc-grid button {
+  padding: 0.55rem 0.25rem;
+  border-radius: 0.5rem;
+  background: rgb(30 41 59);
+  border: 1px solid rgb(51 65 85);
+  color: rgb(226 232 240);
+  font-size: 0.9rem;
+}
+.webable-calc-grid button:hover {
+  background: rgb(51 65 85);
+}
+.webable-calc-grid .wb-eq {
+  background: rgb(99 102 241);
+  border-color: rgb(99 102 241);
+}
+.webable-calc-grid .wb-eq:hover {
+  background: rgb(129 140 248);
+}

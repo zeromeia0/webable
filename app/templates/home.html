@@ -28,13 +28,7 @@
     </div>
   </main>
 
-  <button id="globalAiFab" class="fixed bottom-6 right-6 bg-indigo-500 hover:bg-indigo-400 text-white rounded-full w-14 h-14 shadow-xl">AI</button>
-  <div id="globalAiPanel" class="hidden fixed bottom-24 right-6 w-[360px] max-w-[92vw] bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl">
-    <div class="p-3 border-b border-slate-700 font-semibold">AI Financial Assistant</div>
-    <div id="globalAiMessages" class="p-3 h-72 overflow-y-auto space-y-3 text-sm"><div class="bg-slate-800 rounded-xl p-3">Login first to ask questions about your finances.</div></div>
-  </div>
-  <script>
-    document.getElementById('globalAiFab').addEventListener('click', () => document.getElementById('globalAiPanel').classList.toggle('hidden'));
-  </script>
+  {% set fab_ai_login_required = true %}
+  {% include "partials/global_fab_stack.html" %}
 </body>
 </html>

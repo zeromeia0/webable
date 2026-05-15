@@ -531,5 +531,7 @@
     })();
     document.querySelector('[data-preset="last_6_months"]').click();
   </script>
+  {% set fab_instance_id = instance.id %}
+  {% include "partials/global_fab_stack.html" %}
 </body>
 </html>

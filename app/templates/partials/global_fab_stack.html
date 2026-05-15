@@ -1,0 +1,58 @@
+{# Global calculator + AI floating controls. Optional: fab_instance_id, fab_ai_login_required #}
+<link rel="stylesheet" href="/static/css/webable-fab.css" />
+
+<button type="button" id="globalCalcFab" class="webable-fab-calc webable-fab-btn webable-fab-calc-btn" title="Quick calculator" aria-label="Open quick calculator" aria-expanded="false" aria-controls="globalCalcPanel">⌗</button>
+
+<div id="globalCalcPanel" class="webable-fab-panel webable-fab-calc-panel hidden" role="dialog" aria-label="Quick calculator">
+  <div class="flex items-center justify-between p-3 border-b border-slate-700">
+    <span class="font-semibold text-sm">Calculator</span>
+    <button type="button" id="globalCalcClose" class="text-slate-400 hover:text-slate-200 text-lg leading-none px-2" aria-label="Close calculator">&times;</button>
+  </div>
+  <div class="p-3 space-y-2">
+    <div id="globalCalcDisplay" class="webable-calc-display text-slate-100" aria-live="polite">0</div>
+    <div id="globalCalcError" class="webable-calc-error" aria-live="polite"></div>
+    <div class="webable-calc-grid">
+      <button type="button" data-calc="C" aria-label="Clear">C</button>
+      <button type="button" data-calc="⌫" aria-label="Backspace">⌫</button>
+      <button type="button" data-calc="(">(</button>
+      <button type="button" data-calc=")">)</button>
+      <button type="button" data-calc="7">7</button>
+      <button type="button" data-calc="8">8</button>
+      <button type="button" data-calc="9">9</button>
+      <button type="button" data-calc="/">/</button>
+      <button type="button" data-calc="4">4</button>
+      <button type="button" data-calc="5">5</button>
+      <button type="button" data-calc="6">6</button>
+      <button type="button" data-calc="*">*</button>
+      <button type="button" data-calc="1">1</button>
+      <button type="button" data-calc="2">2</button>
+      <button type="button" data-calc="3">3</button>
+      <button type="button" data-calc="-">-</button>
+      <button type="button" data-calc="0">0</button>
+      <button type="button" data-calc=".">.</button>
+      <button type="button" data-calc="=" class="wb-eq">=</button>
+      <button type="button" data-calc="+">+</button>
+    </div>
+  </div>
+</div>
+
+<button type="button" id="globalAiFab" class="webable-fab-ai webable-fab-btn webable-fab-ai-btn" title="AI financial assistant" aria-label="Open AI assistant" aria-expanded="false" aria-controls="globalAiPanel">AI</button>
+
+<div id="globalAiPanel" class="webable-fab-panel webable-fab-ai-panel hidden" role="dialog" aria-label="AI financial assistant">
+  <div class="p-3 border-b border-slate-700 font-semibold text-sm">AI financial assistant</div>
+  <div id="globalAiMessages" class="p-3 h-72 overflow-y-auto space-y-3 text-sm">
+    {% if fab_ai_login_required %}
+    <div class="bg-slate-800 rounded-xl p-3 text-slate-300">Log in first to ask questions about your finances.</div>
+    {% endif %}
+  </div>
+  <form id="globalAiForm" class="p-3 border-t border-slate-700 space-y-2{% if fab_ai_login_required %} opacity-50 pointer-events-none{% endif %}">
+    <textarea id="globalAiQuestion" class="w-full h-20 rounded-lg bg-slate-800 p-2 border border-slate-700 text-sm" placeholder="Ask about your finances..."{% if not fab_ai_login_required %} required{% endif %}></textarea>
+    <button type="submit" class="w-full py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 font-medium text-sm">Send</button>
+  </form>
+</div>
+
+<script>
+  window.__WEBABLE_FAB_INSTANCE_ID = {% if fab_instance_id is defined and fab_instance_id %}{{ fab_instance_id }}{% else %}null{% endif %};
+</script>
+<script src="/static/js/webable-calculator.js"></script>
+<script src="/static/js/webable-global-ai.js"></script>
