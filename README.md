@@ -116,8 +116,177 @@ curl -sS http://127.0.0.1:8080/health
 
 - All data lives in **`./data`** on your host machine (mounted into the container at `/app/data`).
 - It survives `docker compose down`, restarts, and image rebuilds — the Docker image itself contains no personal data.
-- **To back up:** copy the entire `data/` folder somewhere safe.
+- **To back up:** copy the entire `data/` folder somewhere safe, or run `bash scripts/webable-backup.sh`.
 - **Warning:** deleting `data/` permanently removes all workspaces, uploads, and databases.
+
+### Where your data is stored
+
+| What | Location |
+|------|----------|
+| App database (users, workspaces, jobs) | `data/webable_app.db` |
+| Workspace finance data | `data/user_<id>/*_financas.db` |
+| Workspace logic data (IEFP) | `data/user_<id>/*_logic.db` |
+| Bank statement PDFs | `data/statements/<workspace_id>/` |
+| FX cache | `data/fx_cache.json` |
+
+These paths are in `.gitignore` — they are **never** committed to git.
+
+### Safe migrations (additive only)
+
+Webable does **not** wipe your data on update. Schema changes use `ALTER TABLE` and new columns only.
+
+```bash
+# After backup (recommended):
+python3 -m app.cli migrate
+# or:
+bash scripts/webable-migrate.sh
+```
+
+---
+
+## Updating the App Without Losing Data
+
+Follow these steps when you pull a new version. **Do not delete `data/`** unless you intend to erase everything.
+
+### What NOT to delete
+
+- `data/` (all SQLite databases and uploads)
+- `data/webable_app.db`
+- `data/user_*` folders
+- `data/statements/`
+
+Never run `rm -rf data`, `docker volume prune` on your data volume, or replace `data/` with an empty folder from git.
+
+### Linux
+
+1. **Back up** (copy the whole folder):
+   ```bash
+   cd /path/to/webable
+   bash scripts/webable-backup.sh
+   ```
+   Backups are saved next to the project as `webable-data-backup-YYYYMMDD-HHMMSS/`.
+
+2. **Get new code:**
+   ```bash
+   git pull
+   ```
+
+3. **Install dependencies** (local dev only):
+   ```bash
+   source .venv/bin/activate   # if you use a venv
+   pip install -r requirements.txt
+   ```
+
+4. **Run migrations** (safe, additive):
+   ```bash
+   bash scripts/webable-migrate.sh
+   ```
+
+5. **Restart the app:**
+   ```bash
+   docker compose up -d --build
+   ```
+   Or use the all-in-one script: `bash scripts/webable-safe-update.sh`
+
+6. **Verify:** open http://localhost:8080 and confirm your workspaces and transactions are still there.
+
+**Restore from backup:** stop the app, remove or rename the broken `data/` folder, then:
+```bash
+cp -a webable-data-backup-YYYYMMDD-HHMMSS data
+docker compose up -d
+```
+
+### macOS
+
+1. **Back up:**
+   ```bash
+   cd ~/path/to/webable
+   bash scripts/webable-backup.sh
+   ```
+
+2. **Get new code:**
+   ```bash
+   git pull
+   ```
+
+3. **Install dependencies** (local dev):
+   ```bash
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   ```
+
+4. **Run migrations:**
+   ```bash
+   bash scripts/webable-migrate.sh
+   ```
+
+5. **Restart** (Docker Desktop must be running):
+   ```bash
+   docker compose up -d --build
+   ```
+   Or: `bash scripts/webable-safe-update.sh`
+
+6. **Verify** in the browser that your data is intact.
+
+**Restore from backup:**
+```bash
+docker compose down
+mv data data.broken
+cp -R webable-data-backup-YYYYMMDD-HHMMSS data
+docker compose up -d
+```
+
+### Windows (PowerShell)
+
+1. **Back up** (manual copy is fine if bash scripts are unavailable):
+   ```powershell
+   cd C:\path\to\webable
+   $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+   Copy-Item -Recurse -Force .\data "..\webable-data-backup-$stamp"
+   ```
+
+2. **Get new code:**
+   ```powershell
+   git pull
+   ```
+
+3. **Install dependencies** (local dev):
+   ```powershell
+   .\.venv\Scripts\activate
+   pip install -r requirements.txt
+   ```
+
+4. **Run migrations:**
+   ```powershell
+   $env:WEBABLE_DATA_DIR = ".\data"
+   python -m app.cli migrate
+   ```
+
+5. **Restart** (Docker Desktop running):
+   ```powershell
+   docker compose up -d --build
+   ```
+
+6. **Verify** at http://localhost:8080
+
+**Restore from backup:**
+```powershell
+docker compose down
+Rename-Item data data.broken
+Copy-Item -Recurse "..\webable-data-backup-YYYYMMDD-HHMMSS" data
+docker compose up -d
+```
+
+### Destructive commands (avoid)
+
+These **will** delete or replace user data:
+
+- `rm -rf data` or deleting `data\` in File Explorer
+- Replacing `data/` with an empty directory from the repo
+- `git clean -fdx` if it removes ignored `data/`
+- Deleting a workspace in the app UI (intentional, but permanent)
+
+Deleting a single workspace via the app only removes **that** workspace’s files, not other users’ data.
 
 ---
 

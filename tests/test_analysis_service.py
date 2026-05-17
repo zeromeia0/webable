@@ -58,6 +58,16 @@ class TestAnalysisService(unittest.TestCase):
         labels = {x["label"] for x in out["top_income_sources"]}
         self.assertTrue("Job" in labels or "Side" in labels)
 
+    def test_compound_savings_empty_without_projection(self):
+        out = analysis_service.build_workspace_analytics(
+            self.finance,
+            self.logic,
+            include_iefp=False,
+            current_month="2026-04",
+            projection_rows=[],
+        )
+        self.assertFalse(out["compound_savings"]["available"])
+
 
 if __name__ == "__main__":
     unittest.main()

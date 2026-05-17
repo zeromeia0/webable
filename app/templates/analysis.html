@@ -61,8 +61,10 @@
         <div class="relative h-72"><canvas id="anChartSav"></canvas></div>
       </div>
       <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 min-h-[300px]">
-        <h2 class="text-lg font-semibold mb-4">One-off spend by category (6 months)</h2>
-        <div class="relative h-72"><canvas id="anChartCat"></canvas></div>
+        <h2 class="text-lg font-semibold mb-4">Compound savings interest</h2>
+        <p id="anCompoundNote" class="text-xs text-slate-500 mb-3">Projected compound growth from your saved database calculation (100% of monthly savings at 5% annual return).</p>
+        <div class="relative h-72"><canvas id="anChartCompound"></canvas></div>
+        <p id="anCompoundEmpty" class="hidden text-sm text-slate-500 mt-2">Run a database calculation on your workspace to see compound savings growth here.</p>
       </div>
     </section>
 
@@ -150,7 +152,7 @@
       var eh = DATA.emergency_fund_hint || {};
       document.getElementById('anEmerg').textContent = (eh.note || '') + ' Recurring expenses ≈ ' + fmt(eh.recurring_expenses_monthly_eur || 0) + '/mo; rough 6-month cushion ≈ ' + fmt(eh.suggested_6m_buffer_eur || 0) + '.';
 
-      let savChart, catChart;
+      let savChart, compoundChart;
       function buildCharts() {
         var base = window.WebableCharts.darkChartOptions();
         var moneyTick = function (v) { return fmt(v); };
@@ -162,7 +164,17 @@
           type: 'line',
           data: {
             labels: labels,
-            datasets: [{ label: 'Net savings', data: savings, borderColor: '#34d399', backgroundColor: 'rgba(52,211,153,0.15)', tension: 0.25, fill: true }]
+            datasets: [{
+              label: 'Net savings',
+              data: savings,
+              borderColor: '#34d399',
+              backgroundColor: 'rgba(52,211,153,0.15)',
+              tension: 0.25,
+              fill: true,
+              pointRadius: 3,
+              pointHoverRadius: 6,
+              pointBackgroundColor: '#34d399'
+            }]
           },
           options: Object.assign({}, base, {
             scales: {
@@ -178,36 +190,56 @@
             }
           })
         });
-        var cats = DATA.category_spend_6m || [];
-        if (catChart) catChart.destroy();
-        catChart = new Chart(document.getElementById('anChartCat'), {
-          type: 'bar',
-          data: {
-            labels: cats.map(function (c) { return c.key; }),
-            datasets: [{ label: 'Spend', data: cats.map(function (c) { return c.total; }), backgroundColor: '#f472b6' }]
-          },
-          options: Object.assign({}, base, {
-            scales: {
-              x: { ticks: { color: '#94a3b8', maxRotation: 45, minRotation: 0 } },
-              y: { ticks: { color: '#94a3b8', callback: moneyTick } }
+        var compound = DATA.compound_savings || {};
+        var cmpLabels = compound.labels || [];
+        var cmpValues = compound.values || [];
+        var cmpEmpty = document.getElementById('anCompoundEmpty');
+        var cmpCanvas = document.getElementById('anChartCompound');
+        if (compoundChart) compoundChart.destroy();
+        if (compound.available && cmpLabels.length) {
+          if (cmpEmpty) cmpEmpty.classList.add('hidden');
+          if (cmpCanvas) cmpCanvas.parentElement.classList.remove('hidden');
+          compoundChart = new Chart(cmpCanvas, {
+            type: 'line',
+            data: {
+              labels: cmpLabels,
+              datasets: [{
+                label: 'Compound savings balance',
+                data: cmpValues,
+                borderColor: '#a78bfa',
+                backgroundColor: 'rgba(167,139,250,0.12)',
+                tension: 0.3,
+                fill: true,
+                pointRadius: 2,
+                pointHoverRadius: 5,
+                pointBackgroundColor: '#c4b5fd'
+              }]
             },
-            plugins: {
-              tooltip: Object.assign({}, base.plugins.tooltip, {
-                callbacks: {
-                  label: function (ctx) { return fmt(ctx.parsed.y); }
-                }
-              })
-            }
-          })
-        });
+            options: Object.assign({}, base, {
+              scales: {
+                x: { ticks: { color: '#94a3b8', maxRotation: 45, minRotation: 0, maxTicksLimit: 14 } },
+                y: { ticks: { color: '#94a3b8', callback: moneyTick } }
+              },
+              plugins: {
+                tooltip: Object.assign({}, base.plugins.tooltip, {
+                  callbacks: {
+                    label: function (ctx) { return 'Balance: ' + fmt(ctx.parsed.y); }
+                  }
+                })
+              }
+            })
+          });
+        } else {
+          if (cmpEmpty) cmpEmpty.classList.remove('hidden');
+        }
         window.webableRefreshCharts = function () {
           if (savChart && savChart.options.scales && savChart.options.scales.y) {
             savChart.options.scales.y.ticks.callback = moneyTick;
             savChart.update();
           }
-          if (catChart && catChart.options.scales && catChart.options.scales.y) {
-            catChart.options.scales.y.ticks.callback = moneyTick;
-            catChart.update();
+          if (compoundChart && compoundChart.options.scales && compoundChart.options.scales.y) {
+            compoundChart.options.scales.y.ticks.callback = moneyTick;
+            compoundChart.update();
           }
         };
       }

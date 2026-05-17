@@ -24,6 +24,7 @@ from .services import (
     analysis_service,
     bank_statement_service,
     currency_service,
+    db_safety,
     emergency_fund_service,
     instance_service,
     investment_pdf,
@@ -65,28 +66,8 @@ ROOT = DATA_ROOT
 
 
 def ensure_schema_updates():
-    with engine.begin() as conn:
-        user_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(users)")).fetchall()}
-        if "enable_iefp_mode" not in user_cols:
-            conn.execute(text("ALTER TABLE users ADD COLUMN enable_iefp_mode BOOLEAN NOT NULL DEFAULT 0"))
-
-        existing = {row[1] for row in conn.execute(text("PRAGMA table_info(database_instances)")).fetchall()}
-        if "health_status" not in existing:
-            conn.execute(text("ALTER TABLE database_instances ADD COLUMN health_status TEXT NOT NULL DEFAULT 'healthy'"))
-        if "last_sync_status" not in existing:
-            conn.execute(text("ALTER TABLE database_instances ADD COLUMN last_sync_status TEXT NOT NULL DEFAULT 'Waiting for execution'"))
-        if "last_activity_at" not in existing:
-            conn.execute(text("ALTER TABLE database_instances ADD COLUMN last_activity_at DATETIME"))
-
-        job_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(job_runs)")).fetchall()}
-        if "friendly_message" not in job_cols:
-            conn.execute(text("ALTER TABLE job_runs ADD COLUMN friendly_message TEXT NOT NULL DEFAULT ''"))
-        if "technical_logs" not in job_cols:
-            conn.execute(text("ALTER TABLE job_runs ADD COLUMN technical_logs TEXT NOT NULL DEFAULT ''"))
-        if "metrics_json" not in job_cols:
-            conn.execute(text("ALTER TABLE job_runs ADD COLUMN metrics_json TEXT NOT NULL DEFAULT '{}'"))
-        if "duration_ms" not in job_cols:
-            conn.execute(text("ALTER TABLE job_runs ADD COLUMN duration_ms INTEGER"))
+    """Backward-compatible alias; prefer db_safety.migrate_app_schema."""
+    db_safety.migrate_app_schema(engine)
 
 
 def seed_users():
@@ -422,15 +403,46 @@ def human_job_view(job: JobRun, show_iefp: bool) -> dict:
     }
 
 
-def build_mother_output(intelligence: dict, jobs: list[JobRun], metadata: dict) -> dict:
+def build_mother_output(
+    intelligence: dict,
+    jobs: list[JobRun],
+    metadata: dict,
+    instances: list[DatabaseInstance] | None = None,
+) -> dict:
     savings = []
     for job in jobs:
         m = parse_metrics(job.metrics_json)
         if isinstance(m, dict) and "estimated_savings" in m:
             savings.append(float(m["estimated_savings"]))
     avg = (sum(savings) / len(savings)) if savings else 0.0
-    total_income_items = sum(v.get("incomes", 0) for v in metadata.values())
-    total_expense_items = sum(v.get("expenses", 0) for v in metadata.values())
+    income_entries: list[dict] = []
+    expense_entries: list[dict] = []
+    for ins in instances or []:
+        items = instance_service.list_finance_items(ins.finance_db_path)
+        for row in items["incomes"]:
+            if row.get("ended"):
+                continue
+            income_entries.append(
+                {
+                    "name": str(row["name"]),
+                    "amount_eur": round(float(row["amount"]), 2),
+                    "workspace": ins.name if len(instances or []) > 1 else None,
+                }
+            )
+        for row in items["expenses"]:
+            if row.get("ended"):
+                continue
+            expense_entries.append(
+                {
+                    "name": str(row["name"]),
+                    "amount_eur": round(float(row["amount"]), 2),
+                    "workspace": ins.name if len(instances or []) > 1 else None,
+                }
+            )
+    income_entries.sort(key=lambda x: x["amount_eur"], reverse=True)
+    expense_entries.sort(key=lambda x: x["amount_eur"], reverse=True)
+    income_total = round(sum(e["amount_eur"] for e in income_entries), 2)
+    expense_total = round(sum(e["amount_eur"] for e in expense_entries), 2)
     return {
         "headline": "Your financial activity is healthy and consistent." if avg >= 0 else "Your financial balance needs attention.",
         "cards": [
@@ -440,9 +452,13 @@ def build_mother_output(intelligence: dict, jobs: list[JobRun], metadata: dict) 
                 "value_eur": round(avg, 2),
                 "tone": "positive" if avg >= 0 else "negative",
             },
-            {"label": "Income Entries", "value": str(total_income_items), "tone": "info"},
-            {"label": "Expense Entries", "value": str(total_expense_items), "tone": "negative"},
+            {"label": "Income Entries", "value": str(len(income_entries)), "tone": "info"},
+            {"label": "Expense Entries", "value": str(len(expense_entries)), "tone": "negative"},
         ],
+        "income_entries": income_entries,
+        "expense_entries": expense_entries,
+        "income_entries_total_eur": income_total,
+        "expense_entries_total_eur": expense_total,
         "sections": [
             {"title": "Insights", "items": [f"Execution success rate: {intelligence['success_rate']}%", f"Tracked financial items: {intelligence['total_data_points']}"]},
             {"title": "Recommendations", "items": ["Track expenses every week.", "Run monthly projections often.", "Use AI assistant for planning advice."]},
@@ -731,7 +747,7 @@ def run_job(db: Session, user: User, inst: DatabaseInstance, job_type: str, call
     return job
 
 
-ensure_schema_updates()
+db_safety.run_safe_startup_migrations(engine)
 seed_users()
 
 
@@ -791,7 +807,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     jobs = db.query(JobRun).join(DatabaseInstance).filter(DatabaseInstance.owner_id == user.id).order_by(JobRun.started_at.desc()).limit(20).all()
     intelligence = dashboard_intelligence(instances, jobs, metadata)
     jobs_view = [human_job_view(job, user.enable_iefp_mode) for job in jobs]
-    mother_output = build_mother_output(intelligence, jobs, metadata)
+    mother_output = build_mother_output(intelligence, jobs, metadata, instances)
     chart_data = build_dashboard_chart_data(db, user, instances)
     insights = db.query(MotherInsightEvent).filter(MotherInsightEvent.owner_id == user.id).order_by(MotherInsightEvent.created_at.desc()).limit(10).all()
     primary = instances[0] if instances else None
@@ -1004,7 +1020,10 @@ def reports_pdf_export(
     rex = sum(float(i["amount"]) for i in items["expenses"])
     start_d, end_d = resolve_report_date_range(preset, start_date, end_date)
     report = spending_report.build_spending_report(oneoffs, rin, rex, start_d, end_d)
-    label = reports_range_label(preset, start_d, end_d)
+    if report.get("range") and report["range"].get("start") and report["range"].get("end"):
+        label = reports_range_label(None, date.fromisoformat(report["range"]["start"]), date.fromisoformat(report["range"]["end"]))
+    else:
+        label = reports_range_label(preset, start_d, end_d)
     cur, rates, fx_at = pdf_currency_context(display_currency)
     try:
         pdf_bytes = reports_pdf.build_reports_pdf(
@@ -1295,6 +1314,57 @@ def projection_report_pdf(
     )
 
 
+@app.post("/instances/{instance_id}/results-report")
+def results_summary_pdf(
+    instance_id: int,
+    request: Request,
+    job_id: int | None = Form(None),
+    display_currency: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    """Export only the Results summary (no investment charts)."""
+    from app.services import projection_pdf
+
+    user = require_user(request, db)
+    inst = require_instance(db, user, instance_id)
+    if job_id is not None:
+        job = db.query(JobRun).filter(JobRun.id == int(job_id), JobRun.instance_id == inst.id).first()
+    else:
+        job = db.query(JobRun).filter(JobRun.instance_id == inst.id).order_by(JobRun.started_at.desc()).first()
+    if not job or job.status != "done":
+        raise HTTPException(status_code=404, detail="No completed result to export.")
+    output_view = human_job_view(job, user.enable_iefp_mode)
+    details = {
+        "cards": output_view.get("cards") or [],
+        "sections": output_view.get("sections") or [],
+        "bars": output_view.get("bars") or [],
+        "recommendation": output_view.get("recommendation") or "",
+    }
+    cur, rates, fx_at = pdf_currency_context(display_currency)
+    try:
+        pdf_bytes = projection_pdf.build_results_summary_pdf(
+            workspace_name=inst.name,
+            result_title=str(output_view.get("title", "Results")),
+            result_subtitle=str(output_view.get("subtitle", "")),
+            output_details=details,
+            display_currency=cur,
+            fx_rates=rates,
+            fx_updated_at=fx_at,
+        )
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="PDF export needs optional packages: pip install reportlab matplotlib pypdf",
+        ) from exc
+    stamp = (job.started_at or datetime.utcnow()).strftime("%Y%m%d-%H%M")
+    fname = f"webable-results-{instance_id}-{stamp}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
 @app.post("/ai/global")
 def ai_global(request: Request, question: str = Form(...), instance_id: int | None = Form(None), db: Session = Depends(get_db)):
     user = current_user(request, db)
@@ -1317,7 +1387,7 @@ def add_income(
     user = require_user(request, db)
     inst = require_instance(db, user, instance_id)
     run_job(db, user, inst, "add_income", lambda: instance_service.add_income(inst.finance_db_path, nome, valor, recurrence=recurrence))
-    return RedirectResponse(f"/instances/{instance_id}", status_code=302)
+    return RedirectResponse(f"/instances/{instance_id}#workspace-data", status_code=302)
 
 
 @app.post("/instances/{instance_id}/expense")
@@ -1332,7 +1402,7 @@ def add_expense(
     user = require_user(request, db)
     inst = require_instance(db, user, instance_id)
     run_job(db, user, inst, "add_expense", lambda: instance_service.add_expense(inst.finance_db_path, nome, valor, recurrence=recurrence))
-    return RedirectResponse(f"/instances/{instance_id}", status_code=302)
+    return RedirectResponse(f"/instances/{instance_id}#workspace-data", status_code=302)
 
 
 @app.post("/instances/{instance_id}/oneoff")
@@ -1356,7 +1426,7 @@ def add_oneoff(
         return instance_service.add_oneoff(inst.finance_db_path, data, nome, valor, txn_type=tt, category=category)
 
     run_job(db, user, inst, "add_oneoff", _add)
-    return RedirectResponse(f"/instances/{instance_id}", status_code=302)
+    return RedirectResponse(f"/instances/{instance_id}#workspace-data", status_code=302)
 
 
 @app.post("/instances/{instance_id}/income/{item_id}/delete")
@@ -1404,7 +1474,7 @@ def calculate_month(instance_id: int, request: Request, month: str = Form(...), 
     user = require_user(request, db)
     inst = require_instance(db, user, instance_id)
     run_job(db, user, inst, "calculate_month", lambda: instance_service.month_summary(inst.finance_db_path, inst.logic_db_path, month, include_iefp=bool(user.enable_iefp_mode)))
-    return RedirectResponse(f"/instances/{instance_id}", status_code=302)
+    return RedirectResponse(f"/instances/{instance_id}#projection-results", status_code=302)
 
 
 @app.post("/instances/{instance_id}/calculate-range")
@@ -1412,7 +1482,7 @@ def calculate_range(instance_id: int, request: Request, start_month: str = Form(
     user = require_user(request, db)
     inst = require_instance(db, user, instance_id)
     run_job(db, user, inst, "calculate_range", lambda: instance_service.long_range(inst.finance_db_path, inst.logic_db_path, start_month, months, include_iefp=bool(user.enable_iefp_mode)))
-    return RedirectResponse(f"/instances/{instance_id}", status_code=302)
+    return RedirectResponse(f"/instances/{instance_id}#projection-results", status_code=302)
 
 
 @app.post("/instances/{instance_id}/ai-chat")
@@ -1538,7 +1608,7 @@ def market_watch_page(instance_id: int, request: Request, db: Session = Depends(
     )
 
 
-def _projection_summary_for_analysis(db: Session, inst: DatabaseInstance) -> dict:
+def _projection_rows_for_analysis(db: Session, inst: DatabaseInstance) -> list[dict]:
     job = (
         db.query(JobRun)
         .filter(
@@ -1550,11 +1620,12 @@ def _projection_summary_for_analysis(db: Session, inst: DatabaseInstance) -> dic
         .first()
     )
     if not job:
-        return {"available": False}
-    metrics = parse_metrics(job.metrics_json)
-    if not isinstance(metrics, list):
-        return {"available": False}
-    rows = [r for r in metrics if isinstance(r, dict) and "month" in r]
+        return []
+    return projection_finance.parse_projection_rows(parse_metrics(job.metrics_json))
+
+
+def _projection_summary_for_analysis(db: Session, inst: DatabaseInstance) -> dict:
+    rows = _projection_rows_for_analysis(db, inst)
     if not rows:
         return {"available": False}
     last = rows[-1]
@@ -1579,6 +1650,7 @@ def analysis_data(instance_id: int, request: Request, db: Session = Depends(get_
         .first()
     )
     latest_m = latest_stmt.statement_month if latest_stmt else None
+    proj_rows = _projection_rows_for_analysis(db, inst)
     data = analysis_service.build_workspace_analytics(
         inst.finance_db_path,
         inst.logic_db_path,
@@ -1587,6 +1659,7 @@ def analysis_data(instance_id: int, request: Request, db: Session = Depends(get_
         statement_count=stmt_count,
         latest_statement_month=latest_m,
         projection_summary=_projection_summary_for_analysis(db, inst),
+        projection_rows=proj_rows,
     )
     return JSONResponse(data)
 
@@ -1605,6 +1678,7 @@ def analysis_page(instance_id: int, request: Request, db: Session = Depends(get_
         .first()
     )
     latest_m = latest_stmt.statement_month if latest_stmt else None
+    proj_rows = _projection_rows_for_analysis(db, inst)
     analysis_data_payload = analysis_service.build_workspace_analytics(
         inst.finance_db_path,
         inst.logic_db_path,
@@ -1613,6 +1687,7 @@ def analysis_page(instance_id: int, request: Request, db: Session = Depends(get_
         statement_count=stmt_count,
         latest_statement_month=latest_m,
         projection_summary=_projection_summary_for_analysis(db, inst),
+        projection_rows=proj_rows,
     )
     return templates.TemplateResponse(
         request=request,

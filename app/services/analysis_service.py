@@ -8,7 +8,7 @@ from typing import Any
 
 from dateutil.relativedelta import relativedelta
 
-from app.services import instance_service, spending_report
+from app.services import instance_service, projection_finance, spending_report
 
 
 def _month_keys_ending(n: int, end_month: str) -> list[str]:
@@ -31,6 +31,31 @@ def _top_n_from_pairs(pairs: list[tuple[str, float]], n: int = 3) -> list[dict[s
     return [{"label": a, "amount_eur": round(b, 2), "pct": round(100.0 * b / total, 1)} for a, b in ranked]
 
 
+def _compound_savings_series(projection_rows: list[dict]) -> dict[str, Any]:
+    """Compound growth on projected monthly savings (same engine as workspace investment chart)."""
+    if not projection_rows:
+        return {"labels": [], "values": [], "available": False}
+    horizon = max(1.0, min(40.0, len(projection_rows) / 12.0 + 2.0))
+    sim = projection_finance.run_monthly_simulation(
+        projection_rows,
+        invest_pct=100.0,
+        annual_rate_pct=5.0,
+        horizon_years=horizon,
+    )
+    rows = sim.get("rows") or []
+    if not rows:
+        return {"labels": [], "values": [], "available": False}
+    labels = [str(r.get("month", "")) for r in rows]
+    values = [round(float(r.get("investment_balance", 0) or 0), 2) for r in rows]
+    return {
+        "labels": labels,
+        "values": values,
+        "available": True,
+        "annual_rate_pct": 5.0,
+        "invest_pct": 100.0,
+    }
+
+
 def build_workspace_analytics(
     finance_db: str,
     logic_db: str,
@@ -40,6 +65,7 @@ def build_workspace_analytics(
     statement_count: int = 0,
     latest_statement_month: str | None = None,
     projection_summary: dict[str, Any] | None = None,
+    projection_rows: list[dict] | None = None,
 ) -> dict[str, Any]:
     items = instance_service.list_finance_items(finance_db)
     cur = instance_service.month_summary(finance_db, logic_db, current_month, include_iefp=include_iefp)
@@ -114,6 +140,8 @@ def build_workspace_analytics(
     elif mom_pct is not None and mom_pct < -15:
         insights.append(f"Savings vs prior month moved about {mom_pct:.0f}% — worth checking what changed.")
 
+    compound = _compound_savings_series(projection_rows or [])
+
     return {
         "current_month": current_month,
         "headline_savings_eur": round(cur_sav, 2),
@@ -133,5 +161,6 @@ def build_workspace_analytics(
         },
         "statements": {"count": int(statement_count), "latest_month": latest_statement_month},
         "projection": projection_summary or {"available": False},
+        "compound_savings": compound,
         "insights": insights[:5],
     }

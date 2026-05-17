@@ -377,3 +377,100 @@ def build_projection_report_pdf(
         fx_rates=fx_rates,
     )
     return _merge_pdf_bytes([buf_rl.getvalue(), chart_pdf])
+
+
+def build_results_summary_pdf(
+    *,
+    workspace_name: str,
+    result_title: str,
+    result_subtitle: str,
+    output_details: dict,
+    display_currency: str = "EUR",
+    fx_rates: dict[str, float] | None = None,
+    fx_updated_at: str | None = None,
+) -> bytes:
+    """Lightweight Results-only PDF (no investment charts or simulation tables)."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import inch
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    from app.services import currency_service
+    from app.services.pdf_common import pdf_styles, table_style_header
+
+    title, h2, body, small = pdf_styles()
+    cur = currency_service.normalize_currency(display_currency)
+    rmap = dict(fx_rates or {})
+
+    def m(vf: float) -> str:
+        return currency_service.format_money(float(vf), cur, rmap)
+
+    story: list = []
+    story.append(Paragraph("Database calculation — results summary", title))
+    story.append(
+        Paragraph(
+            f"<b>Workspace:</b> {escape(workspace_name)}<br/>"
+            f"<b>Result:</b> {escape(result_title)}<br/>"
+            f"<b>Detail:</b> {escape(result_subtitle)}<br/>"
+            f"<b>Generated:</b> {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}",
+            body,
+        )
+    )
+    story.append(Paragraph(escape(currency_service.format_meta_line(cur, fx_updated_at)), small))
+    story.append(Spacer(1, 0.14 * inch))
+
+    cards = output_details.get("cards") or []
+    if cards:
+        story.append(Paragraph("Key metrics", h2))
+        card_data = [["Metric", "Value"]]
+        for c in cards:
+            card_data.append([str(c.get("label", "")), str(c.get("value", ""))])
+        t_cards = Table(card_data, colWidths=[2.6 * inch, 3.4 * inch])
+        t_cards.setStyle(TableStyle(table_style_header()))
+        story.append(t_cards)
+        story.append(Spacer(1, 0.12 * inch))
+
+    sections = output_details.get("sections") or []
+    for sec in sections:
+        sec_title = str(sec.get("title", "Details"))
+        items = sec.get("items") or []
+        if not items:
+            continue
+        story.append(Paragraph(escape(sec_title), h2))
+        for it in items:
+            story.append(Paragraph(f"• {escape(str(it))}", body))
+        story.append(Spacer(1, 0.08 * inch))
+
+    bars = output_details.get("bars") or []
+    if bars:
+        story.append(Paragraph("Projection trend (monthly savings)", h2))
+        bar_rows = [["Month", "Estimated savings"]]
+        for b in bars:
+            label = str(b.get("label", ""))
+            if b.get("value_eur") is not None:
+                val = m(float(b["value_eur"]))
+            else:
+                val = str(b.get("value", ""))
+            bar_rows.append([label, val])
+        t_bars = Table(bar_rows, repeatRows=1, colWidths=[1.8 * inch, 2.2 * inch])
+        t_bars.setStyle(TableStyle(table_style_header("#312e81")))
+        story.append(t_bars)
+        story.append(Spacer(1, 0.1 * inch))
+
+    rec = output_details.get("recommendation") or ""
+    if rec:
+        story.append(Paragraph("Summary insight", h2))
+        story.append(Paragraph(escape(rec), body))
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=A4,
+        rightMargin=52,
+        leftMargin=52,
+        topMargin=52,
+        bottomMargin=48,
+        title="Webable results summary",
+        author="Webable",
+    )
+    doc.build(story)
+    return buf.getvalue()

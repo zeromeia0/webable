@@ -120,10 +120,42 @@ def build_reports_pdf(
     top_table("Top descriptions / merchants", report.get("top_merchants"))
 
     buf_rl = io.BytesIO()
-    doc = SimpleDocTemplate(buf_rl, pagesize=A4, rightMargin=48, leftMargin=48, topMargin=48, bottomMargin=48)
+    doc = SimpleDocTemplate(
+        buf_rl,
+        pagesize=A4,
+        rightMargin=52,
+        leftMargin=52,
+        topMargin=52,
+        bottomMargin=48,
+        title="Webable spending report",
+        author="Webable",
+    )
     doc.build(story)
-    chart_pdf = _reports_matplotlib_charts(report, display_currency=display_currency, fx_rates=fx_rates)
+    try:
+        chart_pdf = _reports_matplotlib_charts(report, display_currency=display_currency, fx_rates=fx_rates)
+    except Exception as exc:
+        import logging
+
+        logging.getLogger("webable.reports_pdf").exception("Chart PDF generation failed: %s", exc)
+        chart_pdf = _empty_chart_pdf_page("Charts could not be generated. Check server logs and matplotlib install.")
+    if not chart_pdf or not chart_pdf.startswith(b"%PDF"):
+        chart_pdf = _empty_chart_pdf_page("No chart data for this time range.")
     return _merge_pdf_bytes([buf_rl.getvalue(), chart_pdf])
+
+
+def _empty_chart_pdf_page(message: str) -> bytes:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    buf = io.BytesIO()
+    fig, ax = plt.subplots(figsize=(8.27, 3))
+    ax.text(0.5, 0.5, message, ha="center", va="center", fontsize=11, color="#475569", wrap=True)
+    ax.axis("off")
+    fig.savefig(buf, format="pdf", bbox_inches="tight", pad_inches=0.4)
+    plt.close(fig)
+    return buf.getvalue()
 
 
 def _reports_matplotlib_charts(
@@ -146,54 +178,102 @@ def _reports_matplotlib_charts(
 
     y_label = cur if cur != "EUR" else "EUR"
     monthly = report.get("monthly") or []
-    if not monthly:
+    cats = report.get("top_categories") or []
+    chart_parts: list[bytes] = []
+
+    if not monthly and not cats:
         buf = io.BytesIO()
-        fig, ax = plt.subplots(figsize=(8, 2))
-        ax.text(0.5, 0.5, "No data in selected range", ha="center", va="center")
+        fig, ax = plt.subplots(figsize=(8.27, 3))
+        ax.text(0.5, 0.5, "No data in selected range", ha="center", va="center", fontsize=11, color="#475569")
         ax.axis("off")
-        fig.savefig(buf, format="pdf", bbox_inches="tight")
+        fig.savefig(buf, format="pdf", bbox_inches="tight", pad_inches=0.4)
         plt.close(fig)
         return buf.getvalue()
 
-    labels = [m["month"] for m in monthly]
-    spend = [cv(float(m.get("oneoff_expenses", 0))) for m in monthly]
-    tot_exp = [cv(float(m.get("total_expenses", 0))) for m in monthly]
-    tot_inc = [cv(float(m.get("total_income", 0))) for m in monthly]
+    if monthly:
+        labels = [m["month"] for m in monthly]
+        x_idx = list(range(len(labels)))
+        spend = [cv(float(m.get("oneoff_expenses", 0))) for m in monthly]
+        tot_exp = [cv(float(m.get("total_expenses", 0))) for m in monthly]
+        tot_inc = [cv(float(m.get("total_income", 0))) for m in monthly]
+        step = max(1, len(labels) // 14)
+        tick_pos = x_idx[::step]
+        tick_lbl = [labels[i] for i in range(0, len(labels), step)]
 
-    fig1, (ax1, ax2) = plt.subplots(2, 1, figsize=(11.69, 8.27))
-    ax1.bar(range(len(labels)), spend, color="#f87171", label="One-off expenses")
-    ax1.set_title("One-off spending over time", fontsize=12)
-    ax1.set_ylabel(y_label)
-    step = max(1, len(labels) // 16)
-    ax1.set_xticks(range(0, len(labels), step))
-    ax1.set_xticklabels([labels[i] for i in range(0, len(labels), step)], rotation=40, ha="right", fontsize=7)
-    ax1.grid(True, axis="y", alpha=0.3)
+        fig1, axes = plt.subplots(3, 1, figsize=(11.69, 11.69), constrained_layout=True)
+        ax1, ax_line, ax2 = axes
+        ax1.bar(x_idx, spend, color="#f87171", edgecolor="#7f1d1d", linewidth=0.2)
+        ax1.set_title("One-off spending over time (monthly bars)", fontsize=12, pad=10)
+        ax1.set_ylabel(y_label, fontsize=10)
+        ax1.set_xticks(tick_pos)
+        ax1.set_xticklabels(tick_lbl, rotation=35, ha="right", fontsize=7)
+        ax1.grid(True, axis="y", alpha=0.35, linestyle=":")
+        ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:,.0f}"))
 
-    ax2.plot(range(len(labels)), tot_inc, color="#34d399", label="Total income", linewidth=2)
-    ax2.plot(range(len(labels)), tot_exp, color="#f87171", label="Total expenses", linewidth=2)
-    ax2.set_title("Income vs expenses (incl. recurring)", fontsize=12)
-    ax2.legend(loc="upper left", fontsize=8)
-    ax2.set_ylabel(y_label)
-    ax2.set_xticks(range(0, len(labels), step))
-    ax2.set_xticklabels([labels[i] for i in range(0, len(labels), step)], rotation=40, ha="right", fontsize=7)
-    ax2.grid(True, alpha=0.3)
+        ax_line.plot(
+            x_idx,
+            spend,
+            color="#dc2626",
+            linewidth=2.4,
+            marker="o",
+            markersize=5,
+            markevery=1 if len(x_idx) <= 24 else max(1, len(x_idx) // 24),
+        )
+        ax_line.set_title("One-off spending over time (line)", fontsize=12, pad=10)
+        ax_line.set_ylabel(y_label, fontsize=10)
+        ax_line.set_xticks(tick_pos)
+        ax_line.set_xticklabels(tick_lbl, rotation=35, ha="right", fontsize=7)
+        ax_line.grid(True, alpha=0.35, linestyle=":")
+        ax_line.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:,.0f}"))
 
-    buf1 = io.BytesIO()
-    fig1.tight_layout()
-    fig1.savefig(buf1, format="pdf", bbox_inches="tight")
-    plt.close(fig1)
+        ax2.plot(
+            x_idx,
+            tot_inc,
+            color="#059669",
+            label="Total income",
+            linewidth=2.2,
+            marker="o",
+            markersize=4,
+            markevery=max(1, len(x_idx) // 12),
+        )
+        ax2.plot(
+            x_idx,
+            tot_exp,
+            color="#dc2626",
+            label="Total expenses",
+            linewidth=2.2,
+            marker="o",
+            markersize=4,
+            markevery=max(1, len(x_idx) // 12),
+        )
+        ax2.set_title("Income vs expenses (incl. recurring)", fontsize=12, pad=10)
+        ax2.legend(loc="upper left", fontsize=8, framealpha=0.92)
+        ax2.set_ylabel(y_label, fontsize=10)
+        ax2.set_xticks(tick_pos)
+        ax2.set_xticklabels(tick_lbl, rotation=35, ha="right", fontsize=7)
+        ax2.grid(True, alpha=0.35, linestyle=":")
+        ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:,.0f}"))
 
-    cats = report.get("top_categories") or []
+        buf1 = io.BytesIO()
+        fig1.savefig(buf1, format="pdf", bbox_inches="tight", pad_inches=0.35)
+        plt.close(fig1)
+        chart_parts.append(buf1.getvalue())
+
     if cats:
-        fig2, ax3 = plt.subplots(figsize=(8.27, 6))
+        fig2, ax3 = plt.subplots(figsize=(8.27, max(4.5, min(10, 0.45 * len(cats) + 2))))
         names = [c["key"] for c in cats]
         vals = [cv(float(c["total"])) for c in cats]
-        ax3.barh(names[::-1], vals[::-1], color="#6366f1")
-        ax3.set_xlabel(y_label)
-        ax3.set_title("Top spending categories", fontsize=12)
+        ax3.barh(names[::-1], vals[::-1], color="#6366f1", edgecolor="#312e81", linewidth=0.2)
+        ax3.set_xlabel(y_label, fontsize=10)
+        ax3.set_title("Top spending categories", fontsize=12, pad=10)
+        ax3.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:,.0f}"))
+        ax3.grid(True, axis="x", alpha=0.3, linestyle=":")
         buf2 = io.BytesIO()
         fig2.tight_layout()
-        fig2.savefig(buf2, format="pdf", bbox_inches="tight")
+        fig2.savefig(buf2, format="pdf", bbox_inches="tight", pad_inches=0.35)
         plt.close(fig2)
-        return _merge_pdf_bytes([buf1.getvalue(), buf2.getvalue()])
-    return buf1.getvalue()
+        chart_parts.append(buf2.getvalue())
+
+    if len(chart_parts) == 1:
+        return chart_parts[0]
+    return _merge_pdf_bytes(chart_parts)

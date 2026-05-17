@@ -7,6 +7,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="/static/js/webable-currency.js"></script>
   <script src="/static/js/webable-charts.js"></script>
+  <script src="/static/js/webable-reports.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen">
@@ -69,12 +70,12 @@
       <div class="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-4 xl:gap-6">
         <div class="flex flex-wrap items-center gap-2 min-w-0">
           <span class="hidden sm:inline text-xs text-slate-500 mr-1">Presets</span>
-          <button type="button" data-preset="last_7_days" class="preset px-3 py-2 rounded-lg bg-slate-800 text-sm border border-slate-700 hover:border-indigo-500/50 whitespace-nowrap">Last 7 days</button>
-          <button type="button" data-preset="last_30_days" class="preset px-3 py-2 rounded-lg bg-slate-800 text-sm border border-slate-700 hover:border-indigo-500/50 whitespace-nowrap">Last 30 days</button>
-          <button type="button" data-preset="last_3_months" class="preset px-3 py-2 rounded-lg bg-slate-800 text-sm border border-slate-700 hover:border-indigo-500/50 whitespace-nowrap">Last 3 months</button>
-          <button type="button" data-preset="last_6_months" class="preset px-3 py-2 rounded-lg bg-slate-800 text-sm border border-slate-700 hover:border-indigo-500/50 whitespace-nowrap">Last 6 months</button>
-          <button type="button" data-preset="last_12_months" class="preset px-3 py-2 rounded-lg bg-slate-800 text-sm border border-slate-700 hover:border-indigo-500/50 whitespace-nowrap">Last 12 months</button>
-          <button type="button" data-preset="all_time" class="preset px-3 py-2 rounded-lg bg-slate-800 text-sm border border-slate-700 hover:border-indigo-500/50 whitespace-nowrap">All time</button>
+          <button type="button" data-preset="last_7_days" class="preset px-3 py-2 rounded-lg bg-slate-800 text-sm border border-slate-700 hover:border-indigo-500/50 hover:bg-slate-700 active:bg-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 whitespace-nowrap transition-colors">Last 7 days</button>
+          <button type="button" data-preset="last_30_days" class="preset px-3 py-2 rounded-lg bg-slate-800 text-sm border border-slate-700 hover:border-indigo-500/50 hover:bg-slate-700 active:bg-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 whitespace-nowrap transition-colors">Last 30 days</button>
+          <button type="button" data-preset="last_3_months" class="preset px-3 py-2 rounded-lg bg-slate-800 text-sm border border-slate-700 hover:border-indigo-500/50 hover:bg-slate-700 active:bg-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 whitespace-nowrap transition-colors">Last 3 months</button>
+          <button type="button" data-preset="last_6_months" class="preset px-3 py-2 rounded-lg bg-slate-800 text-sm border border-slate-700 hover:border-indigo-500/50 hover:bg-slate-700 active:bg-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 whitespace-nowrap transition-colors">Last 6 months</button>
+          <button type="button" data-preset="last_12_months" class="preset px-3 py-2 rounded-lg bg-slate-800 text-sm border border-slate-700 hover:border-indigo-500/50 hover:bg-slate-700 active:bg-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 whitespace-nowrap transition-colors">Last 12 months</button>
+          <button type="button" data-preset="all_time" class="preset px-3 py-2 rounded-lg bg-slate-800 text-sm border border-slate-700 hover:border-indigo-500/50 hover:bg-slate-700 active:bg-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 whitespace-nowrap transition-colors">All time</button>
         </div>
         <div class="flex-1 min-w-[220px] max-w-3xl space-y-2">
           <p class="text-xs text-slate-400">Pick dates (calendar) or drag the range — selection updates live.</p>
@@ -93,7 +94,8 @@
           <p id="rangeLabel" class="text-sm text-slate-200 font-mono"></p>
         </div>
         <div class="flex items-end shrink-0">
-          <button type="button" id="exportReportsPdf" class="w-full xl:w-auto px-4 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium border border-indigo-500/40">Export PDF</button>
+          <button type="button" id="exportReportsPdf" class="w-full xl:w-auto px-4 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 text-white text-sm font-medium border border-indigo-500/40 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Export PDF</button>
+          <p id="reportLoadErr" class="hidden text-xs text-rose-300 mt-2 max-w-xs"></p>
         </div>
       </div>
     </section>
@@ -129,6 +131,7 @@
       <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 min-h-[280px]">
         <h2 class="font-semibold mb-3">Spending over time</h2>
         <div class="relative h-64"><canvas id="chartSpendTime"></canvas></div>
+        <p id="chartSpendTimeEmpty" class="hidden text-sm text-slate-500 mt-2">No spending data in this time range.</p>
       </section>
       <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 min-h-[280px]">
         <h2 class="font-semibold mb-3">Income vs expenses (incl. recurring)</h2>
@@ -147,6 +150,8 @@
     let activePreset = 'last_6_months';
     let currentReportParams = { preset: 'last_6_months', start: null, end: null };
     let lastReportData = null;
+    let reportLoading = false;
+    let reportLoadToken = 0;
 
     function parseISODate(s) {
       if (!s) return null;
@@ -183,7 +188,28 @@
 
     function fetchReport(params) {
       const q = new URLSearchParams(params);
-      return fetch('/instances/' + INSTANCE_ID + '/reports/data?' + q.toString(), { credentials: 'same-origin' }).then(function (r) { return r.json(); });
+      return fetch('/instances/' + INSTANCE_ID + '/reports/data?' + q.toString(), { credentials: 'same-origin' }).then(function (r) {
+        if (!r.ok) throw new Error('Report request failed (' + r.status + ')');
+        return r.json();
+      });
+    }
+
+    function setReportLoading(on) {
+      reportLoading = on;
+      var btn = document.getElementById('exportReportsPdf');
+      if (btn) btn.disabled = on;
+    }
+
+    function showReportError(msg) {
+      var el = document.getElementById('reportLoadErr');
+      if (!el) return;
+      if (msg) {
+        el.textContent = msg;
+        el.classList.remove('hidden');
+      } else {
+        el.textContent = '';
+        el.classList.add('hidden');
+      }
     }
 
     function dateIsoToOrd(iso) {
@@ -343,36 +369,52 @@
         })
       });
 
-      ensureChart('chartSpendTime', {
-        type: 'line',
-        data: { labels: months, datasets: [{ label: 'One-off expenses', data: spend, borderColor: '#f87171', tension: 0.25, fill: true, backgroundColor: 'rgba(248,113,113,0.15)' }] },
-        options: Object.assign({}, base, {
-          plugins: Object.assign({}, base.plugins, {
-            tooltip: Object.assign({}, base.plugins.tooltip, {
-              callbacks: {
-                title: function (items) { return 'Month: ' + (months[items[0].dataIndex] || ''); },
-                label: function (ctx) {
-                  return 'One-off expenses: ' + fmtEUR(ctx.parsed.y);
-                },
-                afterBody: function (items) {
-                  const i = items[0].dataIndex;
-                  const m = (data.monthly || [])[i];
-                  if (!m) return [];
-                  return [
-                    'One-off income: ' + fmtEUR(m.oneoff_income || 0),
-                    'Total expenses (incl. recurring): ' + fmtEUR(m.total_expenses || 0),
-                    'Total income: ' + fmtEUR(m.total_income || 0)
-                  ];
+      var spendEmpty = document.getElementById('chartSpendTimeEmpty');
+      var hasSpendSeries = months.length && spend.some(function (v) { return Number(v) !== 0; });
+      if (hasSpendSeries) {
+        if (spendEmpty) spendEmpty.classList.add('hidden');
+        var spendDs = window.WebableReports && window.WebableReports.lineSpendDataset
+          ? window.WebableReports.lineSpendDataset('One-off expenses', spend)
+          : { label: 'One-off expenses', data: spend, borderColor: '#f87171', backgroundColor: 'rgba(248,113,113,0.15)', tension: 0.25, fill: true, pointRadius: 4, pointHoverRadius: 8 };
+        ensureChart('chartSpendTime', {
+          type: 'line',
+          data: { labels: months, datasets: [spendDs] },
+          options: Object.assign({}, base, {
+            animation: { duration: 280 },
+            interaction: { mode: 'index', intersect: false },
+            plugins: Object.assign({}, base.plugins, {
+              tooltip: Object.assign({}, base.plugins.tooltip, {
+                callbacks: {
+                  title: function (items) { return 'Month: ' + (months[items[0].dataIndex] || ''); },
+                  label: function (ctx) {
+                    return 'One-off expenses: ' + fmtEUR(ctx.parsed.y);
+                  },
+                  afterBody: function (items) {
+                    const i = items[0].dataIndex;
+                    const m = (data.monthly || [])[i];
+                    if (!m) return [];
+                    return [
+                      'One-off income: ' + fmtEUR(m.oneoff_income || 0),
+                      'Total expenses (incl. recurring): ' + fmtEUR(m.total_expenses || 0),
+                      'Total income: ' + fmtEUR(m.total_income || 0)
+                    ];
+                  }
                 }
-              }
-            })
-          }),
-          scales: {
-            x: Object.assign({}, base.scales.x),
-            y: Object.assign({}, base.scales.y, { ticks: Object.assign({}, base.scales.y.ticks, { callback: moneyTick }) })
-          }
-        })
-      });
+              })
+            }),
+            scales: {
+              x: Object.assign({}, base.scales.x),
+              y: Object.assign({}, base.scales.y, { ticks: Object.assign({}, base.scales.y.ticks, { callback: moneyTick }) })
+            }
+          })
+        });
+        if (charts.chartSpendTime) {
+          charts.chartSpendTime.options.onHover = function () { charts.chartSpendTime.update('none'); };
+        }
+      } else {
+        if (charts.chartSpendTime) { charts.chartSpendTime.destroy(); charts.chartSpendTime = null; }
+        if (spendEmpty) spendEmpty.classList.remove('hidden');
+      }
 
       ensureChart('chartIncExp', {
         type: 'bar',
@@ -411,16 +453,37 @@
           ch.update();
         });
       };
+      if (data.range && data.range.start && data.range.end) {
+        currentReportParams = { preset: null, start: data.range.start, end: data.range.end };
+      }
       syncSlidersFromRange(data);
       updateSliderVisual();
     }
 
     function load(preset, start, end) {
-      currentReportParams = { preset: preset || null, start: start || null, end: end || null };
       const params = {};
-      if (preset) params.preset = preset;
-      if (start && end) { params.start_date = start; params.end_date = end; }
-      fetchReport(params).then(render).catch(function () {});
+      if (preset) {
+        params.preset = preset;
+        currentReportParams = { preset: preset, start: null, end: null };
+      } else if (start && end) {
+        params.start_date = start;
+        params.end_date = end;
+        currentReportParams = { preset: null, start: start, end: end };
+      } else {
+        currentReportParams = { preset: null, start: null, end: null };
+      }
+      var token = ++reportLoadToken;
+      setReportLoading(true);
+      showReportError(null);
+      fetchReport(params).then(function (data) {
+        if (token !== reportLoadToken) return;
+        render(data);
+        setReportLoading(false);
+      }).catch(function (err) {
+        if (token !== reportLoadToken) return;
+        setReportLoading(false);
+        showReportError(err.message || 'Could not load report data.');
+      });
     }
 
     function scheduleLoad() {
@@ -468,20 +531,48 @@
     document.getElementById('dateEnd').addEventListener('change', applyDateInputsToRange);
 
     document.getElementById('exportReportsPdf').addEventListener('click', async function () {
+      if (reportLoading) {
+        alert('Please wait until the report finishes loading for the selected time range.');
+        return;
+      }
+      if (!lastReportData) {
+        alert('Load a time range first, then export.');
+        return;
+      }
+      if (charts.chartSpendTime) {
+        try { charts.chartSpendTime.update('none'); } catch (e) { /* ignore */ }
+      }
+      await new Promise(function (r) { requestAnimationFrame(function () { requestAnimationFrame(r); }); });
       const fd = new FormData();
-      if (currentReportParams.start && currentReportParams.end) {
-        fd.append('start_date', currentReportParams.start);
-        fd.append('end_date', currentReportParams.end);
-      } else if (currentReportParams.preset) {
+      var range = (lastReportData && lastReportData.range) ? lastReportData.range : {};
+      var start = range.start || currentReportParams.start;
+      var end = range.end || currentReportParams.end;
+      if (start && end) {
+        fd.append('start_date', start);
+        fd.append('end_date', end);
+      }
+      if (currentReportParams.preset) {
         fd.append('preset', currentReportParams.preset);
+      } else if (activePreset && activePreset !== 'custom') {
+        fd.append('preset', activePreset);
       }
       if (window.WebableCurrency && typeof window.WebableCurrency.getCode === 'function') {
         fd.append('display_currency', window.WebableCurrency.getCode());
       }
+      var btn = document.getElementById('exportReportsPdf');
+      if (btn) btn.disabled = true;
       try {
         const res = await fetch('/instances/' + INSTANCE_ID + '/reports/pdf', { method: 'POST', body: fd, credentials: 'same-origin' });
-        if (!res.ok) throw new Error('pdf');
+        if (!res.ok) {
+          var detail = 'PDF export failed (' + res.status + ')';
+          try {
+            var j = await res.json();
+            if (j.detail) detail = String(j.detail);
+          } catch (e2) { /* ignore */ }
+          throw new Error(detail);
+        }
         const blob = await res.blob();
+        if (!blob || blob.size < 100) throw new Error('PDF file was empty.');
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -489,7 +580,9 @@
         a.click();
         URL.revokeObjectURL(url);
       } catch (e) {
-        alert('Could not export PDF. Check that you are logged in and server dependencies are installed.');
+        alert(e.message || 'Could not export PDF. Check that you are logged in and server dependencies are installed.');
+      } finally {
+        if (btn) btn.disabled = reportLoading;
       }
     });
 

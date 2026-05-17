@@ -80,10 +80,48 @@
       <p class="text-slate-300 mt-1">{{ mother_output.headline }}</p>
       <div class="grid md:grid-cols-3 gap-3 mt-4">
         {% for card in mother_output.cards %}
+        {% if card.label == 'Income Entries' %}
+        <details class="rounded-xl border border-slate-800 p-3 bg-slate-800/70 group">
+          <summary class="cursor-pointer list-none flex items-center justify-between gap-2">
+            <p class="text-xs text-slate-300">Income Entries: <span class="font-bold text-lg text-slate-100">{{ card.value }}</span></p>
+            <span class="text-slate-500 text-xs group-open:rotate-180 transition-transform">▼</span>
+          </summary>
+          <ul class="mt-3 pt-3 border-t border-slate-700 space-y-2 text-sm">
+            {% for row in mother_output.income_entries %}
+            <li class="flex justify-between gap-2 text-slate-200">
+              <span class="truncate">{{ row.name }}{% if row.workspace %} <span class="text-slate-500 text-xs">({{ row.workspace }})</span>{% endif %}</span>
+              <span class="shrink-0 font-medium text-emerald-300"><span class="wb-money" data-eur="{{ row.amount_eur }}">—</span></span>
+            </li>
+            {% else %}
+            <li class="text-slate-500">No income entries yet.</li>
+            {% endfor %}
+          </ul>
+          <p class="mt-3 pt-2 border-t border-slate-700 text-xs text-slate-400">Total income entries: <span class="wb-money font-semibold text-emerald-300" data-eur="{{ mother_output.income_entries_total_eur }}">—</span></p>
+        </details>
+        {% elif card.label == 'Expense Entries' %}
+        <details class="rounded-xl border border-slate-800 p-3 bg-red-500/10 group">
+          <summary class="cursor-pointer list-none flex items-center justify-between gap-2">
+            <p class="text-xs text-slate-300">Expense Entries: <span class="font-bold text-lg text-slate-100">{{ card.value }}</span></p>
+            <span class="text-slate-500 text-xs group-open:rotate-180 transition-transform">▼</span>
+          </summary>
+          <ul class="mt-3 pt-3 border-t border-slate-700/80 space-y-2 text-sm">
+            {% for row in mother_output.expense_entries %}
+            <li class="flex justify-between gap-2 text-slate-200">
+              <span class="truncate">{{ row.name }}{% if row.workspace %} <span class="text-slate-500 text-xs">({{ row.workspace }})</span>{% endif %}</span>
+              <span class="shrink-0 font-medium text-rose-300"><span class="wb-money" data-eur="{{ row.amount_eur }}">—</span></span>
+            </li>
+            {% else %}
+            <li class="text-slate-500">No expense entries yet.</li>
+            {% endfor %}
+          </ul>
+          <p class="mt-3 pt-2 border-t border-slate-700/80 text-xs text-slate-400">Total expense entries: <span class="wb-money font-semibold text-rose-300" data-eur="{{ mother_output.expense_entries_total_eur }}">—</span></p>
+        </details>
+        {% else %}
         <div class="rounded-xl border border-slate-800 p-3 {% if card.tone == 'positive' %}bg-emerald-500/10{% elif card.tone == 'negative' %}bg-red-500/10{% else %}bg-slate-800/70{% endif %}">
           <p class="text-xs text-slate-300">{{ card.label }}</p>
           <p class="font-bold text-lg mt-1">{% if card.value_eur is defined %}<span class="wb-money" data-eur="{{ card.value_eur }}">{{ card.value }}</span>{% else %}{{ card.value }}{% endif %}</p>
         </div>
+        {% endif %}
         {% endfor %}
       </div>
     </section>

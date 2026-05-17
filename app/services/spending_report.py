@@ -145,10 +145,24 @@ def build_spending_report(
 
     cat_chart = {row["key"]: row["total"] for row in top_categories}
 
+    effective_start = start
+    effective_end = end
+    if not effective_start or not effective_end:
+        if filtered:
+            dates = [parse_txn_date(str(o["date"])) for o in filtered]
+            dates = [d for d in dates if d]
+            if dates:
+                effective_start = effective_start or min(dates)
+                effective_end = effective_end or max(dates)
+        if not effective_start or not effective_end:
+            today = date.today()
+            effective_start = effective_start or today
+            effective_end = effective_end or today
+
     return {
         "range": {
-            "start": start.isoformat() if start else None,
-            "end": end.isoformat() if end else None,
+            "start": effective_start.isoformat() if effective_start else None,
+            "end": effective_end.isoformat() if effective_end else None,
         },
         "totals": {
             "oneoff_expenses": round(total_oneoff_spend, 2),

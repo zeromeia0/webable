@@ -1,4 +1,13 @@
-.PHONY: up down logs restart update ps config
+.PHONY: up down logs restart update ps config backup migrate safe-update
+
+backup:
+	bash scripts/webable-backup.sh
+
+migrate:
+	bash scripts/webable-migrate.sh
+
+safe-update:
+	bash scripts/webable-safe-update.sh
 
 up:
 	docker compose up -d --build
