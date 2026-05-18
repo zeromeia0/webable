@@ -29,8 +29,7 @@ down:
 logs:
 	docker compose logs -f
 
-restart:
-	docker compose restart
+restart: down up
 
 update:
 	git pull && docker compose up -d --build
