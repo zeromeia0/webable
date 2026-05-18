@@ -9,6 +9,9 @@ class TestGlobalFabPartial(unittest.TestCase):
         self.assertIn('id="globalCalcFab"', html)
         self.assertIn('id="globalAiFab"', html)
         self.assertIn("webable-calculator.js", html)
+        self.assertIn("webable-expenses-fab.js", html)
+        self.assertIn("webable-numeric-input.js", html)
+        self.assertIn('id="globalExpensesFab"', html)
 
 
 if __name__ == "__main__":

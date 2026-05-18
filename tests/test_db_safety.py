@@ -21,6 +21,7 @@ class TestDbSafety(unittest.TestCase):
         instance_service.add_income(str(finance), "Job", 100.0)
 
         dest = db_safety.backup_data_directory(root)
+        self.assertRegex(dest.name, r"^webable-data-backup-\d{8}-\d{3}$")
         self.assertTrue((dest / "user_1" / "1_test_financas.db").is_file())
         self.assertTrue(finance.is_file())
         items = instance_service.list_finance_items(str(finance))

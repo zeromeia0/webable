@@ -49,9 +49,10 @@
     var amt = safeAmount(savings, pct);
 
     valEl.setAttribute('data-eur', String(amt));
-    valEl.textContent = amt.toFixed(2);
-    if (window.WebableCurrency && typeof window.WebableCurrency.apply === 'function') {
-      window.WebableCurrency.apply(card);
+    if (window.WebableCurrency && typeof window.WebableCurrency.format === 'function') {
+      valEl.textContent = window.WebableCurrency.format(amt);
+    } else {
+      valEl.textContent = '€ ' + amt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
 
     if (select) {
@@ -99,6 +100,9 @@
     if (customInput) {
       customInput.addEventListener('input', function () {
         if (customInput.value === '' || customInput.value === null) return;
+        if (window.WebableNumeric && !window.WebableNumeric.isValidDecimalString(customInput.value, { min: 0, max: 100 })) {
+          return;
+        }
         setPct(customInput.value);
       });
       customInput.addEventListener('keydown', function (e) {
@@ -110,6 +114,7 @@
     }
 
     render();
+    document.addEventListener('webable:currency', render);
   }
 
   if (document.readyState === 'loading') {

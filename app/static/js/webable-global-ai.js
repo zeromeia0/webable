@@ -26,11 +26,20 @@
     }
 
     fab.addEventListener('click', function () {
+      var opening = panel.classList.contains('hidden');
+      if (opening) {
+        ['globalCalcPanel', 'globalQuickAddPanel', 'globalNotesPanel', 'globalExpensesPanel'].forEach(function (id) {
+          var el = document.getElementById(id);
+          if (el) el.classList.add('hidden');
+        });
+        ['globalCalcFab', 'globalQuickAddFab', 'globalNotesFab', 'globalExpensesFab'].forEach(function (id) {
+          var el = document.getElementById(id);
+          if (el) el.setAttribute('aria-expanded', 'false');
+        });
+      }
       panel.classList.toggle('hidden');
       var open = !panel.classList.contains('hidden');
       fab.setAttribute('aria-expanded', open ? 'true' : 'false');
-      var calcPanel = document.getElementById('globalCalcPanel');
-      if (calcPanel && open) calcPanel.classList.add('hidden');
     });
 
     form.addEventListener('submit', function (e) {

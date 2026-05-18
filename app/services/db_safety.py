@@ -47,20 +47,36 @@ def list_user_sqlite_files(root: Path | None = None) -> list[Path]:
     return found
 
 
+def next_backup_destination(parent: Path, date_str: str | None = None) -> Path:
+    """
+    Next backup folder: webable-data-backup-YYYYMMDD-### (### zero-padded, sequential per day).
+    """
+    parent = parent.resolve()
+    day = date_str or datetime.utcnow().strftime("%Y%m%d")
+    prefix = f"webable-data-backup-{day}-"
+    max_seq = 0
+    for entry in parent.iterdir():
+        if not entry.is_dir() or not entry.name.startswith(prefix):
+            continue
+        suffix = entry.name[len(prefix) :]
+        if len(suffix) == 3 and suffix.isdigit():
+            max_seq = max(max_seq, int(suffix))
+    return parent / f"{prefix}{max_seq + 1:03d}"
+
+
 def backup_data_directory(
     root: Path | None = None,
     dest: Path | None = None,
 ) -> Path:
     """
-    Copy the entire data directory to a timestamped backup folder.
+    Copy the entire data directory to a dated sequential backup folder.
     Idempotent: creates a new folder each call; never modifies the source.
     """
     root = (root or DATA_ROOT).resolve()
     if not root.is_dir():
         root.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
     if dest is None:
-        dest = root.parent / f"webable-data-backup-{stamp}"
+        dest = next_backup_destination(root.parent)
     dest = dest.resolve()
     if dest == root or str(root).startswith(str(dest) + os.sep):
         raise ValueError("Backup destination must not be inside the live data directory.")

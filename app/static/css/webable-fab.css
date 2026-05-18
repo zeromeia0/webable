@@ -1,4 +1,10 @@
 /* Fixed floating utilities — rendered inside #webableFabRoot (viewport layer, high z-index) */
+:root {
+  --fab-bg: #111827;
+  --fab-border: rgba(255, 255, 255, 0.12);
+  --fab-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+}
+
 #webableFabRoot {
   position: fixed;
   inset: 0;
@@ -16,79 +22,80 @@
   width: 3.5rem;
   height: 3.5rem;
   border-radius: 9999px;
-  box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.45), 0 8px 10px -6px rgb(0 0 0 / 0.35);
   font-weight: 600;
   font-size: 0.75rem;
   line-height: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background-color 0.15s ease, transform 0.1s ease, border-color 0.15s ease;
+  transition: background-color 0.15s ease, transform 0.1s ease, border-color 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
   border: 1px solid transparent;
+  background: var(--accent, var(--fab-bg));
+  color: #fff;
+  --accent: #64748b;
+  box-shadow: var(--fab-shadow);
+}
+.webable-fab-btn:hover {
+  filter: brightness(1.1);
+  border-color: color-mix(in srgb, var(--accent) 80%, white);
 }
 .webable-fab-btn:active {
   transform: scale(0.96);
+  filter: brightness(0.95);
 }
 
-/* Bottom-left: orange + quick add (clear of sidebar on md+) */
+/* Bottom-left: orange + quick add */
 .webable-fab-quickadd {
-  left: max(1rem, env(safe-area-inset-left, 0px));
-  bottom: max(1.5rem, env(safe-area-inset-bottom, 0px));
+  --accent: #f97316;
+  left: max(8px, env(safe-area-inset-left, 0px));
+  bottom: max(24px, env(safe-area-inset-bottom, 0px));
   right: auto;
+  top: auto;
   font-size: 1.75rem;
   font-weight: 400;
   line-height: 1;
-  background: rgb(249 115 22);
-  color: white;
-  border-color: rgb(251 146 60 / 0.55);
-  box-shadow: 0 0 0 2px rgb(249 115 22 / 0.3), 0 20px 25px -5px rgb(0 0 0 / 0.45);
+  background: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 70%, white);
+  box-shadow: var(--fab-shadow), 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 .webable-fab-quickadd:hover {
-  background: rgb(251 146 60);
-}
-@media (min-width: 768px) {
-  .webable-fab-quickadd {
-    left: calc(15rem + 0.75rem);
-  }
+  background: #fb923c;
+  border-color: color-mix(in srgb, var(--accent) 80%, white);
 }
 .webable-fab-quickadd-panel {
-  left: max(1rem, env(safe-area-inset-left, 0px));
+  left: max(8px, env(safe-area-inset-left, 0px));
   right: auto;
-  bottom: calc(max(1.5rem, env(safe-area-inset-bottom, 0px)) + 4.75rem);
+  bottom: calc(max(24px, env(safe-area-inset-bottom, 0px)) + 4.75rem);
+  top: auto;
   width: min(92vw, 320px);
-}
-@media (min-width: 768px) {
-  .webable-fab-quickadd-panel {
-    left: calc(15rem + 0.75rem);
-  }
 }
 
 /* Right stack (bottom → top): AI, calculator, notes */
 .webable-fab-ai {
-  right: max(1rem, env(safe-area-inset-right, 0px));
-  bottom: max(1.5rem, env(safe-area-inset-bottom, 0px));
+  --accent: #a78bfa;
+  right: max(16px, env(safe-area-inset-right, 0px));
+  bottom: max(24px, env(safe-area-inset-bottom, 0px));
 }
 .webable-fab-calc {
-  right: max(1rem, env(safe-area-inset-right, 0px));
-  bottom: calc(max(1.5rem, env(safe-area-inset-bottom, 0px)) + 4.25rem);
+  --accent: #22c55e;
+  right: max(16px, env(safe-area-inset-right, 0px));
+  bottom: calc(max(24px, env(safe-area-inset-bottom, 0px)) + 4.25rem);
 }
 .webable-fab-notes {
-  right: max(1rem, env(safe-area-inset-right, 0px));
-  bottom: calc(max(1.5rem, env(safe-area-inset-bottom, 0px)) + 8.5rem);
+  --accent: #a855f7;
+  right: max(16px, env(safe-area-inset-right, 0px));
+  bottom: calc(max(24px, env(safe-area-inset-bottom, 0px)) + 8.5rem);
   font-size: 0.62rem;
   letter-spacing: -0.02em;
-  background: rgb(71 85 105);
-  color: white;
-  border-color: rgb(100 116 139);
-}
-.webable-fab-notes:hover {
-  background: rgb(100 116 139);
 }
 
-/* Right-side Expenses pill (above utility stack) */
+/* Right-side Expenses pill — above utility stack */
 .webable-fab-expenses {
-  right: max(1rem, env(safe-area-inset-right, 0px));
-  bottom: calc(max(1.5rem, env(safe-area-inset-bottom, 0px)) + 12.75rem);
+  --accent: #06b6d4;
+  right: max(16px, env(safe-area-inset-right, 0px));
+  top: 32%;
+  bottom: auto;
+  transform: translateY(-50%);
   width: auto;
   min-width: 3.5rem;
   height: 3.5rem;
@@ -96,28 +103,12 @@
   border-radius: 9999px;
   font-size: 0.62rem;
   letter-spacing: -0.01em;
-  background: rgb(30 41 59);
-  color: rgb(226 232 240);
-  border-color: rgb(71 85 105);
 }
 .webable-fab-expenses:hover {
-  background: rgb(51 65 85);
-  border-color: rgb(100 116 139);
+  transform: translateY(-50%);
 }
-
-.webable-fab-calc-btn {
-  background: rgb(14 165 233);
-  color: white;
-}
-.webable-fab-calc-btn:hover {
-  background: rgb(56 189 248);
-}
-.webable-fab-ai-btn {
-  background: rgb(99 102 241);
-  color: white;
-}
-.webable-fab-ai-btn:hover {
-  background: rgb(129 140 248);
+.webable-fab-expenses:active {
+  transform: translateY(-50%) scale(0.96);
 }
 
 .webable-fab-panel {
@@ -129,29 +120,35 @@
   border-radius: 1rem;
   box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.55);
 }
+#webableFabRoot .webable-fab-panel.hidden {
+  display: none !important;
+}
 .webable-fab-calc-panel {
-  right: max(1rem, env(safe-area-inset-right, 0px));
-  bottom: calc(max(1.5rem, env(safe-area-inset-bottom, 0px)) + 8.75rem);
+  right: max(16px, env(safe-area-inset-right, 0px));
+  bottom: calc(max(24px, env(safe-area-inset-bottom, 0px)) + 8.75rem);
   width: min(92vw, 280px);
 }
 .webable-fab-notes-panel {
-  right: max(1rem, env(safe-area-inset-right, 0px));
-  bottom: calc(max(1.5rem, env(safe-area-inset-bottom, 0px)) + 13.25rem);
+  right: max(16px, env(safe-area-inset-right, 0px));
+  bottom: calc(max(24px, env(safe-area-inset-bottom, 0px)) + 13.25rem);
   width: min(92vw, 320px);
 }
 .webable-fab-ai-panel {
-  right: max(1rem, env(safe-area-inset-right, 0px));
-  bottom: calc(max(1.5rem, env(safe-area-inset-bottom, 0px)) + 4.75rem);
+  right: max(16px, env(safe-area-inset-right, 0px));
+  bottom: calc(max(24px, env(safe-area-inset-bottom, 0px)) + 4.75rem);
   width: min(92vw, 360px);
 }
-.webable-fab-expenses-panel {
-  right: max(1rem, env(safe-area-inset-right, 0px));
-  bottom: calc(max(1.5rem, env(safe-area-inset-bottom, 0px)) + 17.5rem);
-  width: min(92vw, 340px);
-  max-height: min(70vh, 420px);
-  overflow: hidden;
+.webable-fab-expenses-panel:not(.hidden) {
   display: flex;
   flex-direction: column;
+}
+.webable-fab-expenses-panel {
+  right: max(16px, env(safe-area-inset-right, 0px));
+  top: calc(32% + 2.25rem);
+  bottom: auto;
+  width: min(92vw, 340px);
+  max-height: min(55vh, 420px);
+  overflow: hidden;
 }
 .webable-fab-expenses-list {
   overflow-y: auto;

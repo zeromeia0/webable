@@ -79,7 +79,7 @@
 </div>
 {% endif %}
 
-<button type="button" id="globalCalcFab" class="webable-fab-calc webable-fab-btn webable-fab-calc-btn" title="Quick calculator" aria-label="Open quick calculator" aria-expanded="false" aria-controls="globalCalcPanel">⌗</button>
+<button type="button" id="globalCalcFab" class="webable-fab-calc webable-fab-btn" title="Quick calculator" aria-label="Open quick calculator" aria-expanded="false" aria-controls="globalCalcPanel">⌗</button>
 
 <div id="globalCalcPanel" class="webable-fab-panel webable-fab-calc-panel hidden" role="dialog" aria-label="Quick calculator">
   <div class="flex items-center justify-between p-3 border-b border-slate-700">
@@ -114,7 +114,7 @@
   </div>
 </div>
 
-<button type="button" id="globalAiFab" class="webable-fab-ai webable-fab-btn webable-fab-ai-btn" title="AI financial assistant" aria-label="Open AI assistant" aria-expanded="false" aria-controls="globalAiPanel">AI</button>
+<button type="button" id="globalAiFab" class="webable-fab-ai webable-fab-btn" title="AI financial assistant" aria-label="Open AI assistant" aria-expanded="false" aria-controls="globalAiPanel">AI</button>
 
 <div id="globalAiPanel" class="webable-fab-panel webable-fab-ai-panel hidden" role="dialog" aria-label="AI financial assistant">
   <div class="p-3 border-b border-slate-700 font-semibold text-sm">AI financial assistant</div>
@@ -133,6 +133,7 @@
 <script>
   window.__WEBABLE_FAB_INSTANCE_ID = {% if fab_instance_id %}{{ fab_instance_id }}{% else %}null{% endif %};
 </script>
+<script src="/static/js/webable-numeric-input.js"></script>
 {% if not (fab_ai_login_required | default(false)) %}
 <script src="/static/js/webable-quick-add.js"></script>
 <script src="/static/js/webable-notes-fab.js"></script>

@@ -28,8 +28,10 @@ from .services import (
     dashboard_metrics,
     db_safety,
     emergency_fund_service,
+    expense_panel,
     instance_service,
     notes_service,
+    numeric_input,
     wishlist_service,
     investment_pdf,
     market_chart_service,
@@ -459,19 +461,14 @@ def build_mother_output(
     fixed_total = float(mt.get("fixed_expenses_total") or recurring_expense_total)
     current_balance = float(mt.get("current_month_balance") or dashboard_metrics.current_month_balance(month_income, month_expenses))
 
-    expense_entries_enriched = [
-        dashboard_metrics.enrich_expense_entry(row, recurring_expense_total, month_income) for row in expense_entries
-    ]
+    panel = expense_panel.build_expense_panel_payload(instances or [], month_totals=mt)
+    expense_entries_enriched = panel["entries"]
+    expenses_summary_line = panel["summary"]
     fixed_summary = dashboard_metrics.fixed_expenses_summary(fixed_total, month_income)
     if fixed_summary.get("pct_of_income"):
         fixed_summary["line"] = f"Fixed expenses: {money(fixed_summary['amount_eur'])} — {fixed_summary['pct_of_income']}% of income"
     else:
         fixed_summary["line"] = f"Fixed expenses: {money(fixed_summary['amount_eur'])} — income unavailable"
-    expense_income_pct = dashboard_metrics.format_pct_of_total(recurring_expense_total, month_income)
-    if expense_income_pct:
-        expenses_summary_line = f"Total expenses: {money(recurring_expense_total)} — {expense_income_pct}% of income"
-    else:
-        expenses_summary_line = f"Total expenses: {money(recurring_expense_total)} — income unavailable"
 
     return {
         "headline": "Your financial activity is healthy and consistent." if avg >= 0 else "Your financial balance needs attention.",
@@ -1427,13 +1424,17 @@ def add_income(
     instance_id: int,
     request: Request,
     nome: str = Form(...),
-    valor: float = Form(...),
+    valor: str = Form(...),
     recurrence: str = Form("monthly"),
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
     inst = require_instance(db, user, instance_id)
-    run_job(db, user, inst, "add_income", lambda: instance_service.add_income(inst.finance_db_path, nome, valor, recurrence=recurrence))
+    try:
+        amount = numeric_input.parse_positive_decimal(valor)
+    except ValueError:
+        return RedirectResponse(f"/instances/{instance_id}?err=invalid_amount#workspace-data", status_code=302)
+    run_job(db, user, inst, "add_income", lambda: instance_service.add_income(inst.finance_db_path, nome, amount, recurrence=recurrence))
     return RedirectResponse(f"/instances/{instance_id}#workspace-data", status_code=302)
 
 
@@ -1442,13 +1443,17 @@ def add_expense(
     instance_id: int,
     request: Request,
     nome: str = Form(...),
-    valor: float = Form(...),
+    valor: str = Form(...),
     recurrence: str = Form("monthly"),
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
     inst = require_instance(db, user, instance_id)
-    run_job(db, user, inst, "add_expense", lambda: instance_service.add_expense(inst.finance_db_path, nome, valor, recurrence=recurrence))
+    try:
+        amount = numeric_input.parse_positive_decimal(valor)
+    except ValueError:
+        return RedirectResponse(f"/instances/{instance_id}?err=invalid_amount#workspace-data", status_code=302)
+    run_job(db, user, inst, "add_expense", lambda: instance_service.add_expense(inst.finance_db_path, nome, amount, recurrence=recurrence))
     return RedirectResponse(f"/instances/{instance_id}#workspace-data", status_code=302)
 
 
@@ -1456,7 +1461,7 @@ def add_expense(
 def quick_oneoff(
     instance_id: int,
     request: Request,
-    amount: float = Form(...),
+    amount: str = Form(...),
     description: str = Form(...),
     txn_type: str = Form(...),
     txn_date: str = Form(""),
@@ -1467,7 +1472,11 @@ def quick_oneoff(
     """Quick-add one-time transaction from the global + button."""
     user = require_user(request, db)
     inst = require_instance(db, user, instance_id)
-    errs = dashboard_metrics.validate_quick_oneoff(amount, description, txn_type)
+    try:
+        parsed_amount = numeric_input.parse_positive_decimal(amount)
+    except ValueError:
+        parsed_amount = None
+    errs = dashboard_metrics.validate_quick_oneoff(parsed_amount, description, txn_type)
     safe_next = next_url if next_url.startswith("/") and not next_url.startswith("//") else "/dashboard"
     if errs:
         sep = "&" if "?" in safe_next else "?"
@@ -1483,7 +1492,7 @@ def quick_oneoff(
             inst.finance_db_path,
             date_s,
             description.strip(),
-            float(amount),
+            parsed_amount,
             txn_type=tt,
             category=cat,
         )
@@ -1498,19 +1507,23 @@ def add_oneoff(
     request: Request,
     data: str = Form(...),
     nome: str = Form(...),
-    valor: float = Form(...),
+    valor: str = Form(...),
     txn_type: str = Form("expense"),
     category: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
     inst = require_instance(db, user, instance_id)
+    try:
+        parsed_valor = numeric_input.parse_positive_decimal(valor)
+    except ValueError:
+        return RedirectResponse(f"/instances/{instance_id}?err=invalid_amount#workspace-data", status_code=302)
     tt = "income" if str(txn_type).lower() == "income" else "expense"
     if tt == "expense" and (category or "").strip() not in instance_service.ONEOFF_CATEGORIES:
         return RedirectResponse(f"/instances/{instance_id}?msg=oneoff_category_required", status_code=302)
 
     def _add():
-        return instance_service.add_oneoff(inst.finance_db_path, data, nome, valor, txn_type=tt, category=category)
+        return instance_service.add_oneoff(inst.finance_db_path, data, nome, parsed_valor, txn_type=tt, category=category)
 
     run_job(db, user, inst, "add_oneoff", _add)
     return RedirectResponse(f"/instances/{instance_id}#workspace-data", status_code=302)
@@ -1797,7 +1810,7 @@ def wishlist_page(request: Request, db: Session = Depends(get_db)):
 def wishlist_add(
     request: Request,
     name: str = Form(...),
-    price_eur: float = Form(...),
+    price_eur: str = Form(...),
     priority: str = Form("medium"),
     deadline: str = Form(""),
     db: Session = Depends(get_db),
@@ -1805,7 +1818,11 @@ def wishlist_add(
     user = require_user(request, db)
     if not name.strip():
         return RedirectResponse("/wishlist?err=name", status_code=302)
-    wishlist_service.add_item(db, user.id, name, price_eur, priority=priority, deadline=deadline or None)
+    try:
+        price = numeric_input.parse_positive_decimal(price_eur)
+    except ValueError:
+        return RedirectResponse("/wishlist?err=invalid_price", status_code=302)
+    wishlist_service.add_item(db, user.id, name, price, priority=priority, deadline=deadline or None)
     return RedirectResponse("/wishlist", status_code=302)
 
 
@@ -1814,6 +1831,32 @@ def wishlist_delete(item_id: int, request: Request, db: Session = Depends(get_db
     user = require_user(request, db)
     wishlist_service.delete_item(db, user.id, item_id)
     return RedirectResponse("/wishlist", status_code=302)
+
+
+@app.get("/api/expenses/panel")
+def api_expenses_panel(request: Request, db: Session = Depends(get_db)):
+    user = current_user(request, db)
+    if not user:
+        return JSONResponse({"error": "auth_required"}, status_code=401)
+    instances = (
+        db.query(DatabaseInstance)
+        .filter(DatabaseInstance.owner_id == user.id)
+        .order_by(DatabaseInstance.created_at.desc())
+        .all()
+    )
+    now_m = datetime.utcnow().strftime("%Y-%m")
+    month_rows = [
+        instance_service.month_summary(
+            ins.finance_db_path,
+            ins.logic_db_path,
+            now_m,
+            include_iefp=bool(user.enable_iefp_mode),
+        )
+        for ins in instances
+    ]
+    month_totals = dashboard_metrics.aggregate_current_month_totals(month_rows) if month_rows else {}
+    payload = expense_panel.build_expense_panel_payload(instances, month_totals=month_totals)
+    return JSONResponse(payload)
 
 
 @app.get("/api/notes")
@@ -2258,14 +2301,17 @@ def budget_upsert(
     request: Request,
     db: Session = Depends(get_db),
     category: str = Form(...),
-    monthly_limit_eur: float = Form(...),
+    monthly_limit_eur: str = Form(...),
 ):
     user = require_user(request, db)
     inst = require_instance(db, user, instance_id)
     cat = (category or "").strip()
     if cat not in instance_service.ONEOFF_CATEGORIES:
         raise HTTPException(status_code=400, detail="Invalid category")
-    lim = max(0.0, float(monthly_limit_eur))
+    try:
+        lim = max(0.0, numeric_input.parse_decimal(monthly_limit_eur, allow_negative=False, min_value=0))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid monthly limit") from None
     row = db.query(CategoryBudget).filter(CategoryBudget.instance_id == inst.id, CategoryBudget.category == cat).first()
     if row:
         row.monthly_limit_eur = lim

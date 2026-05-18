@@ -195,13 +195,6 @@
     </div>
   </div>
 
-  <script>
-    window.__WEBABLE_EXPENSE_PANEL__ = {
-      entries: {{ mother_output.expense_entries | tojson }},
-      summary: {{ mother_output.expenses_summary_line | tojson }},
-      total_eur: {{ mother_output.expense_entries_total_eur }}
-    };
-  </script>
   {% include "partials/global_fab_stack.html" %}
   <link rel="stylesheet" href="/static/css/webable-dashboard.css" />
   <script src="/static/js/webable-safe-to-spend.js"></script>

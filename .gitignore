@@ -26,9 +26,23 @@ instance/
 
 # App data (SQLite, uploads, caches) — never commit (keep empty dir placeholder)
 data/
-webable-data-backup-*/
 /data/**
 !/data/.gitkeep
+
+# Backups and exported snapshots (never commit)
+webable-data-backup-*/
+webable-data-backup-*
+backup/
+backups/
+exports/
+restore/
+*.backup
+*.bak
+*.sql.dump
+*.dump
+*.tar.gz
+*.tgz
+*.zip
 
 *.db
 *.sqlite

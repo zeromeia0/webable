@@ -79,13 +79,16 @@ def aggregate_current_month_totals(month_rows: list[dict[str, Any]]) -> dict[str
     }
 
 
-def validate_quick_oneoff(amount: float, description: str, txn_type: str) -> list[str]:
+def validate_quick_oneoff(amount: float | None, description: str, txn_type: str) -> list[str]:
     errors: list[str] = []
-    try:
-        if float(amount) <= 0:
+    if amount is None:
+        errors.append("Amount must be a valid positive number (no letters or scientific notation).")
+    else:
+        try:
+            if float(amount) <= 0:
+                errors.append("Amount must be a positive number.")
+        except (TypeError, ValueError):
             errors.append("Amount must be a positive number.")
-    except (TypeError, ValueError):
-        errors.append("Amount must be a positive number.")
     if not (description or "").strip():
         errors.append("Description is required.")
     if str(txn_type).lower() not in ("income", "expense"):
