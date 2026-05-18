@@ -99,7 +99,54 @@ make down     # docker compose down
 make logs     # docker compose logs -f
 make restart  # docker compose restart
 make update   # git pull && docker compose up -d --build
+make up-image        # pull ghcr.io/.../webable (tag from VERSION) — see “Prebuilt images” below
+make up-watchtower   # GHCR image + Watchtower sidecar for automatic image pulls
 ```
+
+### Prebuilt images (GHCR) and Watchtower
+
+Webable distinguishes **two deployment models** (see `GET /api/build-info` and the Dashboard “About this app” card):
+
+| Model | Typical layout | Who applies updates |
+|--------|----------------|---------------------|
+| **Git** | `.git` exists at the app root | In-app **Apply update** when `WEBABLE_AUTO_UPDATE=1` (git fetch / pull). Optional `WEBABLE_GIT_UPDATE_USE_COMPOSE_RESTART=1` + `WEBABLE_DOCKER_COMPOSE_PATH` to restart the container after pull. |
+| **Image** | No `.git`; immutable image (e.g. GHCR) | **Externally** (Watchtower, K8s, manual `docker compose pull`), **or** in-app **Update now** when `WEBABLE_ALLOW_IMAGE_SELF_UPDATE=1` and `WEBABLE_DOCKER_COMPOSE_PATH` point to a **validated** compose file on a host with the Docker CLI and socket (same machine as Compose). |
+
+Set `WEBABLE_EXPECT_EXTERNAL_UPDATER=1` when Watchtower (or similar) is responsible so the UI explains that one-click updates may not apply immediately.
+
+```mermaid
+flowchart LR
+  subgraph git [Git deployment]
+    A[GitHub main] --> B[In-app apply]
+    B --> C[git pull]
+    C --> D[Optional compose restart]
+  end
+  subgraph img [Image deployment]
+    E[GHCR image] --> F{Self-update enabled?}
+    F -->|yes| G[compose pull / up]
+    F -->|no| H[Watchtower / ops]
+  end
+```
+
+1. **Run a pinned version** (recommended): the repo root `VERSION` file tracks the default tag. `make up-image` passes it as `WEBABLE_VERSION`, or set it explicitly:
+
+   ```bash
+   WEBABLE_VERSION=1.0.0 docker compose -f docker-compose.image.yml up -d
+   ```
+
+2. **Automatic updates:** merge `docker-compose.image.yml` with `docker-compose.watchtower.yml`. Watchtower only recreates containers that have the label `com.centurylinklabs.watchtower.enable=true` (already set on the `webable` service). Your data stays in `./data` on the host.
+
+   ```bash
+   WEBABLE_VERSION=1.0.0 docker compose -f docker-compose.image.yml -f docker-compose.watchtower.yml up -d
+   ```
+
+3. **Rollback:** set `WEBABLE_VERSION` to an older tag (or pin by digest in `docker-compose.image.yml`) and `docker compose up -d`.
+
+4. **Build metadata & capabilities:** `GET /api/build-info` returns `version`, `commit`, `build_id`, `build_time`, `channel`, `deployment_mode`, update-capability flags, and `update_in_progress`. `GET /api/update/status` adds GitHub comparison fields plus `orchestration` (phase, message, errors). Signed-in users can call `POST /api/update/start` for a one-click job when the deployment supports it.
+
+5. **Compose files in this repo:** `docker-compose.yml` — local build / dev. `docker-compose.image.yml` — pull-only GHCR. `docker-compose.watchtower.yml` — optional sidecar.
+
+This path does **not** use in-container `git` for image installs. The **git** flow (`WEBABLE_AUTO_UPDATE`, `update.md`, `/api/update/*`) remains for installs that are a git working tree on disk.
 
 ---
 
@@ -330,6 +377,46 @@ uvicorn webapp:app --host 127.0.0.1 --port 8000 --reload
 Open http://127.0.0.1:8000.
 
 > `WEBABLE_DATA_DIR` controls where data is stored (defaults to `./data`).
+
+---
+
+## Auto-update (GitHub `main`)
+
+Webable can **detect** when the `main` branch on GitHub is ahead of your running build, and show a **non-dismissible** in-app dialog with release notes from the root file **`update.md`**.
+
+| Behavior | Details |
+|----------|---------|
+| **When** | Once shortly after the server process starts (background), then cached for several minutes (`WEBABLE_UPDATE_CACHE_TTL`, default 300s). |
+| **Offline** | If there is no internet, the check is skipped silently. |
+| **Compare** | Local revision (git `HEAD`, `.webable-git-rev`, or `WEBABLE_LOCAL_GIT_COMMIT`) vs latest commit SHA from the GitHub API. |
+| **Release notes** | Fetched from `https://raw.githubusercontent.com/zeromeia0/webable/main/update.md` (or the same commit SHA when possible). |
+| **Data safety** | The updater **never** deletes `WEBABLE_DATA_DIR` (`./data`). It only runs `git fetch` + `git pull --ff-only` when explicitly enabled. |
+
+### Docker (default image)
+
+The standard image **does not** include a `.git` directory. Detection still works if you pass the build-time commit:
+
+```bash
+WEBABLE_GIT_COMMIT="$(git rev-parse HEAD)" docker compose build --no-cache
+docker compose up -d
+```
+
+To **apply** updates inside a container you would need the full repository bind-mounted (including `.git`), `git` installed in the image, and `WEBABLE_AUTO_UPDATE=1` — this is advanced; most users should **`git pull` on the host** and **`docker compose build`** instead.
+
+### Self‑hosted git clone (uvicorn / systemd)
+
+1. Set `WEBABLE_AUTO_UPDATE=1` in the environment (see `.env.example`).
+2. Ensure `git` is on `PATH` and the deployment directory is a clone of `https://github.com/zeromeia0/webable.git`.
+3. When a user is signed in and taps **Got it**, the server runs **`git pull --ff-only origin main`** (no `git clean`, no reset of `data/`).
+4. Restart or reload the process if your supervisor does not auto-reload.
+
+Optional: `WEBABLE_GITHUB_TOKEN` (or `GITHUB_TOKEN`) for a higher GitHub API rate limit.
+
+### Release checklist (maintainer)
+
+1. Edit **`update.md`** on `main` with user-facing bullet points.
+2. Merge to `main` and push.
+3. Tag or deploy builds with `WEBABLE_GIT_COMMIT` set to the released SHA.
 
 ---
 

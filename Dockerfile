@@ -17,8 +17,20 @@ COPY requirements.txt .
 RUN pip install --upgrade pip \
     && pip install -r requirements.txt
 
+COPY VERSION /app/VERSION
 COPY webapp.py .
 COPY app ./app
+COPY update.md ./update.md
+
+# Optional: override /app/VERSION (e.g. CI tag) while keeping repo VERSION as default.
+ARG WEBABLE_APP_VERSION=
+RUN if [ -n "$WEBABLE_APP_VERSION" ]; then printf '%s\n' "$WEBABLE_APP_VERSION" > /app/VERSION; fi
+
+ARG WEBABLE_GIT_COMMIT=
+RUN if [ -n "$WEBABLE_GIT_COMMIT" ]; then printf '%s\n' "$WEBABLE_GIT_COMMIT" > /app/.webable-git-rev; else printf '%s\n' "unknown" > /app/.webable-git-rev; fi
+
+ARG WEBABLE_BUILD_TIME=
+RUN if [ -n "$WEBABLE_BUILD_TIME" ]; then printf '%s\n' "$WEBABLE_BUILD_TIME" > /app/.webable-build-time; fi
 
 EXPOSE 8000
 

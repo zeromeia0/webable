@@ -1,7 +1,13 @@
+# Git / local-build model: build context from this repo, tag `webable:local`.
+# For immutable GHCR pulls use docker-compose.image.yml; optional Watchtower: docker-compose.watchtower.yml.
 # Local-first Webable: app runs in Docker; data stays on your machine in ./data
 services:
   webable:
-    build: .
+    build:
+      context: .
+      args:
+        WEBABLE_GIT_COMMIT: ${WEBABLE_GIT_COMMIT:-}
+        WEBABLE_APP_VERSION: ${WEBABLE_APP_VERSION:-}
     image: webable:local
     container_name: webable
     restart: unless-stopped
@@ -13,6 +19,8 @@ services:
       WEBABLE_DATA_DIR: /app/data
     volumes:
       - ./data:/app/data
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
       interval: 30s

@@ -23,6 +23,7 @@ from .models import BankStatement, CategoryBudget, DatabaseInstance, FinanceAudi
 from .services import (
     analysis_service,
     bank_statement_service,
+    build_info,
     currency_service,
     db_safety,
     emergency_fund_service,
@@ -33,8 +34,11 @@ from .services import (
     projection_finance,
     projection_pdf,
     reports_pdf,
+    safe_updater,
     savings_pdf,
     spending_report,
+    update_orchestration,
+    update_service,
 )
 
 log = logging.getLogger("webable")
@@ -54,6 +58,7 @@ async def _lifespan(_app: FastAPI):
         log.warning("initial market refresh failed: %s", exc)
     finally:
         db0.close()
+    update_service.refresh_cache_background()
     yield
 
 
@@ -1501,6 +1506,104 @@ def ai_chat(instance_id: int, request: Request, question: str = Form(...), db: S
 
     run_job(db, user, inst, "ai_chat", _call_ai)
     return RedirectResponse(f"/instances/{instance_id}", status_code=302)
+
+
+@app.get("/api/build-info")
+def api_build_info():
+    """Public build identity (version, commit) for post-image-update UX and ops probes."""
+    return JSONResponse(build_info.build_info_dict())
+
+
+@app.get("/api/update/status")
+def api_update_status(refresh: bool = False):
+    """GitHub comparison + orchestration progress + deployment capabilities."""
+    st = update_service.get_cached_status(force_refresh=refresh)
+    out = st.as_dict()
+    out["orchestration"] = update_orchestration.orchestration_public_dict()
+    out["capabilities"] = build_info.live_capabilities_dict()
+    return JSONResponse(out)
+
+
+@app.post("/api/update/start")
+async def api_update_start(request: Request, db: Session = Depends(get_db)):
+    """Begin one-click update (git or compose) when supported. Requires sign-in."""
+    user = current_user(request, db)
+    if not user:
+        return JSONResponse(
+            {"success": False, "message": "Sign in to run updates on this server.", "auth_required": True},
+            status_code=401,
+        )
+    sr = update_orchestration.start_update_thread(user_present=True)
+    if not sr.accepted:
+        code = 429 if "wait" in (sr.message or "").lower() else 400
+        return JSONResponse({"success": False, "message": sr.message}, status_code=code)
+    return JSONResponse({"success": True, "run_id": sr.run_id, "message": sr.message, "async_started": True})
+
+
+@app.post("/api/update/got-it")
+async def api_update_got_it(request: Request, db: Session = Depends(get_db)):
+    """
+    Acknowledge release notes, or start the same async update job as POST /api/update/start
+    when WEBABLE_AUTO_UPDATE is enabled in git mode (backward compatible entry point).
+    """
+    user = current_user(request, db)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+
+    force_ack = bool(body.get("force_acknowledge"))
+    if force_ack:
+        remote = (body.get("remote_sha") or "").strip() or (update_service.get_cached_status().remote_sha or "")
+        return JSONResponse({"success": True, "applied": False, "message": "Acknowledged.", "remote_sha": remote})
+
+    st = update_service.get_cached_status()
+    remote = (body.get("remote_sha") or st.remote_sha or "").strip()
+
+    caps = build_info.live_capabilities_dict()
+    pre_ok, pre_msg = safe_updater.preflight_git_update()
+
+    if not user and not force_ack and st.update_available and caps.get("update_action_supported"):
+        return JSONResponse(
+            {
+                "success": False,
+                "applied": False,
+                "auth_required": True,
+                "message": "Sign in to install updates on this server.",
+                "remote_sha": remote,
+            },
+            status_code=401,
+        )
+
+    if user and not force_ack and st.update_available and caps.get("update_action_supported"):
+        ok, msg, rid = update_orchestration.try_start_update(user_present=True)
+        if ok:
+            return JSONResponse(
+                {
+                    "success": True,
+                    "applied": False,
+                    "async_started": True,
+                    "run_id": rid,
+                    "message": msg,
+                    "remote_sha": remote,
+                }
+            )
+        log.warning("Update start failed: %s", msg)
+        return JSONResponse(
+            {
+                "success": False,
+                "applied": False,
+                "message": msg,
+                "remote_sha": remote,
+            },
+            status_code=400,
+        )
+
+    if st.auto_update_enabled and not pre_ok and caps.get("deployment_mode") == "git":
+        log.info("Update acknowledgement without apply: %s", pre_msg)
+    return JSONResponse({"success": True, "applied": False, "message": "Acknowledged.", "remote_sha": remote})
 
 
 @app.get("/health")

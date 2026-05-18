@@ -1,12 +1,13 @@
 {# Expects: show_back_to_dashboard (bool) #}
 <div class="sticky top-0 z-20 border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-md">
   <div class="max-w-7xl mx-auto px-3 sm:px-4 py-2 flex flex-wrap items-center justify-between gap-3">
-    <div class="min-w-0 flex-1">
+    <div class="min-w-0 flex-1 flex flex-wrap items-center gap-2">
       {% if show_back_to_dashboard %}
       <a href="/dashboard" class="inline-block text-sm text-indigo-300 hover:text-indigo-200 font-medium">← Back to Dashboard</a>
       {% else %}
       <span class="text-xs text-slate-600">Webable</span>
       {% endif %}
+      <span id="wbDeployBadge" class="hidden ml-2 align-middle text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded border border-slate-700 text-slate-400" title="Deployment mode"></span>
     </div>
     <div class="flex items-center gap-2 sm:gap-3 shrink-0">
       <span id="fxStatus" class="hidden text-[11px] text-amber-400/90 max-w-[160px] sm:max-w-[220px] truncate" title=""></span>
@@ -22,4 +23,15 @@
       </label>
     </div>
   </div>
+  <div id="wbReleaseBanner" class="hidden w-full border-t border-emerald-500/25 bg-emerald-950/45 text-emerald-50 text-xs sm:text-sm px-3 sm:px-4 py-2">
+    <div class="max-w-7xl mx-auto flex items-start gap-2 sm:gap-3">
+      <span class="shrink-0 mt-0.5" aria-hidden="true">⬆</span>
+      <p id="wbReleaseBannerText" class="min-w-0 flex-1 leading-snug text-emerald-100/95"></p>
+      <button type="button" id="wbReleaseBannerDismiss" class="shrink-0 px-2.5 py-1 rounded-md bg-slate-900/80 hover:bg-slate-800 text-slate-100 text-xs font-medium border border-slate-600/80">Dismiss</button>
+    </div>
+  </div>
 </div>
+{% if not (suppress_update_check | default(false)) %}
+{% include "partials/update_modal_shell.html" %}
+<script defer src="/static/js/webable-release-banner.js"></script>
+{% endif %}

@@ -1,0 +1,23 @@
+# Optional auto-update sidecar: pulls newer images and recreates labeled containers.
+# Requires Docker socket access on the host.
+#
+# Usage (with local build compose):
+#   docker compose -f docker-compose.yml -f docker-compose.watchtower.yml up -d
+#
+# Usage (with GHCR image compose):
+#   WEBABLE_VERSION=1.0.0 docker compose -f docker-compose.image.yml -f docker-compose.watchtower.yml up -d
+#
+# Webable must have label com.centurylinklabs.watchtower.enable=true (set in compose files above).
+services:
+  watchtower:
+    image: containrrr/watchtower:1.7.1
+    container_name: webable-watchtower
+    restart: unless-stopped
+    environment:
+      WATCHTOWER_LABEL_ENABLE: "true"
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_INCLUDE_STOPPED: "false"
+      WATCHTOWER_SCHEDULE: "@midnight"
+      TZ: UTC
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
