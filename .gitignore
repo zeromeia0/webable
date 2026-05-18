@@ -25,6 +25,8 @@ logs/
 instance/
 
 # App data (SQLite, uploads, caches) — never commit (keep empty dir placeholder)
+data/
+webable-data-backup-*/
 /data/**
 !/data/.gitkeep
 
@@ -34,6 +36,7 @@ instance/
 
 # Uploaded / generated artifacts (also under data/)
 *.pdf
+*.csv
 
 # OS / editor
 .DS_Store

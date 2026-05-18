@@ -166,11 +166,20 @@
     }
 
     fab.addEventListener('click', function () {
+      var opening = panel.classList.contains('hidden');
+      if (opening) {
+        ['globalAiPanel', 'globalQuickAddPanel', 'globalNotesPanel'].forEach(function (id) {
+          var el = document.getElementById(id);
+          if (el) el.classList.add('hidden');
+        });
+        ['globalAiFab', 'globalQuickAddFab', 'globalNotesFab'].forEach(function (id) {
+          var el = document.getElementById(id);
+          if (el) el.setAttribute('aria-expanded', 'false');
+        });
+      }
       panel.classList.toggle('hidden');
       var open = !panel.classList.contains('hidden');
       fab.setAttribute('aria-expanded', open ? 'true' : 'false');
-      var aiPanel = document.getElementById('globalAiPanel');
-      if (aiPanel && open) aiPanel.classList.add('hidden');
     });
     if (closeBtn) {
       closeBtn.addEventListener('click', function () {

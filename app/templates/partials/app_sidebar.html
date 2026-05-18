@@ -38,6 +38,11 @@
             {% if nav_active == 'market' %}bg-gradient-to-r from-rose-600 to-pink-600 text-white border-rose-400/50 ring-2 ring-rose-400/40{% else %}bg-slate-800/90 text-slate-100 border-slate-700 hover:border-rose-500/40 hover:bg-gradient-to-r hover:from-slate-800 hover:to-rose-950/50{% endif %}">
     <span class="text-lg">📡</span><span>Market Watch</span>
   </a>
+  <a href="/wishlist"
+     class="group flex items-center gap-2 w-full rounded-xl px-3 py-3 text-sm font-semibold shadow-md transition border
+            {% if nav_active == 'wishlist' %}bg-gradient-to-r from-amber-600 to-yellow-600 text-white border-amber-400/50 ring-2 ring-amber-400/40{% else %}bg-slate-800/90 text-slate-100 border-slate-700 hover:border-amber-500/40 hover:bg-gradient-to-r hover:from-slate-800 hover:to-amber-950/50{% endif %}">
+    <span class="text-lg">🎯</span><span>Wishlist</span>
+  </a>
   <a href="/learn"
      class="group flex items-center gap-2 w-full rounded-xl px-3 py-3 text-sm font-semibold shadow-md transition border
             {% if nav_active == 'learn' %}bg-gradient-to-r from-lime-600 to-green-600 text-white border-lime-400/50 ring-2 ring-lime-400/40{% else %}bg-slate-800/90 text-slate-100 border-slate-700 hover:border-lime-500/40 hover:bg-gradient-to-r hover:from-slate-800 hover:to-lime-950/50{% endif %}">

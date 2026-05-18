@@ -25,9 +25,12 @@ from .services import (
     bank_statement_service,
     build_info,
     currency_service,
+    dashboard_metrics,
     db_safety,
     emergency_fund_service,
     instance_service,
+    notes_service,
+    wishlist_service,
     investment_pdf,
     market_chart_service,
     market_data_service,
@@ -413,6 +416,7 @@ def build_mother_output(
     jobs: list[JobRun],
     metadata: dict,
     instances: list[DatabaseInstance] | None = None,
+    month_totals: dict | None = None,
 ) -> dict:
     savings = []
     for job in jobs:
@@ -446,8 +450,29 @@ def build_mother_output(
             )
     income_entries.sort(key=lambda x: x["amount_eur"], reverse=True)
     expense_entries.sort(key=lambda x: x["amount_eur"], reverse=True)
-    income_total = round(sum(e["amount_eur"] for e in income_entries), 2)
-    expense_total = round(sum(e["amount_eur"] for e in expense_entries), 2)
+    recurring_income_total = round(sum(e["amount_eur"] for e in income_entries), 2)
+    recurring_expense_total = round(sum(e["amount_eur"] for e in expense_entries), 2)
+
+    mt = month_totals or {}
+    month_income = float(mt.get("income_total") or recurring_income_total)
+    month_expenses = float(mt.get("expense_total") or recurring_expense_total)
+    fixed_total = float(mt.get("fixed_expenses_total") or recurring_expense_total)
+    current_balance = float(mt.get("current_month_balance") or dashboard_metrics.current_month_balance(month_income, month_expenses))
+
+    expense_entries_enriched = [
+        dashboard_metrics.enrich_expense_entry(row, recurring_expense_total, month_income) for row in expense_entries
+    ]
+    fixed_summary = dashboard_metrics.fixed_expenses_summary(fixed_total, month_income)
+    if fixed_summary.get("pct_of_income"):
+        fixed_summary["line"] = f"Fixed expenses: {money(fixed_summary['amount_eur'])} — {fixed_summary['pct_of_income']}% of income"
+    else:
+        fixed_summary["line"] = f"Fixed expenses: {money(fixed_summary['amount_eur'])} — income unavailable"
+    expense_income_pct = dashboard_metrics.format_pct_of_total(recurring_expense_total, month_income)
+    if expense_income_pct:
+        expenses_summary_line = f"Total expenses: {money(recurring_expense_total)} — {expense_income_pct}% of income"
+    else:
+        expenses_summary_line = f"Total expenses: {money(recurring_expense_total)} — income unavailable"
+
     return {
         "headline": "Your financial activity is healthy and consistent." if avg >= 0 else "Your financial balance needs attention.",
         "cards": [
@@ -455,15 +480,25 @@ def build_mother_output(
                 "label": "Average Monthly Balance",
                 "value": money(avg),
                 "value_eur": round(avg, 2),
-                "tone": "positive" if avg >= 0 else "negative",
+                "tone": "purple",
+            },
+            {
+                "label": "Current Month Balance",
+                "value": money(current_balance),
+                "value_eur": round(current_balance, 2),
+                "tone": "positive" if current_balance >= 0 else "negative",
             },
             {"label": "Income Entries", "value": str(len(income_entries)), "tone": "info"},
             {"label": "Expense Entries", "value": str(len(expense_entries)), "tone": "negative"},
         ],
         "income_entries": income_entries,
-        "expense_entries": expense_entries,
-        "income_entries_total_eur": income_total,
-        "expense_entries_total_eur": expense_total,
+        "expense_entries": expense_entries_enriched,
+        "income_entries_total_eur": recurring_income_total,
+        "expense_entries_total_eur": recurring_expense_total,
+        "fixed_expenses_summary": fixed_summary,
+        "expenses_summary_line": expenses_summary_line,
+        "month_income_total_eur": round(month_income, 2),
+        "month_expense_total_eur": round(month_expenses, 2),
         "sections": [
             {"title": "Insights", "items": [f"Execution success rate: {intelligence['success_rate']}%", f"Tracked financial items: {intelligence['total_data_points']}"]},
             {"title": "Recommendations", "items": ["Track expenses every week.", "Run monthly projections often.", "Use AI assistant for planning advice."]},
@@ -578,17 +613,12 @@ def build_dashboard_chart_data(db: Session, user: User, instances: list[Database
     if len(monthly_savings) >= 2 and monthly_savings[0] != 0:
         growth = round(((monthly_savings[-1] - monthly_savings[0]) / abs(monthly_savings[0])) * 100, 1)
 
-    health_score = 100
-    if income_total > 0:
-        ratio = expense_total / income_total
-        health_score = max(0, min(100, int((1 - ratio) * 120)))
-
     return {
         "income_total": round(income_total, 2),
         "expense_total": round(expense_total, 2),
         "savings_total": round(savings_total, 2),
+        "current_month_savings": round(savings_total, 2),
         "growth_percent": growth,
-        "health_score": health_score,
         "workspace_labels": by_workspace_labels,
         "workspace_income": by_workspace_income,
         "workspace_expenses": by_workspace_expenses,
@@ -812,11 +842,22 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     jobs = db.query(JobRun).join(DatabaseInstance).filter(DatabaseInstance.owner_id == user.id).order_by(JobRun.started_at.desc()).limit(20).all()
     intelligence = dashboard_intelligence(instances, jobs, metadata)
     jobs_view = [human_job_view(job, user.enable_iefp_mode) for job in jobs]
-    mother_output = build_mother_output(intelligence, jobs, metadata, instances)
+    now_m = datetime.utcnow().strftime("%Y-%m")
+    month_rows = []
+    for ins in instances:
+        month_rows.append(
+            instance_service.month_summary(
+                ins.finance_db_path,
+                ins.logic_db_path,
+                now_m,
+                include_iefp=bool(user.enable_iefp_mode),
+            )
+        )
+    month_totals = dashboard_metrics.aggregate_current_month_totals(month_rows) if month_rows else {}
+    mother_output = build_mother_output(intelligence, jobs, metadata, instances, month_totals=month_totals)
     chart_data = build_dashboard_chart_data(db, user, instances)
     insights = db.query(MotherInsightEvent).filter(MotherInsightEvent.owner_id == user.id).order_by(MotherInsightEvent.created_at.desc()).limit(10).all()
     primary = instances[0] if instances else None
-    now_m = datetime.utcnow().strftime("%Y-%m")
     latest_statement = None
     budget_alerts = []
     if primary:
@@ -845,6 +886,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         "current_month": now_m,
         "latest_bank_statement": latest_statement,
         "budget_alerts": budget_alerts,
+        "oneoff_categories": list(instance_service.ONEOFF_CATEGORIES),
     })
 
 
@@ -1410,6 +1452,46 @@ def add_expense(
     return RedirectResponse(f"/instances/{instance_id}#workspace-data", status_code=302)
 
 
+@app.post("/instances/{instance_id}/quick-oneoff")
+def quick_oneoff(
+    instance_id: int,
+    request: Request,
+    amount: float = Form(...),
+    description: str = Form(...),
+    txn_type: str = Form(...),
+    txn_date: str = Form(""),
+    category: str | None = Form(None),
+    next_url: str = Form("/dashboard"),
+    db: Session = Depends(get_db),
+):
+    """Quick-add one-time transaction from the global + button."""
+    user = require_user(request, db)
+    inst = require_instance(db, user, instance_id)
+    errs = dashboard_metrics.validate_quick_oneoff(amount, description, txn_type)
+    safe_next = next_url if next_url.startswith("/") and not next_url.startswith("//") else "/dashboard"
+    if errs:
+        sep = "&" if "?" in safe_next else "?"
+        return RedirectResponse(f"{safe_next}{sep}quick_err=1", status_code=302)
+    tt = "income" if str(txn_type).lower() == "income" else "expense"
+    date_s = (txn_date or "").strip() or datetime.utcnow().strftime("%Y-%m-%d")
+    cat = category
+    if tt == "expense" and (cat or "").strip() not in instance_service.ONEOFF_CATEGORIES:
+        cat = "Other"
+
+    def _add():
+        return instance_service.add_oneoff(
+            inst.finance_db_path,
+            date_s,
+            description.strip(),
+            float(amount),
+            txn_type=tt,
+            category=cat,
+        )
+
+    run_job(db, user, inst, "add_oneoff", _add)
+    return RedirectResponse(safe_next, status_code=302)
+
+
 @app.post("/instances/{instance_id}/oneoff")
 def add_oneoff(
     instance_id: int,
@@ -1667,6 +1749,141 @@ def api_market_history(range: str = "1m", db: Session = Depends(get_db)):
     except Exception as exc:
         log.warning("market history bundle failed: %s", exc)
         return JSONResponse({"error": "unavailable", "range": str(range or "")}, status_code=503)
+
+
+def _user_month_totals(user: User, instances: list[DatabaseInstance], month: str) -> dict:
+    rows = [
+        instance_service.month_summary(
+            ins.finance_db_path,
+            ins.logic_db_path,
+            month,
+            include_iefp=bool(user.enable_iefp_mode),
+        )
+        for ins in instances
+    ]
+    return dashboard_metrics.aggregate_current_month_totals(rows) if rows else {}
+
+
+@app.get("/wishlist", response_class=HTMLResponse)
+def wishlist_page(request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    instances = db.query(DatabaseInstance).filter(DatabaseInstance.owner_id == user.id).order_by(DatabaseInstance.created_at.desc()).all()
+    primary = instances[0] if instances else None
+    now_m = datetime.utcnow().strftime("%Y-%m")
+    mt = _user_month_totals(user, instances, now_m)
+    safe_default = dashboard_metrics.safe_to_spend_amount(mt.get("current_month_savings", 0), dashboard_metrics.SAFE_TO_SPEND_DEFAULT_PCT)
+    items = wishlist_service.list_items(db, user.id)
+    items_view = []
+    for it in items:
+        aff = dashboard_metrics.wishlist_affordability(it.price_eur, safe_default)
+        items_view.append({"item": it, "affordability": aff})
+    return templates.TemplateResponse(
+        request=request,
+        name="wishlist.html",
+        context={
+            "request": request,
+            "user": user,
+            "workspace_for_nav": primary,
+            "nav_active": "wishlist",
+            "show_back_to_dashboard": True,
+            "items_view": items_view,
+            "safe_to_spend_default": safe_default,
+            "month_totals": mt,
+        },
+    )
+
+
+@app.post("/wishlist/add")
+def wishlist_add(
+    request: Request,
+    name: str = Form(...),
+    price_eur: float = Form(...),
+    priority: str = Form("medium"),
+    deadline: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    if not name.strip():
+        return RedirectResponse("/wishlist?err=name", status_code=302)
+    wishlist_service.add_item(db, user.id, name, price_eur, priority=priority, deadline=deadline or None)
+    return RedirectResponse("/wishlist", status_code=302)
+
+
+@app.post("/wishlist/{item_id}/delete")
+def wishlist_delete(item_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    wishlist_service.delete_item(db, user.id, item_id)
+    return RedirectResponse("/wishlist", status_code=302)
+
+
+@app.get("/api/notes")
+def api_notes_list(request: Request, db: Session = Depends(get_db)):
+    user = current_user(request, db)
+    if not user:
+        return JSONResponse({"error": "auth_required"}, status_code=401)
+    notes = notes_service.list_notes(db, user.id)
+    return JSONResponse(
+        {
+            "notes": [
+                {"id": n.id, "body": n.body, "created_at": n.created_at.isoformat() if n.created_at else ""}
+                for n in notes
+            ]
+        }
+    )
+
+
+@app.post("/api/notes")
+async def api_notes_create(request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    text = (body.get("body") if isinstance(body, dict) else "") or ""
+    if not str(text).strip():
+        return JSONResponse({"success": False, "message": "Note text is required."}, status_code=400)
+    note = notes_service.add_note(db, user.id, str(text))
+    return JSONResponse(
+        {
+            "success": True,
+            "note": {
+                "id": note.id,
+                "body": note.body,
+                "created_at": note.created_at.isoformat() if note.created_at else "",
+            },
+        }
+    )
+
+
+@app.delete("/api/notes/{note_id}")
+def api_notes_delete(note_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    ok = notes_service.delete_note(db, user.id, note_id)
+    if not ok:
+        return JSONResponse({"success": False}, status_code=404)
+    return JSONResponse({"success": True})
+
+
+@app.get("/notes")
+def notes_page_redirect():
+    """Notes open from the floating N button; no separate page."""
+    return RedirectResponse("/dashboard", status_code=302)
+
+
+@app.post("/notes/add")
+def notes_add(request: Request, body: str = Form(...), db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    if not body.strip():
+        return RedirectResponse("/notes?err=empty", status_code=302)
+    notes_service.add_note(db, user.id, body)
+    return RedirectResponse("/notes", status_code=302)
+
+
+@app.post("/notes/{note_id}/delete")
+def notes_delete(note_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    notes_service.delete_note(db, user.id, note_id)
+    return RedirectResponse("/notes", status_code=302)
 
 
 @app.get("/learn", response_class=HTMLResponse)

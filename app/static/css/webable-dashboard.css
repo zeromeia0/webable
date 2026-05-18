@@ -1,0 +1,35 @@
+/* Dashboard: safe-to-spend percentage controls */
+.wb-safe-pct-btn {
+  padding: 0.35rem 0.55rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-radius: 0.5rem;
+  border: 1px solid rgb(51 65 85);
+  background: rgb(30 41 59);
+  color: rgb(203 213 225);
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.wb-safe-pct-btn:hover {
+  border-color: rgb(99 102 241 / 0.5);
+  background: rgb(51 65 85);
+}
+.wb-safe-pct-btn.wb-safe-pct-active {
+  background: rgb(79 70 229);
+  border-color: rgb(129 140 248);
+  color: rgb(255 255 255);
+  box-shadow: 0 0 0 1px rgb(99 102 241 / 0.35);
+}
+.wb-safe-pct-custom {
+  width: 4.5rem;
+  padding: 0.35rem 0.45rem;
+  font-size: 0.7rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgb(51 65 85);
+  background: rgb(15 23 42);
+  color: rgb(226 232 240);
+}
+.wb-safe-pct-custom:focus {
+  outline: none;
+  border-color: rgb(99 102 241);
+  box-shadow: 0 0 0 2px rgb(99 102 241 / 0.25);
+}

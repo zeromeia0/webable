@@ -16,6 +16,8 @@ class User(Base):
     databases = relationship("DatabaseInstance", back_populates="owner", cascade="all, delete-orphan")
     bank_statements = relationship("BankStatement", back_populates="owner_user", cascade="all, delete-orphan")
     audit_logs = relationship("FinanceAuditLog", back_populates="user")
+    wishlist_items = relationship("WishlistItem", back_populates="owner", cascade="all, delete-orphan")
+    notes = relationship("UserNote", back_populates="owner", cascade="all, delete-orphan")
 
 
 class DatabaseInstance(Base):
@@ -132,6 +134,31 @@ class CategoryBudget(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     instance = relationship("DatabaseInstance", back_populates="category_budgets")
+
+
+class WishlistItem(Base):
+    __tablename__ = "wishlist_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(200), nullable=False)
+    price_eur = Column(Float, nullable=False, default=0.0)
+    priority = Column(String(20), default="medium", nullable=False)
+    deadline = Column(String(32), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    owner = relationship("User", back_populates="wishlist_items")
+
+
+class UserNote(Base):
+    __tablename__ = "user_notes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    body = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    owner = relationship("User", back_populates="notes")
 
 
 class FinanceAuditLog(Base):

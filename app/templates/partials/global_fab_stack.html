@@ -1,5 +1,72 @@
-{# Global calculator + AI floating controls. Optional: fab_instance_id, fab_ai_login_required #}
+{# Global floating utilities. Optional: fab_instance_id, fab_ai_login_required, fab_next_url, oneoff_categories #}
 <link rel="stylesheet" href="/static/css/webable-fab.css" />
+
+{% set oneoff_categories = oneoff_categories | default(['Housing','Food','Transport','Subscriptions','Shopping','Health','Entertainment','Education','Savings','Investments','Other']) %}
+{% set _fab_ws = instance | default(workspace_for_nav | default(primary_instance | default(none))) %}
+{% set fab_instance_id = fab_instance_id | default(_fab_ws.id if _fab_ws else none, true) %}
+{% set fab_next_url = fab_next_url | default(request.url.path, true) %}
+
+<div id="webableFabRoot" aria-hidden="false">
+{% if not (fab_ai_login_required | default(false)) %}
+{# N = new one-time transaction (fixed on every logged-in page) #}
+<button type="button" id="globalQuickAddFab" class="webable-fab-quickadd webable-fab-btn" title="Add one-time transaction" aria-label="Add one-time transaction" aria-expanded="false" aria-controls="globalQuickAddPanel">N</button>
+
+<div id="globalQuickAddPanel" class="webable-fab-panel webable-fab-quickadd-panel hidden" role="dialog" aria-label="Add one-time transaction">
+  <div class="flex items-center justify-between p-3 border-b border-slate-700">
+    <span class="font-semibold text-sm">One-time transaction</span>
+    <button type="button" id="globalQuickAddClose" class="text-slate-400 hover:text-slate-200 text-lg leading-none px-2" aria-label="Close">&times;</button>
+  </div>
+  {% if fab_instance_id %}
+  <form method="post" action="/instances/{{ fab_instance_id }}/quick-oneoff" class="p-3 space-y-3 text-sm">
+    <input type="hidden" name="next_url" value="{{ fab_next_url }}" />
+    <div>
+      <label class="text-xs text-slate-400">Type</label>
+      <div class="flex gap-4 mt-1">
+        <label class="inline-flex items-center gap-1.5"><input type="radio" name="txn_type" value="expense" checked class="accent-rose-500" /> Expense</label>
+        <label class="inline-flex items-center gap-1.5"><input type="radio" name="txn_type" value="income" class="accent-emerald-500" /> Income</label>
+      </div>
+    </div>
+    <div>
+      <label class="text-xs text-slate-400" for="qaAmount">Amount (EUR)</label>
+      <input id="qaAmount" name="amount" type="number" step="0.01" min="0.01" required class="w-full mt-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" />
+    </div>
+    <div>
+      <label class="text-xs text-slate-400" for="qaDesc">Description</label>
+      <input id="qaDesc" name="description" required class="w-full mt-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" />
+    </div>
+    <div>
+      <label class="text-xs text-slate-400" for="qaDate">Date</label>
+      <input id="qaDate" name="txn_date" type="date" class="w-full mt-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" />
+    </div>
+    <div id="qaCategoryWrap">
+      <label class="text-xs text-slate-400" for="qaCategory">Category</label>
+      <select id="qaCategory" name="category" class="w-full mt-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700">
+        {% for c in oneoff_categories %}
+        <option value="{{ c }}">{{ c }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="w-full py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 font-medium">Add transaction</button>
+  </form>
+  {% else %}
+  <p class="p-4 text-sm text-slate-400">Create a workspace first to add one-time transactions from here.</p>
+  {% endif %}
+</div>
+
+<button type="button" id="globalNotesFab" class="webable-fab-notes webable-fab-btn" title="Notes" aria-label="Open notes" aria-expanded="false" aria-controls="globalNotesPanel">Note</button>
+
+<div id="globalNotesPanel" class="webable-fab-panel webable-fab-notes-panel hidden" role="dialog" aria-label="Notes">
+  <div class="flex items-center justify-between p-3 border-b border-slate-700">
+    <span class="font-semibold text-sm">Notes</span>
+    <button type="button" id="globalNotesClose" class="text-slate-400 hover:text-slate-200 text-lg leading-none px-2" aria-label="Close">&times;</button>
+  </div>
+  <div id="globalNotesList" class="p-3 max-h-48 overflow-y-auto text-sm space-y-2"></div>
+  <form id="globalNotesForm" class="p-3 border-t border-slate-700 space-y-2">
+    <textarea id="globalNotesInput" rows="3" placeholder="Write a reminder…" class="w-full rounded-lg bg-slate-800 border border-slate-700 p-2 text-sm"></textarea>
+    <button type="submit" class="w-full py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm font-medium">Save note</button>
+  </form>
+</div>
+{% endif %}
 
 <button type="button" id="globalCalcFab" class="webable-fab-calc webable-fab-btn webable-fab-calc-btn" title="Quick calculator" aria-label="Open quick calculator" aria-expanded="false" aria-controls="globalCalcPanel">⌗</button>
 
@@ -50,9 +117,14 @@
     <button type="submit" class="w-full py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 font-medium text-sm">Send</button>
   </form>
 </div>
+</div>
 
 <script>
-  window.__WEBABLE_FAB_INSTANCE_ID = {% if fab_instance_id is defined and fab_instance_id %}{{ fab_instance_id }}{% else %}null{% endif %};
+  window.__WEBABLE_FAB_INSTANCE_ID = {% if fab_instance_id %}{{ fab_instance_id }}{% else %}null{% endif %};
 </script>
+{% if not (fab_ai_login_required | default(false)) %}
+<script src="/static/js/webable-quick-add.js"></script>
+<script src="/static/js/webable-notes-fab.js"></script>
+{% endif %}
 <script src="/static/js/webable-calculator.js"></script>
 <script src="/static/js/webable-global-ai.js"></script>
