@@ -62,18 +62,21 @@
       <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4"><p class="text-xs text-slate-400">Total expenses</p><p class="text-2xl font-bold text-red-300"><span class="wb-money" data-eur="{{ chart_data.expense_total }}">{{ chart_data.expense_total }}</span></p></div>
       <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4"><p class="text-xs text-slate-400">Savings estimate</p><p class="text-2xl font-bold {% if chart_data.savings_total >= 0 %}text-emerald-300{% else %}text-red-300{% endif %}"><span class="wb-money" data-eur="{{ chart_data.savings_total }}">{{ chart_data.savings_total }}</span></p></div>
       <div id="wbSafeToSpendCard" class="bg-slate-900 border border-slate-800 rounded-2xl p-4" data-month-savings="{{ chart_data.current_month_savings }}">
-        <p class="text-xs text-slate-400 mb-2">Safe to spend</p>
-        <p class="text-2xl font-bold text-sky-300"><span id="wbSafeToSpendValue" class="wb-money" data-eur="0">—</span></p>
-        <div class="flex flex-wrap items-center gap-1.5 mt-3" role="group" aria-label="Safe to spend percentage">
-          <button type="button" data-safe-pct="10" class="wb-safe-pct-btn">10%</button>
-          <button type="button" data-safe-pct="25" class="wb-safe-pct-btn wb-safe-pct-active">25%</button>
-          <button type="button" data-safe-pct="50" class="wb-safe-pct-btn">50%</button>
-          <button type="button" data-safe-pct="75" class="wb-safe-pct-btn">75%</button>
-          <button type="button" data-safe-pct="100" class="wb-safe-pct-btn">100%</button>
-          <input id="wbSafeToSpendCustom" type="number" min="0" max="100" step="0.1" placeholder="Custom %" class="wb-safe-pct-custom" aria-label="Custom percentage" />
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-xs text-slate-400">Safe to spend</p>
+          <div class="flex items-center gap-1 shrink-0">
+            <select id="wbSafeToSpendSelect" class="wb-safe-select" aria-label="Safe to spend percentage">
+              <option value="10">10%</option>
+              <option value="25">25%</option>
+              <option value="50">50%</option>
+              <option value="75">75%</option>
+              <option value="100">100%</option>
+              <option value="custom">Custom</option>
+            </select>
+            <input id="wbSafeToSpendCustom" type="number" min="0" max="100" step="0.1" class="wb-safe-custom hidden" aria-label="Custom percentage" />
+          </div>
         </div>
-        <p id="wbSafeToSpendSub" class="text-[11px] text-slate-500 mt-2">Based on 25% of your current month savings.</p>
-        <p id="wbSafeToSpendHint" class="text-[11px] text-slate-400 mt-1"></p>
+        <p class="text-2xl font-bold text-sky-300 mt-1"><span id="wbSafeToSpendValue" class="wb-money" data-eur="0">—</span></p>
       </div>
     </section>
 
@@ -192,6 +195,13 @@
     </div>
   </div>
 
+  <script>
+    window.__WEBABLE_EXPENSE_PANEL__ = {
+      entries: {{ mother_output.expense_entries | tojson }},
+      summary: {{ mother_output.expenses_summary_line | tojson }},
+      total_eur: {{ mother_output.expense_entries_total_eur }}
+    };
+  </script>
   {% include "partials/global_fab_stack.html" %}
   <link rel="stylesheet" href="/static/css/webable-dashboard.css" />
   <script src="/static/js/webable-safe-to-spend.js"></script>

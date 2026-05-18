@@ -12,11 +12,11 @@
   }
 
   function closeOthers() {
-    ['globalCalcPanel', 'globalAiPanel', 'globalNotesPanel'].forEach(function (id) {
+    ['globalCalcPanel', 'globalAiPanel', 'globalNotesPanel', 'globalExpensesPanel'].forEach(function (id) {
       var el = document.getElementById(id);
       if (el) el.classList.add('hidden');
     });
-    ['globalCalcFab', 'globalAiFab', 'globalNotesFab'].forEach(function (id) {
+    ['globalCalcFab', 'globalAiFab', 'globalNotesFab', 'globalExpensesFab'].forEach(function (id) {
       var el = document.getElementById(id);
       if (el) el.setAttribute('aria-expanded', 'false');
     });

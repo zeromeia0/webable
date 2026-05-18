@@ -11,11 +11,11 @@
   if (!fab || !panel) return;
 
   function closeOthers() {
-    ['globalCalcPanel', 'globalAiPanel', 'globalQuickAddPanel'].forEach(function (id) {
+    ['globalCalcPanel', 'globalAiPanel', 'globalQuickAddPanel', 'globalExpensesPanel'].forEach(function (id) {
       var el = document.getElementById(id);
       if (el) el.classList.add('hidden');
     });
-    ['globalCalcFab', 'globalAiFab', 'globalQuickAddFab'].forEach(function (id) {
+    ['globalCalcFab', 'globalAiFab', 'globalQuickAddFab', 'globalExpensesFab'].forEach(function (id) {
       var el = document.getElementById(id);
       if (el) el.setAttribute('aria-expanded', 'false');
     });

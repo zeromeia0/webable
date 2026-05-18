@@ -1,35 +1,31 @@
-/* Dashboard: safe-to-spend percentage controls */
-.wb-safe-pct-btn {
-  padding: 0.35rem 0.55rem;
-  font-size: 0.7rem;
-  font-weight: 600;
-  border-radius: 0.5rem;
+/* Dashboard: compact safe-to-spend selector */
+.wb-safe-select {
+  font-size: 0.625rem;
+  line-height: 1.2;
+  padding: 0.1rem 0.2rem;
+  max-width: 4.25rem;
+  height: 1.25rem;
+  border-radius: 0.375rem;
   border: 1px solid rgb(51 65 85);
-  background: rgb(30 41 59);
+  background: rgb(15 23 42);
   color: rgb(203 213 225);
-  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
-.wb-safe-pct-btn:hover {
-  border-color: rgb(99 102 241 / 0.5);
-  background: rgb(51 65 85);
+.wb-safe-select:focus {
+  outline: none;
+  border-color: rgb(99 102 241);
 }
-.wb-safe-pct-btn.wb-safe-pct-active {
-  background: rgb(79 70 229);
-  border-color: rgb(129 140 248);
-  color: rgb(255 255 255);
-  box-shadow: 0 0 0 1px rgb(99 102 241 / 0.35);
-}
-.wb-safe-pct-custom {
-  width: 4.5rem;
-  padding: 0.35rem 0.45rem;
-  font-size: 0.7rem;
-  border-radius: 0.5rem;
+.wb-safe-custom {
+  width: 3.75rem;
+  max-width: 60px;
+  height: 1.25rem;
+  font-size: 0.625rem;
+  padding: 0.05rem 0.2rem;
+  border-radius: 0.375rem;
   border: 1px solid rgb(51 65 85);
   background: rgb(15 23 42);
   color: rgb(226 232 240);
 }
-.wb-safe-pct-custom:focus {
+.wb-safe-custom:focus {
   outline: none;
   border-color: rgb(99 102 241);
-  box-shadow: 0 0 0 2px rgb(99 102 241 / 0.25);
 }

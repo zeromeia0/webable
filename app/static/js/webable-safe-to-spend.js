@@ -1,5 +1,5 @@
 /**
- * Safe-to-spend: preset + custom %, localStorage, live amount update.
+ * Safe-to-spend: compact dropdown + optional custom %, localStorage, live update.
  */
 (function () {
   var STORAGE_KEY = 'webable_safe_to_spend_pct';
@@ -33,15 +33,6 @@
     return Math.round(base * (clampPct(pct) / 100) * 100) / 100;
   }
 
-  function hint(savings, pct) {
-    var s = Math.max(parseFloat(savings) || 0, 0);
-    var p = clampPct(pct);
-    if (s <= 0) return 'Savings are low this month, so safe-to-spend is limited.';
-    if (p <= 25) return 'Conservative mode: most of your savings stay protected.';
-    if (p >= 75) return 'Flexible mode: a larger share of this month\'s savings is available.';
-    return 'Balanced mode: part of this month\'s savings is available to spend.';
-  }
-
   function isPreset(pct) {
     return PRESETS.indexOf(Math.round(pct)) >= 0 && Math.abs(pct - Math.round(pct)) < 0.001;
   }
@@ -49,8 +40,7 @@
   function render() {
     var card = document.getElementById('wbSafeToSpendCard');
     var valEl = document.getElementById('wbSafeToSpendValue');
-    var sub = document.getElementById('wbSafeToSpendSub');
-    var hintEl = document.getElementById('wbSafeToSpendHint');
+    var select = document.getElementById('wbSafeToSpendSelect');
     var customInput = document.getElementById('wbSafeToSpendCustom');
     if (!card || !valEl) return;
 
@@ -64,22 +54,19 @@
       window.WebableCurrency.apply(card);
     }
 
-    if (sub) sub.textContent = 'Based on ' + pct + '% of your current month savings.';
-    if (hintEl) hintEl.textContent = hint(savings, pct);
-
-    document.querySelectorAll('[data-safe-pct]').forEach(function (btn) {
-      var bPct = parseFloat(btn.getAttribute('data-safe-pct'));
-      var active = Math.abs(bPct - pct) < 0.001;
-      btn.classList.toggle('wb-safe-pct-active', active);
-      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
-    });
-
-    if (customInput) {
+    if (select) {
       if (isPreset(pct)) {
-        customInput.value = '';
-        customInput.placeholder = 'Custom %';
+        select.value = String(Math.round(pct));
+        if (customInput) {
+          customInput.classList.add('hidden');
+          customInput.value = '';
+        }
       } else {
-        customInput.value = String(pct);
+        select.value = 'custom';
+        if (customInput) {
+          customInput.classList.remove('hidden');
+          customInput.value = String(pct);
+        }
       }
     }
   }
@@ -91,17 +78,26 @@
 
   function init() {
     var card = document.getElementById('wbSafeToSpendCard');
+    var select = document.getElementById('wbSafeToSpendSelect');
+    var customInput = document.getElementById('wbSafeToSpendCustom');
     if (!card) return;
 
-    document.querySelectorAll('[data-safe-pct]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        setPct(parseFloat(btn.getAttribute('data-safe-pct')));
+    if (select) {
+      select.addEventListener('change', function () {
+        if (select.value === 'custom') {
+          if (customInput) {
+            customInput.classList.remove('hidden');
+            customInput.focus();
+            if (customInput.value !== '') setPct(customInput.value);
+          }
+        } else {
+          setPct(select.value);
+        }
       });
-    });
+    }
 
-    var customInput = document.getElementById('wbSafeToSpendCustom');
     if (customInput) {
-      customInput.addEventListener('change', function () {
+      customInput.addEventListener('input', function () {
         if (customInput.value === '' || customInput.value === null) return;
         setPct(customInput.value);
       });

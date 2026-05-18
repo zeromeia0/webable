@@ -8,8 +8,8 @@
 
 <div id="webableFabRoot" aria-hidden="false">
 {% if not (fab_ai_login_required | default(false)) %}
-{# N = new one-time transaction (fixed on every logged-in page) #}
-<button type="button" id="globalQuickAddFab" class="webable-fab-quickadd webable-fab-btn" title="Add one-time transaction" aria-label="Add one-time transaction" aria-expanded="false" aria-controls="globalQuickAddPanel">N</button>
+{# Bottom-left orange + : one-time transaction #}
+<button type="button" id="globalQuickAddFab" class="webable-fab-quickadd webable-fab-btn" title="Add one-time transaction" aria-label="Add one-time transaction" aria-expanded="false" aria-controls="globalQuickAddPanel">+</button>
 
 <div id="globalQuickAddPanel" class="webable-fab-panel webable-fab-quickadd-panel hidden" role="dialog" aria-label="Add one-time transaction">
   <div class="flex items-center justify-between p-3 border-b border-slate-700">
@@ -65,6 +65,17 @@
     <textarea id="globalNotesInput" rows="3" placeholder="Write a reminder…" class="w-full rounded-lg bg-slate-800 border border-slate-700 p-2 text-sm"></textarea>
     <button type="submit" class="w-full py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm font-medium">Save note</button>
   </form>
+</div>
+
+<button type="button" id="globalExpensesFab" class="webable-fab-expenses webable-fab-btn hidden" title="Expenses" aria-label="Expenses" aria-expanded="false" aria-controls="globalExpensesPanel">Expenses</button>
+
+<div id="globalExpensesPanel" class="webable-fab-panel webable-fab-expenses-panel hidden" role="dialog" aria-label="Expenses">
+  <div class="flex items-center justify-between p-3 border-b border-slate-700 shrink-0">
+    <span class="font-semibold text-sm">Expenses</span>
+    <button type="button" id="globalExpensesClose" class="text-slate-400 hover:text-slate-200 text-lg leading-none px-2" aria-label="Close">&times;</button>
+  </div>
+  <div id="globalExpensesList" class="webable-fab-expenses-list p-3 text-sm"></div>
+  <p id="globalExpensesSummary" class="p-3 pt-0 text-xs text-slate-400 border-t border-slate-700/80 shrink-0"></p>
 </div>
 {% endif %}
 
@@ -125,6 +136,7 @@
 {% if not (fab_ai_login_required | default(false)) %}
 <script src="/static/js/webable-quick-add.js"></script>
 <script src="/static/js/webable-notes-fab.js"></script>
+<script src="/static/js/webable-expenses-fab.js"></script>
 {% endif %}
 <script src="/static/js/webable-calculator.js"></script>
 <script src="/static/js/webable-global-ai.js"></script>

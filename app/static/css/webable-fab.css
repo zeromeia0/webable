@@ -30,7 +30,40 @@
   transform: scale(0.96);
 }
 
-/* Right stack (bottom → top): AI, calculator, notes, new transaction */
+/* Bottom-left: orange + quick add (clear of sidebar on md+) */
+.webable-fab-quickadd {
+  left: max(1rem, env(safe-area-inset-left, 0px));
+  bottom: max(1.5rem, env(safe-area-inset-bottom, 0px));
+  right: auto;
+  font-size: 1.75rem;
+  font-weight: 400;
+  line-height: 1;
+  background: rgb(249 115 22);
+  color: white;
+  border-color: rgb(251 146 60 / 0.55);
+  box-shadow: 0 0 0 2px rgb(249 115 22 / 0.3), 0 20px 25px -5px rgb(0 0 0 / 0.45);
+}
+.webable-fab-quickadd:hover {
+  background: rgb(251 146 60);
+}
+@media (min-width: 768px) {
+  .webable-fab-quickadd {
+    left: calc(15rem + 0.75rem);
+  }
+}
+.webable-fab-quickadd-panel {
+  left: max(1rem, env(safe-area-inset-left, 0px));
+  right: auto;
+  bottom: calc(max(1.5rem, env(safe-area-inset-bottom, 0px)) + 4.75rem);
+  width: min(92vw, 320px);
+}
+@media (min-width: 768px) {
+  .webable-fab-quickadd-panel {
+    left: calc(15rem + 0.75rem);
+  }
+}
+
+/* Right stack (bottom → top): AI, calculator, notes */
 .webable-fab-ai {
   right: max(1rem, env(safe-area-inset-right, 0px));
   bottom: max(1.5rem, env(safe-area-inset-bottom, 0px));
@@ -51,18 +84,25 @@
 .webable-fab-notes:hover {
   background: rgb(100 116 139);
 }
-.webable-fab-quickadd {
+
+/* Right-side Expenses pill (above utility stack) */
+.webable-fab-expenses {
   right: max(1rem, env(safe-area-inset-right, 0px));
   bottom: calc(max(1.5rem, env(safe-area-inset-bottom, 0px)) + 12.75rem);
-  font-size: 1.1rem;
-  font-weight: 700;
-  background: rgb(16 185 129);
-  color: white;
-  border-color: rgb(52 211 153 / 0.55);
-  box-shadow: 0 0 0 2px rgb(16 185 129 / 0.35), 0 20px 25px -5px rgb(0 0 0 / 0.45);
+  width: auto;
+  min-width: 3.5rem;
+  height: 3.5rem;
+  padding: 0 0.85rem;
+  border-radius: 9999px;
+  font-size: 0.62rem;
+  letter-spacing: -0.01em;
+  background: rgb(30 41 59);
+  color: rgb(226 232 240);
+  border-color: rgb(71 85 105);
 }
-.webable-fab-quickadd:hover {
-  background: rgb(52 211 153);
+.webable-fab-expenses:hover {
+  background: rgb(51 65 85);
+  border-color: rgb(100 116 139);
 }
 
 .webable-fab-calc-btn {
@@ -88,23 +128,35 @@
   border: 1px solid rgb(51 65 85);
   border-radius: 1rem;
   box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.55);
-  right: max(1rem, env(safe-area-inset-right, 0px));
-}
-.webable-fab-ai-panel {
-  bottom: calc(max(1.5rem, env(safe-area-inset-bottom, 0px)) + 4.75rem);
-  width: min(92vw, 360px);
 }
 .webable-fab-calc-panel {
+  right: max(1rem, env(safe-area-inset-right, 0px));
   bottom: calc(max(1.5rem, env(safe-area-inset-bottom, 0px)) + 8.75rem);
   width: min(92vw, 280px);
 }
 .webable-fab-notes-panel {
+  right: max(1rem, env(safe-area-inset-right, 0px));
   bottom: calc(max(1.5rem, env(safe-area-inset-bottom, 0px)) + 13.25rem);
   width: min(92vw, 320px);
 }
-.webable-fab-quickadd-panel {
+.webable-fab-ai-panel {
+  right: max(1rem, env(safe-area-inset-right, 0px));
+  bottom: calc(max(1.5rem, env(safe-area-inset-bottom, 0px)) + 4.75rem);
+  width: min(92vw, 360px);
+}
+.webable-fab-expenses-panel {
+  right: max(1rem, env(safe-area-inset-right, 0px));
   bottom: calc(max(1.5rem, env(safe-area-inset-bottom, 0px)) + 17.5rem);
-  width: min(92vw, 320px);
+  width: min(92vw, 340px);
+  max-height: min(70vh, 420px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.webable-fab-expenses-list {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
 }
 
 /* Sidebar-style toggle on dashboard expense card */

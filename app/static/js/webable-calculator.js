@@ -168,11 +168,11 @@
     fab.addEventListener('click', function () {
       var opening = panel.classList.contains('hidden');
       if (opening) {
-        ['globalAiPanel', 'globalQuickAddPanel', 'globalNotesPanel'].forEach(function (id) {
+        ['globalAiPanel', 'globalQuickAddPanel', 'globalNotesPanel', 'globalExpensesPanel'].forEach(function (id) {
           var el = document.getElementById(id);
           if (el) el.classList.add('hidden');
         });
-        ['globalAiFab', 'globalQuickAddFab', 'globalNotesFab'].forEach(function (id) {
+        ['globalAiFab', 'globalQuickAddFab', 'globalNotesFab', 'globalExpensesFab'].forEach(function (id) {
           var el = document.getElementById(id);
           if (el) el.setAttribute('aria-expanded', 'false');
         });
