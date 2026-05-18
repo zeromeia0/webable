@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from .auth import SESSION_COOKIE, current_user, hash_password, issue_session, verify_password
 from .db import DATA_ROOT, Base, SessionLocal, engine, get_db
-from .models import BankStatement, CategoryBudget, DatabaseInstance, FinanceAuditLog, JobRun, MotherInsightEvent, User
+from .models import BankStatement, CategoryBudget, DatabaseInstance, FinanceAuditLog, JobRun, MonthlySnapshot, MotherInsightEvent, User
 from .services import (
     analysis_service,
     bank_statement_service,
@@ -28,8 +28,12 @@ from .services import (
     dashboard_metrics,
     db_safety,
     emergency_fund_service,
+    eom_summary_service,
+    eom_summary_pdf,
     expense_panel,
+    financial_timeline_service,
     instance_service,
+    monthly_snapshot_service,
     notes_service,
     numeric_input,
     wishlist_service,
@@ -852,9 +856,11 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         )
     month_totals = dashboard_metrics.aggregate_current_month_totals(month_rows) if month_rows else {}
     mother_output = build_mother_output(intelligence, jobs, metadata, instances, month_totals=month_totals)
+    primary = instances[0] if instances else None
+    if primary:
+        eom_summary_service.ensure_eom_snapshots(db, primary, user, max_months=6)
     chart_data = build_dashboard_chart_data(db, user, instances)
     insights = db.query(MotherInsightEvent).filter(MotherInsightEvent.owner_id == user.id).order_by(MotherInsightEvent.created_at.desc()).limit(10).all()
-    primary = instances[0] if instances else None
     latest_statement = None
     budget_alerts = []
     if primary:
@@ -1775,6 +1781,210 @@ def _user_month_totals(user: User, instances: list[DatabaseInstance], month: str
         for ins in instances
     ]
     return dashboard_metrics.aggregate_current_month_totals(rows) if rows else {}
+
+
+def _user_instances_and_primary(db: Session, user: User) -> tuple[list[DatabaseInstance], DatabaseInstance | None]:
+    instances = (
+        db.query(DatabaseInstance)
+        .filter(DatabaseInstance.owner_id == user.id)
+        .order_by(DatabaseInstance.created_at.desc())
+        .all()
+    )
+    return instances, (instances[0] if instances else None)
+
+
+def _resolve_workspace(
+    db: Session, user: User, instance_id: int | None
+) -> tuple[list[DatabaseInstance], DatabaseInstance | None]:
+    instances, primary = _user_instances_and_primary(db, user)
+    if instance_id is not None:
+        inst = require_instance(db, user, instance_id)
+        return instances, inst
+    return instances, primary
+
+
+@app.get("/timeline", response_class=HTMLResponse)
+def timeline_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    instance_id: int | None = None,
+    month: str | None = None,
+    event_type: str | None = None,
+):
+    user = require_user(request, db)
+    instances, inst = _resolve_workspace(db, user, instance_id)
+    events: list = []
+    grouped: list = []
+    if inst:
+        eom_summary_service.ensure_eom_snapshots(db, inst, user, max_months=12)
+        events = financial_timeline_service.build_timeline_events(
+            db,
+            user,
+            inst,
+            month_filter=month or None,
+            type_filter=event_type or None,
+            include_iefp=bool(user.enable_iefp_mode),
+        )
+        grouped = financial_timeline_service.group_events_by_date(events)
+    snapshots = monthly_snapshot_service.list_monthly_snapshots(db, inst.id) if inst else []
+    return templates.TemplateResponse(
+        request=request,
+        name="timeline.html",
+        context={
+            "request": request,
+            "user": user,
+            "instances": instances,
+            "instance": inst,
+            "workspace_for_nav": inst or (instances[0] if instances else None),
+            "nav_active": "timeline",
+            "show_back_to_dashboard": True,
+            "events": events,
+            "grouped_events": grouped,
+            "month_filter": month or "",
+            "event_type_filter": event_type or "",
+            "snapshots": snapshots,
+        },
+    )
+
+
+@app.get("/eom-summary", response_class=HTMLResponse)
+def eom_summary_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    instance_id: int | None = None,
+    year: int | None = None,
+    month: int | None = None,
+    month_q: str | None = None,
+):
+    user = require_user(request, db)
+    instances, inst = _resolve_workspace(db, user, instance_id)
+    summary = None
+    snapshots: list = []
+    if inst:
+        sync = eom_summary_service.ensure_eom_snapshots(db, inst, user, max_months=24)
+        snapshots = monthly_snapshot_service.list_monthly_snapshots(db, inst.id)
+        today = date.today()
+        if month_q and len(month_q) >= 7:
+            sel_y, sel_m = monthly_snapshot_service.month_str_to_parts(month_q[:7])
+        else:
+            sel_y = year or today.year
+            sel_m = month or today.month
+        summary = eom_summary_service.resolve_summary_for_display(db, inst, user, sel_y, sel_m)
+        summary["_sync"] = sync
+    return templates.TemplateResponse(
+        request=request,
+        name="eom_summary.html",
+        context={
+            "request": request,
+            "user": user,
+            "instances": instances,
+            "instance": inst,
+            "workspace_for_nav": inst or (instances[0] if instances else None),
+            "nav_active": "eom",
+            "show_back_to_dashboard": True,
+            "snapshots": snapshots,
+            "summary": summary,
+            "selected_year": year,
+            "selected_month": month,
+        },
+    )
+
+
+@app.post("/eom-summary/generate")
+def eom_summary_generate(
+    request: Request,
+    db: Session = Depends(get_db),
+    instance_id: int = Form(...),
+    year: int = Form(...),
+    month: int = Form(...),
+):
+    user = require_user(request, db)
+    inst = require_instance(db, user, instance_id)
+    monthly_snapshot_service.generate_monthly_snapshot(db, inst, year, month, user)
+    return RedirectResponse(f"/eom-summary?instance_id={instance_id}&year={year}&month={month}", status_code=302)
+
+
+@app.get("/eom-summary/current/pdf")
+def eom_summary_current_pdf(
+    request: Request,
+    db: Session = Depends(get_db),
+    instance_id: int | None = None,
+    display_currency: str | None = None,
+):
+    user = require_user(request, db)
+    _, inst = _resolve_workspace(db, user, instance_id)
+    if not inst:
+        raise HTTPException(status_code=404, detail="No workspace")
+    now = datetime.utcnow()
+    summary = eom_summary_service.build_live_preview(db, inst, user)
+    is_preview = bool(summary.get("is_preview"))
+    cur, rates, fx_at = pdf_currency_context(display_currency)
+    try:
+        pdf_bytes = eom_summary_pdf.build_eom_summary_pdf(
+            workspace_name=inst.name,
+            summary=summary,
+            is_preview=is_preview,
+            display_currency=cur,
+            fx_rates=rates,
+            fx_updated_at=fx_at,
+        )
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="PDF export needs optional packages: pip install reportlab",
+        ) from exc
+    fname = f"eom-preview-{now.strftime('%Y-%m')}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+@app.get("/eom-summary/{year}/{month}/pdf")
+def eom_summary_month_pdf(
+    year: int,
+    month: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    instance_id: int | None = None,
+    display_currency: str | None = None,
+    preview: int = 0,
+):
+    user = require_user(request, db)
+    _, inst = _resolve_workspace(db, user, instance_id)
+    if not inst:
+        raise HTTPException(status_code=404, detail="No workspace")
+    today = date.today()
+    is_current = year == today.year and month == today.month
+    row = monthly_snapshot_service.get_monthly_snapshot(db, inst.id, year, month)
+    if row and not preview:
+        summary = monthly_snapshot_service.snapshot_row_to_payload(row)
+        is_preview = False
+    else:
+        summary = eom_summary_service.build_live_preview(
+            db, inst, user, month_str=monthly_snapshot_service.parts_to_month_str(year, month)
+        )
+        is_preview = is_current or bool(preview)
+    cur, rates, fx_at = pdf_currency_context(display_currency)
+    try:
+        pdf_bytes = eom_summary_pdf.build_eom_summary_pdf(
+            workspace_name=inst.name,
+            summary=summary,
+            is_preview=is_preview,
+            display_currency=cur,
+            fx_rates=rates,
+            fx_updated_at=fx_at,
+        )
+    except ImportError as exc:
+        raise HTTPException(status_code=503, detail="PDF export needs optional packages: pip install reportlab") from exc
+    tag = "preview" if is_preview else "summary"
+    fname = f"eom-{tag}-{year:04d}-{month:02d}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
 
 
 @app.get("/wishlist", response_class=HTMLResponse)

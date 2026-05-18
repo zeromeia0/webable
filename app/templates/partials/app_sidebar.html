@@ -7,6 +7,16 @@
             {% if nav_active == 'overview' %}bg-gradient-to-r from-indigo-600 to-violet-600 text-white border-indigo-400/50 ring-2 ring-indigo-400/40{% else %}bg-slate-800/90 text-slate-100 border-slate-700 hover:border-indigo-500/40 hover:from-slate-800 hover:to-indigo-950/40 hover:bg-gradient-to-r{% endif %}">
     <span class="text-lg">⌂</span><span>Dashboard</span>
   </a>
+  <a href="/timeline"
+     class="group flex items-center gap-2 w-full rounded-xl px-3 py-3 text-sm font-semibold shadow-md transition border
+            {% if nav_active == 'timeline' %}bg-gradient-to-r from-violet-600 to-purple-600 text-white border-violet-400/50 ring-2 ring-violet-400/40{% else %}bg-slate-800/90 text-slate-100 border-slate-700 hover:border-violet-500/40 hover:bg-gradient-to-r hover:from-slate-800 hover:to-violet-950/50{% endif %}">
+    <span class="text-lg">🕐</span><span>Timeline</span>
+  </a>
+  <a href="/eom-summary"
+     class="group flex items-center gap-2 w-full rounded-xl px-3 py-3 text-sm font-semibold shadow-md transition border
+            {% if nav_active == 'eom' %}bg-gradient-to-r from-cyan-600 to-blue-600 text-white border-cyan-400/50 ring-2 ring-cyan-400/40{% else %}bg-slate-800/90 text-slate-100 border-slate-700 hover:border-cyan-500/40 hover:bg-gradient-to-r hover:from-slate-800 hover:to-cyan-950/50{% endif %}">
+    <span class="text-lg">📅</span><span>EOM Summary</span>
+  </a>
   {% if ws %}
   <a href="/instances/{{ ws.id }}/reports"
      class="group flex items-center gap-2 w-full rounded-xl px-3 py-3 text-sm font-semibold shadow-md transition border

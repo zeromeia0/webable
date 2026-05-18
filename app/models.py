@@ -39,6 +39,7 @@ class DatabaseInstance(Base):
     jobs = relationship("JobRun", back_populates="instance", cascade="all, delete-orphan")
     bank_statements = relationship("BankStatement", back_populates="instance", cascade="all, delete-orphan")
     category_budgets = relationship("CategoryBudget", back_populates="instance", cascade="all, delete-orphan")
+    monthly_snapshots = relationship("MonthlySnapshot", back_populates="instance", cascade="all, delete-orphan")
 
 
 class JobRun(Base):
@@ -159,6 +160,31 @@ class UserNote(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     owner = relationship("User", back_populates="notes")
+
+
+class MonthlySnapshot(Base):
+    __tablename__ = "monthly_snapshots"
+    __table_args__ = (UniqueConstraint("instance_id", "year", "month", name="uq_snapshot_instance_ym"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    instance_id = Column(Integer, ForeignKey("database_instances.id"), nullable=False, index=True)
+    year = Column(Integer, nullable=False)
+    month = Column(Integer, nullable=False)
+    total_income = Column(Float, nullable=False, default=0.0)
+    total_expenses = Column(Float, nullable=False, default=0.0)
+    net_balance = Column(Float, nullable=False, default=0.0)
+    average_monthly_balance = Column(Float, nullable=True)
+    safe_to_spend = Column(Float, nullable=True)
+    fixed_expenses_total = Column(Float, nullable=False, default=0.0)
+    fixed_expenses_percent_income = Column(String(16), nullable=True)
+    top_expenses_json = Column(Text, default="[]", nullable=False)
+    top_income_json = Column(Text, default="[]", nullable=False)
+    comparison_json = Column(Text, default="{}", nullable=False)
+    summary_json = Column(Text, default="[]", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    instance = relationship("DatabaseInstance", back_populates="monthly_snapshots")
 
 
 class FinanceAuditLog(Base):
