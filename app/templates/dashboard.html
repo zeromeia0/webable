@@ -23,12 +23,6 @@
       <form method="post" action="/logout"><button type="submit" class="px-4 py-2 rounded-lg bg-slate-800 border border-slate-700 text-sm hover:bg-slate-700">Logout</button></form>
     </header>
 
-    <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 mb-8" aria-labelledby="wb-about-deploy">
-      <h2 id="wb-about-deploy" class="text-sm font-semibold text-slate-300 mb-2">About this app</h2>
-      <p class="text-xs text-slate-500 mb-3">Deployment mode, version, and how updates are handled on this server.</p>
-      <pre id="wbAboutDeployment" class="text-xs text-slate-400 bg-slate-950/80 border border-slate-800 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap font-mono">Loading…</pre>
-    </section>
-
     {% if primary_instance %}
     <section class="grid md:grid-cols-2 gap-4">
       <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4">
