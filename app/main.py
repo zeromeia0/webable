@@ -4,8 +4,6 @@ import json
 import logging
 import os
 from datetime import date, datetime
-from urllib import request as urlrequest
-from urllib.error import URLError
 from uuid import uuid4
 
 from contextlib import asynccontextmanager
@@ -21,6 +19,7 @@ from .auth import SESSION_COOKIE, current_user, hash_password, issue_session, ve
 from .db import DATA_ROOT, Base, SessionLocal, engine, get_db
 from .models import BankStatement, CategoryBudget, DatabaseInstance, FinanceAuditLog, JobRun, MonthlySnapshot, MotherInsightEvent, User
 from .services import (
+    ai_service,
     analysis_service,
     bank_statement_service,
     build_info,
@@ -507,56 +506,6 @@ def build_mother_output(
     }
 
 
-def collect_user_financial_context(db: Session, user: User, instance_id: int | None = None) -> dict:
-    instances_q = db.query(DatabaseInstance).filter(DatabaseInstance.owner_id == user.id)
-    if instance_id is not None:
-        instances_q = instances_q.filter(DatabaseInstance.id == instance_id)
-    instances = instances_q.order_by(DatabaseInstance.created_at.desc()).all()
-
-    current_month = datetime.utcnow().strftime("%Y-%m")
-    workspaces = []
-    trend = []
-    for ins in instances:
-        items = instance_service.list_finance_items(ins.finance_db_path)
-        month = instance_service.month_summary(
-            ins.finance_db_path,
-            ins.logic_db_path,
-            current_month,
-            include_iefp=bool(user.enable_iefp_mode),
-        )
-        projection = instance_service.long_range(
-            ins.finance_db_path,
-            ins.logic_db_path,
-            current_month,
-            6,
-            include_iefp=bool(user.enable_iefp_mode),
-        )
-        trend.extend(projection)
-        workspaces.append(
-            {
-                "workspace": ins.name,
-                "totals": {
-                    "income": round(sum(i["amount"] for i in items["incomes"]), 2),
-                    "expenses": round(sum(i["amount"] for i in items["expenses"]), 2),
-                    "one_time": round(sum(i["amount"] for i in items["oneoffs"]), 2),
-                    "monthly_savings_estimate": month.get("estimated_savings", 0),
-                },
-                "incomes": [{"name": i["name"], "amount": i["amount"]} for i in items["incomes"][:20]],
-                "expenses": [{"name": i["name"], "amount": i["amount"]} for i in items["expenses"][:20]],
-                "one_time_transactions": [{"date": t["date"], "name": t["name"], "amount": t["amount"], "category": t.get("category", "Other"), "txn_type": t.get("txn_type", "expense")} for t in items["oneoffs"][:20]],
-                "current_month": month,
-                "projection_6m": projection,
-            }
-        )
-
-    return {
-        "user": user.username,
-        "current_month": current_month,
-        "workspaces": workspaces,
-        "trend_points": trend[:24],
-    }
-
-
 def dashboard_intelligence(instances: list[DatabaseInstance], jobs: list[JobRun], metadata: dict) -> dict:
     total_runs = len(jobs)
     successful = len([j for j in jobs if j.status == "done"])
@@ -626,82 +575,6 @@ def build_dashboard_chart_data(db: Session, user: User, instances: list[Database
         "monthly_labels": monthly_labels,
         "monthly_savings": monthly_savings,
     }
-
-
-def build_ai_context(user: User, instance: DatabaseInstance, finance_items: dict, latest_month: dict, latest_range: list[dict]) -> dict:
-    total_income = round(sum(item.get("amount", 0) for item in finance_items.get("incomes", [])), 2)
-    total_expenses = round(sum(item.get("amount", 0) for item in finance_items.get("expenses", [])), 2)
-    total_oneoffs = round(sum(item.get("amount", 0) for item in finance_items.get("oneoffs", [])), 2)
-    return {
-        "user": user.username,
-        "workspace": instance.name,
-        "totals": {
-            "total_income": total_income,
-            "total_expenses": total_expenses,
-            "total_one_time_transactions": total_oneoffs,
-            "current_month_estimated_savings": latest_month.get("estimated_savings", 0),
-        },
-        "incomes": [{"name": i.get("name"), "amount": i.get("amount")} for i in finance_items.get("incomes", [])],
-        "expenses": [{"name": i.get("name"), "amount": i.get("amount")} for i in finance_items.get("expenses", [])],
-        "one_time_transactions": [{"date": t.get("date"), "name": t.get("name"), "amount": t.get("amount"), "category": t.get("category", "Other"), "txn_type": t.get("txn_type", "expense")} for t in finance_items.get("oneoffs", [])],
-        "monthly_result": {
-            "month": latest_month.get("month"),
-            "income_total": latest_month.get("extras", 0),
-            "expense_total": latest_month.get("expenses", 0),
-            "one_time_total": latest_month.get("one_off", 0),
-            "savings_estimate": latest_month.get("estimated_savings", 0),
-        },
-        "projection": latest_range[:12],
-    }
-
-
-def ask_ollama(question: str, context: dict) -> str:
-    context_block = json.dumps(context, ensure_ascii=False, indent=2)[:14000]
-    system_prompt = (
-        "You are a helpful personal finance assistant inside a budgeting web app.\n\n"
-        "Your job is to explain the user's financial situation in simple, practical language.\n"
-        "Use only the financial data provided in the context.\n"
-        "Do not invent numbers.\n"
-        "Do not mention databases, JSON, backend, SQL, code, or internal systems.\n"
-        "If something is missing, say the app does not have enough information.\n\n"
-        "Always answer with:\n"
-        "- a short direct summary\n"
-        "- clear bullet points\n"
-        "- useful observations\n"
-        "- practical next steps when relevant\n\n"
-        "Keep the tone friendly, simple, and easy to understand."
-    )
-    payload = {
-        "model": "qwen2.5-coder:3b",
-        "stream": False,
-        "prompt": f"{system_prompt}\n\nFinancial context:\n{context_block}\n\nUser question:\n{question}",
-    }
-    req = urlrequest.Request(
-        "http://127.0.0.1:11434/api/generate",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urlrequest.urlopen(req, timeout=90) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-            return body.get("response", "I could not generate a response.").strip()
-    except URLError:
-        return "I couldn't connect to the local AI assistant. Make sure Ollama is running and the qwen2.5-coder:3b model is installed."
-
-
-def render_ai_answer(answer: str) -> str:
-    cleaned = (answer or "").strip()
-    if not cleaned:
-        return "- I could not generate a useful answer this time."
-    if cleaned.startswith("{") and cleaned.endswith("}"):
-        try:
-            parsed = json.loads(cleaned)
-            if isinstance(parsed, dict) and "answer" in parsed:
-                cleaned = str(parsed["answer"]).strip()
-        except Exception:
-            pass
-    return cleaned
 
 
 def _append_finance_audit(db: Session, user_id: int, instance_id: int, job_type: str, result: object) -> None:
@@ -1232,7 +1105,7 @@ def instance_view(instance_id: int, request: Request, db: Session = Depends(get_
     state_summary = {"ready": "Database created successfully" if not jobs else inst.last_sync_status, "updated": humanize_delta(inst.last_activity_at), "health": inst.health_status}
     finance_items = instance_service.list_finance_items(inst.finance_db_path)
     ai_job = next((j for j in jobs if j.job_type == "ai_chat"), None)
-    ai_answer = render_ai_answer(ai_job.technical_logs if ai_job else "")
+    ai_answer = ai_service.render_ai_answer(ai_job.technical_logs if ai_job else "")
     msg = request.query_params.get("msg", "")
     instances = db.query(DatabaseInstance).filter(DatabaseInstance.owner_id == user.id).order_by(DatabaseInstance.created_at.desc()).all()
     now_m = datetime.utcnow().strftime("%Y-%m")
@@ -1415,14 +1288,34 @@ def results_summary_pdf(
     )
 
 
+@app.get("/api/ai/ollama/signin-link")
+def api_ai_ollama_signin_link(request: Request, db: Session = Depends(get_db)):
+    user = current_user(request, db)
+    if not user:
+        return JSONResponse({"error": "auth_required"}, status_code=401)
+    out = ai_service.fetch_ollama_signin_link()
+    out["instructions"] = ai_service.manual_signin_instructions()
+    if out.get("signin_url") or out.get("signed_in"):
+        return JSONResponse(out)
+    return JSONResponse(
+        {"error": out.get("error", "Could not generate Ollama signin link."), "instructions": out["instructions"]},
+        status_code=503,
+    )
+
+
 @app.post("/ai/global")
 def ai_global(request: Request, question: str = Form(...), instance_id: int | None = Form(None), db: Session = Depends(get_db)):
     user = current_user(request, db)
     if not user:
         return JSONResponse({"error": "auth_required"}, status_code=401)
-    context = collect_user_financial_context(db, user, instance_id=instance_id)
-    answer = render_ai_answer(ask_ollama(question, context))
-    return JSONResponse({"answer": answer})
+    context = ai_service.summarize_user_context(db, user, instance_id=instance_id)
+    result = ai_service.ask_ollama(question, context)
+    if result.ok:
+        return JSONResponse({"answer": ai_service.render_ai_answer(result.answer or "")})
+    body = result.to_error_json()
+    if result.signin_url:
+        body["signin_url"] = result.signin_url
+    return JSONResponse(body, status_code=503)
 
 
 @app.post("/instances/{instance_id}/income")
@@ -1597,12 +1490,9 @@ def ai_chat(instance_id: int, request: Request, question: str = Form(...), db: S
     inst = require_instance(db, user, instance_id)
 
     def _call_ai():
-        finance_items = instance_service.list_finance_items(inst.finance_db_path)
-        now_month = datetime.utcnow().strftime("%Y-%m")
-        latest_month = instance_service.month_summary(inst.finance_db_path, inst.logic_db_path, now_month, include_iefp=bool(user.enable_iefp_mode))
-        latest_range = instance_service.long_range(inst.finance_db_path, inst.logic_db_path, now_month, 12, include_iefp=bool(user.enable_iefp_mode))
-        context = build_ai_context(user, inst, finance_items, latest_month, latest_range)
-        answer = ask_ollama(question, context)
+        context = ai_service.summarize_workspace_context(db, user, inst)
+        result = ai_service.ask_ollama(question, context)
+        answer = ai_service.render_ai_answer(result.answer if result.ok else (result.error or ""))
         return {"question": question, "answer": answer}
 
     run_job(db, user, inst, "ai_chat", _call_ai)

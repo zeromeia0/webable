@@ -4,7 +4,17 @@
 # Or pin digest in production after verifying an image.
 #
 # Data is still only in ./data — never baked into the image.
+# Optional AI: Ollama sidecar (cloud models require sign-in; Webable does not auto-pull models).
 services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: webable-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+
   webable:
     image: ghcr.io/zeromeia0/webable:${WEBABLE_VERSION:-latest}
     pull_policy: always
@@ -15,6 +25,8 @@ services:
     environment:
       APP_ENV: production
       WEBABLE_DATA_DIR: /app/data
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: minimax-m2.5:cloud
     volumes:
       - ./data:/app/data
     labels:
@@ -25,3 +37,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 45s
+
+volumes:
+  ollama_data:

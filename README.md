@@ -12,7 +12,7 @@
 - Multiple isolated workspaces, each with its own SQLite database
 - Recurring income/expenses, one-off transactions, monthly and long-range projections
 - Bank statement PDF uploads, reports, savings and investment calculators, market watch helpers
-- Optional local AI chat via Ollama (not required for core budgeting)
+- Optional AI chat via Ollama (`minimax-m2.5:cloud` by default; not required for core budgeting)
 
 ---
 
@@ -76,6 +76,41 @@ docker compose up -d --build
 Then open **http://localhost:8080** in your browser.
 
 That's it. Data is stored in `./data` on your machine and persists across restarts and rebuilds.
+
+### Optional AI (Ollama Cloud)
+
+`docker-compose.yml` includes an **Ollama** sidecar (`webable-ollama`). Webable works without it — the dashboard and budgeting features do not call AI on page load.
+
+After starting containers:
+
+```bash
+docker compose up -d
+```
+
+AI requires **Ollama Cloud sign-in** (containers can be healthy before this step):
+
+```bash
+sudo docker exec -it webable-ollama ollama signin
+```
+
+Test the model:
+
+```bash
+sudo docker exec -it webable-ollama ollama run minimax-m2.5:cloud
+```
+
+The default model is **`minimax-m2.5:cloud`** (cloud-backed). Webable does **not** run `ollama pull` at startup.
+
+Environment (set in Compose for the `webable` service):
+
+| Variable | Default (Docker) |
+|----------|------------------|
+| `OLLAMA_BASE_URL` | `http://ollama:11434` |
+| `OLLAMA_MODEL` | `minimax-m2.5:cloud` |
+
+For local uvicorn without Docker, point at your host Ollama: `OLLAMA_BASE_URL=http://127.0.0.1:11434`.
+
+If Webable shows *AI is not available right now. Make sure Ollama is running and **signed in**.*, click **signed in** in the chat panel. Webable asks the Ollama API for a fresh sign-in link when possible (`GET /api/ai/ollama/signin-link`), or shows the manual commands above.
 
 ---
 
