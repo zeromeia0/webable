@@ -7,6 +7,8 @@
   var MSG_AUTH =
     'AI is not available right now. Make sure Ollama is running and signed in.';
   var MSG_UNREACHABLE = 'AI is not available right now. Make sure Ollama is running.';
+  var MSG_DISABLED =
+    'AI is not enabled on this server. Run `make ai` to set up optional Ollama, or use docker compose with docker-compose.ai.yml.';
   var DEFAULT_MODEL = 'minimax-m2.5:cloud';
 
   function init() {
@@ -19,6 +21,7 @@
     if (!fab || !panel || !form || !messages) return;
 
     var instanceId = global.__WEBABLE_FAB_INSTANCE_ID;
+    var aiConfigured = true;
 
     function ensureSigninModal() {
       if (signinModal) return signinModal;
@@ -130,6 +133,18 @@
       var canSignin = data && data.can_signin;
       var signinUrl = data && data.signin_url;
 
+      if (reason === 'ai_disabled') {
+        var hint = (data && data.setup_hint) || MSG_DISABLED;
+        addMessage('assistant', (data && data.error) || MSG_DISABLED);
+        if (hint && hint !== ((data && data.error) || MSG_DISABLED)) {
+          var p = document.createElement('p');
+          p.className = 'text-xs text-slate-400 mt-2';
+          p.textContent = hint;
+          messages.lastChild.appendChild(p);
+        }
+        return;
+      }
+
       if (reason === 'ollama_unreachable') {
         addMessage('assistant', (data && data.error) || MSG_UNREACHABLE);
         return;
@@ -162,6 +177,25 @@
       addMessage('assistant', (data && data.error) || MSG_AUTH);
     }
 
+    function loadAiStatus() {
+      fetch('/api/ai/status', { credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (st) {
+          aiConfigured = st && st.configured !== false;
+          if (!aiConfigured && messages && !messages.dataset.aiBanner) {
+            messages.dataset.aiBanner = '1';
+            addUnavailableMessage({
+              reason: 'ai_disabled',
+              error: st.message || MSG_DISABLED,
+              setup_hint: st.setup_hint,
+            });
+          }
+        })
+        .catch(function () { /* ignore */ });
+    }
+
+    loadAiStatus();
+
     fab.addEventListener('click', function () {
       var opening = panel.classList.contains('hidden');
       if (opening) {
@@ -181,6 +215,10 @@
 
     form.addEventListener('submit', function (e) {
       e.preventDefault();
+      if (!aiConfigured) {
+        addUnavailableMessage({ reason: 'ai_disabled', error: MSG_DISABLED });
+        return;
+      }
       var q = (questionInput.value || '').trim();
       if (!q) return;
       addMessage('user', q);

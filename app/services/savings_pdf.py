@@ -116,7 +116,45 @@ def build_savings_calculator_pdf(
         )
     )
     story.append(tb2)
-    story.append(Spacer(1, 0.1 * inch))
+    story.append(Spacer(1, 0.12 * inch))
+
+    monthly_save = float(result.get("monthly_save_willing") or inputs.get("monthly_save_willing") or 0)
+    proj = result.get("save_projection_months") or {}
+    if monthly_save > 0:
+        story.append(Paragraph("Savings timeline projection", h2))
+        story.append(
+            Paragraph(
+                f"Assuming <b>{m(monthly_save)}</b> saved per month (rounded up to full months):",
+                body,
+            )
+        )
+        prows = [["Horizon", "Still needed", "Months to reach"]]
+        for mkey in ("3", "6", "9"):
+            p = pr.get(mkey) or {}
+            still = float(p.get("still_needed") or 0)
+            mo = proj.get(mkey)
+            if still <= 0 or mo == 0:
+                mo_txt = "Already met"
+            elif mo is None:
+                mo_txt = "—"
+            else:
+                mo_txt = f"{int(mo)} month{'s' if int(mo) != 1 else ''}"
+            prows.append([f"{mkey} months", m(still), mo_txt])
+        tb3 = Table(prows, colWidths=[1.2 * inch, 2.2 * inch, 2.1 * inch])
+        tb3.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0e7490")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 9),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#cbd5e1")),
+                ]
+            )
+        )
+        story.append(tb3)
+        story.append(Spacer(1, 0.1 * inch))
+
     story.append(
         Paragraph(
             "<i>Educational only — not financial advice. Targets are estimates; adjust inputs as your situation changes.</i>",

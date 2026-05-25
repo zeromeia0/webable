@@ -612,6 +612,7 @@ def run_job(db: Session, user: User, inst: DatabaseInstance, job_type: str, call
         "create_instance": "Database created successfully",
         "add_income": "Income entry saved",
         "add_expense": "Expense entry saved",
+        "add_savings": "Savings deposit recorded",
         "add_oneoff": "One-time transaction saved",
         "add_absence": "Absence registered",
         "calculate_month": "Monthly projection completed",
@@ -1288,6 +1289,12 @@ def results_summary_pdf(
     )
 
 
+@app.get("/api/ai/status")
+def api_ai_status():
+    """Whether optional AI (Ollama) is configured and reachable on this deployment."""
+    return JSONResponse(ai_service.ai_status(probe=True))
+
+
 @app.get("/api/ai/ollama/signin-link")
 def api_ai_ollama_signin_link(request: Request, db: Session = Depends(get_db)):
     user = current_user(request, db)
@@ -1295,6 +1302,8 @@ def api_ai_ollama_signin_link(request: Request, db: Session = Depends(get_db)):
         return JSONResponse({"error": "auth_required"}, status_code=401)
     out = ai_service.fetch_ollama_signin_link()
     out["instructions"] = ai_service.manual_signin_instructions()
+    if out.get("reason") == ai_service.REASON_DISABLED:
+        return JSONResponse(out, status_code=503)
     if out.get("signin_url") or out.get("signed_in"):
         return JSONResponse(out)
     return JSONResponse(
@@ -1344,6 +1353,7 @@ def add_expense(
     nome: str = Form(...),
     valor: str = Form(...),
     recurrence: str = Form("monthly"),
+    category: str = Form("Other"),
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
@@ -1352,7 +1362,38 @@ def add_expense(
         amount = numeric_input.parse_positive_decimal(valor)
     except ValueError:
         return RedirectResponse(f"/instances/{instance_id}?err=invalid_amount#workspace-data", status_code=302)
-    run_job(db, user, inst, "add_expense", lambda: instance_service.add_expense(inst.finance_db_path, nome, amount, recurrence=recurrence))
+    run_job(
+        db,
+        user,
+        inst,
+        "add_expense",
+        lambda: instance_service.add_expense(inst.finance_db_path, nome, amount, recurrence=recurrence, category=category),
+    )
+    return RedirectResponse(f"/instances/{instance_id}#workspace-data", status_code=302)
+
+
+@app.post("/instances/{instance_id}/savings-deposit")
+def add_savings_deposit(
+    instance_id: int,
+    request: Request,
+    data: str = Form(...),
+    valor: str = Form(...),
+    nome: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    inst = require_instance(db, user, instance_id)
+    try:
+        amount = numeric_input.parse_positive_decimal(valor)
+    except ValueError:
+        return RedirectResponse(f"/instances/{instance_id}?err=invalid_amount#workspace-data", status_code=302)
+    run_job(
+        db,
+        user,
+        inst,
+        "add_savings",
+        lambda: instance_service.add_savings_deposit(inst.finance_db_path, data, amount, nome=nome),
+    )
     return RedirectResponse(f"/instances/{instance_id}#workspace-data", status_code=302)
 
 

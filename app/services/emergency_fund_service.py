@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 
 def _f(x) -> float:
     try:
@@ -36,6 +38,17 @@ def compute(inputs: dict) -> dict[str, float | dict]:
         need = max(0.0, round(tgt - savings, 2))
         return {"target": tgt, "progress_pct": pct, "still_needed": need}
 
+    monthly_save = _f(inputs.get("monthly_save_willing"))
+    save_projection: dict[str, int | None] = {}
+    for m in (3, 6, 9):
+        still = prog(m)["still_needed"]
+        if still <= 0:
+            save_projection[str(m)] = 0
+        elif monthly_save <= 0:
+            save_projection[str(m)] = None
+        else:
+            save_projection[str(m)] = int(math.ceil(still / monthly_save))
+
     return {
         "monthly_essential_base": round(base_monthly, 2),
         "buffer_pct": buffer_pct,
@@ -44,4 +57,6 @@ def compute(inputs: dict) -> dict[str, float | dict]:
         "current_savings": round(savings, 2),
         "progress": {str(m): prog(m) for m in (3, 6, 9)},
         "breakdown": {k: round(v, 2) for k, v in parts.items()},
+        "monthly_save_willing": round(monthly_save, 2),
+        "save_projection_months": save_projection,
     }

@@ -118,12 +118,21 @@
 
     <div class="card">
       <h2>Install and start</h2>
-      <p>In a terminal:</p>
+      <p>In a terminal (core app only — no AI downloads):</p>
       <pre>git clone https://github.com/zeromeia0/webable.git
 cd webable
-docker compose up -d --build</pre>
+make run
+# or: docker compose up -d --build</pre>
       <p>Then open the app in your browser:</p>
       <pre>http://localhost:8080</pre>
+    </div>
+
+    <div class="card">
+      <h2>Optional AI</h2>
+      <p>Finance chat uses Ollama and is <strong>off by default</strong> so first-time setup stays fast.</p>
+      <pre>make ai        # pull/start Ollama when you want AI
+make ai-run    # start app + AI together</pre>
+      <p class="note">After <code>make ai</code>, sign in once: <code>docker exec -it webable-ollama ollama signin</code></p>
     </div>
 
     <div class="grid two">

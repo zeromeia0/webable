@@ -1,0 +1,119 @@
+/* Global responsive fixes — layout stability across breakpoints */
+
+html {
+  overflow-x: hidden;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+/* Flex/grid children: allow shrinking below content width */
+.min-w-0,
+main,
+.flex-1,
+[class*="grid"] > * {
+  min-width: 0;
+}
+
+/* Buttons: prevent overflow and distortion in narrow containers */
+button,
+[type="submit"],
+[type="button"],
+.wb-btn,
+a.rounded-lg[class*="px-"] {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+form button[type="submit"],
+form .px-3.py-2.rounded,
+form .px-4.py-2.rounded-lg {
+  white-space: normal;
+  word-break: break-word;
+}
+
+/* Form controls */
+input:not([type="checkbox"]):not([type="radio"]),
+select,
+textarea {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* Tables scroll horizontally on small screens */
+.overflow-x-auto,
+table {
+  max-width: 100%;
+}
+
+/* Modal / dialog centering on mobile */
+#confirmModal > div,
+.webable-ai-signin-card {
+  width: min(92vw, 28rem);
+  max-width: 100%;
+}
+
+/* FAB panels: safe area and height on short viewports */
+@media (max-width: 640px) {
+  .webable-fab-panel {
+    max-width: min(calc(100vw - 16px), 360px);
+    max-height: min(78vh, 480px);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .webable-fab-panel > div:not(.hidden):last-child,
+  .webable-fab-panel form,
+  .webable-fab-panel .p-3.space-y-2 {
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .webable-fab-btn {
+    width: 3.25rem;
+    height: 3.25rem;
+    font-size: 0.7rem;
+  }
+
+  .webable-fab-quickadd {
+    font-size: 1.5rem;
+  }
+}
+
+/* Workspace cards: stack action rows */
+@media (max-width: 480px) {
+  .open-delete-modal {
+    flex-shrink: 0;
+  }
+}
+
+/* Sidebar horizontal scroll on very small screens */
+@media (max-width: 767px) {
+  aside.w-full {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap;
+    gap: 0.5rem;
+    padding-bottom: 0.5rem;
+  }
+
+  aside.w-full > a,
+  aside.w-full > div {
+    flex: 0 0 auto;
+    min-width: max-content;
+  }
+}
+
+/* Header actions wrap cleanly */
+header.flex,
+.flex.flex-wrap.items-center {
+  gap: 0.5rem 0.75rem;
+}
+
+/* Chart containers */
+canvas {
+  max-width: 100%;
+}

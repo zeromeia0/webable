@@ -91,8 +91,8 @@
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-4"><p class="text-xs text-slate-400">Last Updated</p><p class="font-semibold">{{ state_summary.updated }}</p></div>
     </div>
 
-    <section id="workspace-data" class="grid md:grid-cols-2 gap-4 scroll-mt-24">
-      <form method="post" action="/instances/{{ instance.id }}/income" class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
+    <section id="workspace-data" class="grid grid-cols-1 md:grid-cols-2 gap-4 scroll-mt-24 min-w-0">
+      <form method="post" action="/instances/{{ instance.id }}/income" class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2 min-w-0">
         <h3 class="font-semibold">Add income</h3>
         <input name="nome" placeholder="Name" required class="w-full px-3 py-2 rounded bg-slate-800" />
         <input name="valor" placeholder="Amount (EUR / month)" type="number" step="0.01" required class="w-full px-3 py-2 rounded bg-slate-800" />
@@ -106,21 +106,28 @@
         </label>
         <button class="px-3 py-2 rounded bg-indigo-500">Save</button>
       </form>
-      <form method="post" action="/instances/{{ instance.id }}/expense" class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
+      <form method="post" action="/instances/{{ instance.id }}/expense" class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2 min-w-0">
         <h3 class="font-semibold">Add expense</h3>
-        <input name="nome" placeholder="Name" required class="w-full px-3 py-2 rounded bg-slate-800" />
-        <input name="valor" placeholder="Amount (EUR / month)" type="number" step="0.01" required class="w-full px-3 py-2 rounded bg-slate-800" />
+        <input name="nome" placeholder="Name" required class="w-full min-w-0 px-3 py-2 rounded bg-slate-800 border border-slate-700" />
+        <input name="valor" placeholder="Amount (EUR / month)" type="number" step="0.01" required class="w-full min-w-0 px-3 py-2 rounded bg-slate-800 border border-slate-700" />
+        <label class="text-xs text-slate-400 block">Category
+          <select name="category" required class="w-full min-w-0 mt-0.5 px-3 py-2 rounded bg-slate-800 border border-slate-700">
+            {% for c in oneoff_categories %}
+            <option value="{{ c }}">{{ c }}</option>
+            {% endfor %}
+          </select>
+        </label>
         <label class="text-xs text-slate-400 block">Recurrence
-          <select name="recurrence" class="w-full mt-0.5 px-3 py-2 rounded bg-slate-800 border border-slate-700">
+          <select name="recurrence" class="w-full min-w-0 mt-0.5 px-3 py-2 rounded bg-slate-800 border border-slate-700">
             <option value="monthly" selected>Monthly</option>
             <option value="weekly">Weekly</option>
             <option value="daily">Daily</option>
             <option value="yearly">Yearly</option>
           </select>
         </label>
-        <button class="px-3 py-2 rounded bg-indigo-500">Save</button>
+        <button type="submit" class="w-full sm:w-auto px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm font-medium">Save</button>
       </form>
-      <form method="post" action="/instances/{{ instance.id }}/oneoff" id="oneoffForm" class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
+      <form method="post" action="/instances/{{ instance.id }}/oneoff" id="oneoffForm" class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3 min-w-0">
         <h3 class="font-semibold">Add one-time transaction</h3>
         <div class="flex flex-wrap gap-4 text-sm">
           <label class="inline-flex items-center gap-2 cursor-pointer"><input type="radio" name="txn_type" value="expense" checked class="accent-rose-500" data-oneoff-type /> Expense</label>
@@ -138,7 +145,15 @@
             {% endfor %}
           </select>
         </div>
-        <button class="px-3 py-2 rounded bg-indigo-500">Save</button>
+        <button type="submit" class="w-full sm:w-auto px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm font-medium">Save</button>
+      </form>
+      <form method="post" action="/instances/{{ instance.id }}/savings-deposit" class="bg-slate-900 border border-emerald-800/40 rounded-xl p-4 space-y-2 min-w-0">
+        <h3 class="font-semibold text-emerald-200">Add savings amount</h3>
+        <p class="text-xs text-slate-500">Recorded separately from income and expenses.</p>
+        <input name="data" type="date" required class="w-full min-w-0 px-3 py-2 rounded bg-slate-800 border border-slate-700" />
+        <input name="nome" placeholder="Description (optional)" class="w-full min-w-0 px-3 py-2 rounded bg-slate-800 border border-slate-700" />
+        <input name="valor" placeholder="Amount (EUR)" type="number" step="0.01" min="0.01" required class="w-full min-w-0 px-3 py-2 rounded bg-slate-800 border border-slate-700" />
+        <button type="submit" class="w-full sm:w-auto px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm font-medium">Save savings</button>
       </form>
       <script>
         (function () {
@@ -586,7 +601,7 @@
     </script>
     {% endif %}
 
-    <section class="grid md:grid-cols-3 gap-4">
+    <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 min-w-0">
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
         <h3 class="font-semibold mb-2">Income Entries</h3>
         {% for row in finance_items.incomes %}
@@ -599,13 +614,23 @@
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
         <h3 class="font-semibold mb-2">Expense Entries</h3>
         {% for row in finance_items.expenses %}
-        <div class="flex items-center justify-between text-sm py-1 border-b border-slate-800">
-          <span>🔴 {{ row.name }} — <span data-eur="{{ row.amount }}">{{ row.amount }}</span>{% if row.recurrence %} <span class="text-[10px] text-slate-500">({{ row.recurrence }})</span>{% endif %}</span>
+        <div class="flex flex-wrap items-center justify-between gap-2 text-sm py-1 border-b border-slate-800">
+          <span class="min-w-0">🔴 {{ row.name }} — <span data-eur="{{ row.amount }}">{{ row.amount }}</span>{% if row.category %} <span class="text-[10px] text-slate-500">({{ row.category }})</span>{% endif %}{% if row.recurrence %} <span class="text-[10px] text-slate-500">({{ row.recurrence }})</span>{% endif %}</span>
           <button type="button" class="text-red-400 open-delete-modal" data-action="/instances/{{ instance.id }}/expense/{{ row.id }}/delete" data-title="Delete {{ row.name }} - {{ row.amount }}?" data-text="This will remove it from your monthly expenses.">Delete</button>
         </div>
         {% endfor %}
       </div>
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+      <div class="bg-slate-900 border border-emerald-900/40 rounded-xl p-4 min-w-0">
+        <h3 class="font-semibold mb-2 text-emerald-200">Savings Deposits</h3>
+        {% for row in finance_items.savings | default([]) %}
+        <div class="flex flex-wrap items-center justify-between gap-2 text-sm py-1 border-b border-slate-800">
+          <span class="min-w-0">💰 {{ row.date }} — {{ row.name }} — <span data-eur="{{ row.amount }}">{{ row.amount }}</span></span>
+        </div>
+        {% else %}
+        <p class="text-slate-500 text-sm">No savings deposits yet.</p>
+        {% endfor %}
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 min-w-0 md:col-span-2 lg:col-span-1">
         <h3 class="font-semibold mb-2">One-Time Transactions</h3>
         {% for row in finance_items.oneoffs %}
         <div class="flex items-center justify-between text-sm py-1 border-b border-slate-800">

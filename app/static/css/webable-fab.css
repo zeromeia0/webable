@@ -119,6 +119,7 @@
   border: 1px solid rgb(51 65 85);
   border-radius: 1rem;
   box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.55);
+  box-sizing: border-box;
 }
 #webableFabRoot .webable-fab-panel.hidden {
   display: none !important;
@@ -127,6 +128,27 @@
   right: max(16px, env(safe-area-inset-right, 0px));
   bottom: calc(max(24px, env(safe-area-inset-bottom, 0px)) + 8.75rem);
   width: min(92vw, 280px);
+  max-height: min(85vh, 520px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.webable-fab-calc-panel:not(.hidden) > .p-3 {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+.webable-calc-drag-handle {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  flex-shrink: 0;
+}
+.webable-calc-drag-handle:active {
+  cursor: grabbing;
+}
+.webable-fab-calc-panel.webable-calc-dragging {
+  transition: none;
 }
 .webable-fab-notes-panel {
   right: max(16px, env(safe-area-inset-right, 0px));
@@ -200,6 +222,8 @@
   border: 1px solid rgb(51 65 85);
   color: rgb(226 232 240);
   font-size: 0.9rem;
+  min-width: 0;
+  max-width: 100%;
 }
 .webable-calc-grid button:hover {
   background: rgb(51 65 85);

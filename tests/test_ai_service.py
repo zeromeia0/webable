@@ -16,6 +16,7 @@ class TestAiServiceConfig(unittest.TestCase):
     def tearDown(self):
         os.environ.pop("OLLAMA_MODEL", None)
         os.environ.pop("OLLAMA_BASE_URL", None)
+        os.environ.pop("WEBABLE_AI_ENABLED", None)
 
     def test_default_model_is_minimax_cloud(self):
         self.assertEqual(ai_service.ollama_model(), "minimax-m2.5:cloud")
@@ -29,11 +30,39 @@ class TestAiServiceConfig(unittest.TestCase):
         os.environ["OLLAMA_BASE_URL"] = "http://example:11434"
         self.assertEqual(ai_service.ollama_base_url(), "http://example:11434")
 
+    def test_ai_not_configured_by_default(self):
+        self.assertFalse(ai_service.ai_configured())
+
+    def test_ai_enabled_via_flag(self):
+        os.environ["WEBABLE_AI_ENABLED"] = "1"
+        self.assertTrue(ai_service.ai_configured())
+
+    def test_ai_enabled_via_base_url(self):
+        os.environ["OLLAMA_BASE_URL"] = "http://127.0.0.1:11434"
+        self.assertTrue(ai_service.ai_configured())
+
+    def test_ai_explicitly_disabled(self):
+        os.environ["WEBABLE_AI_ENABLED"] = "0"
+        os.environ["OLLAMA_BASE_URL"] = "http://127.0.0.1:11434"
+        self.assertFalse(ai_service.ai_configured())
+
 
 class TestAskOllama(unittest.TestCase):
+    def setUp(self):
+        os.environ["WEBABLE_AI_ENABLED"] = "1"
+        os.environ["OLLAMA_BASE_URL"] = "http://ollama.test:11434"
+
     def tearDown(self):
         os.environ.pop("OLLAMA_MODEL", None)
         os.environ.pop("OLLAMA_BASE_URL", None)
+        os.environ.pop("WEBABLE_AI_ENABLED", None)
+
+    def test_ask_ollama_disabled_without_config(self):
+        os.environ.pop("WEBABLE_AI_ENABLED", None)
+        os.environ.pop("OLLAMA_BASE_URL", None)
+        result = ai_service.ask_ollama("Hi", {})
+        self.assertFalse(result.ok)
+        self.assertEqual(result.reason, ai_service.REASON_DISABLED)
 
     @mock.patch("app.services.ai_service.urlrequest.urlopen")
     def test_successful_response(self, mock_urlopen):
@@ -93,8 +122,18 @@ class TestAskOllama(unittest.TestCase):
 
 
 class TestSigninLink(unittest.TestCase):
+    def tearDown(self):
+        os.environ.pop("WEBABLE_AI_ENABLED", None)
+        os.environ.pop("OLLAMA_BASE_URL", None)
+
+    def test_fetch_signin_disabled_when_not_configured(self):
+        out = ai_service.fetch_ollama_signin_link()
+        self.assertEqual(out.get("reason"), ai_service.REASON_DISABLED)
+
     @mock.patch("app.services.ai_service._ollama_request")
     def test_fetch_signin_link_from_api_me(self, mock_req):
+        os.environ["WEBABLE_AI_ENABLED"] = "1"
+        os.environ["OLLAMA_BASE_URL"] = "http://ollama.test:11434"
         mock_req.return_value = {
             "reachable": True,
             "ok": False,
@@ -108,12 +147,16 @@ class TestSigninLink(unittest.TestCase):
 
     @mock.patch("app.services.ai_service._ollama_request")
     def test_fetch_signin_link_signed_in(self, mock_req):
+        os.environ["WEBABLE_AI_ENABLED"] = "1"
+        os.environ["OLLAMA_BASE_URL"] = "http://ollama.test:11434"
         mock_req.return_value = {"reachable": True, "ok": True, "status": 200, "body": {"name": "user"}}
         out = ai_service.fetch_ollama_signin_link()
         self.assertTrue(out.get("signed_in"))
 
     @mock.patch("app.services.ai_service._ollama_request")
     def test_fetch_signin_link_unreachable(self, mock_req):
+        os.environ["WEBABLE_AI_ENABLED"] = "1"
+        os.environ["OLLAMA_BASE_URL"] = "http://ollama.test:11434"
         mock_req.return_value = {"reachable": False, "ok": False, "reason": ai_service.REASON_UNREACHABLE}
         out = ai_service.fetch_ollama_signin_link()
         self.assertIn("error", out)

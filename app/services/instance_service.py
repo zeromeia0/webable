@@ -57,6 +57,23 @@ def _ensure_recurring_recurrence(conn):
             cur.execute(f"ALTER TABLE {table} ADD COLUMN ended INTEGER NOT NULL DEFAULT 0")
         if "next_due" not in cols:
             cur.execute(f"ALTER TABLE {table} ADD COLUMN next_due TEXT")
+    cur.execute("PRAGMA table_info(gastos)")
+    gcols = {row[1] for row in cur.fetchall()}
+    if "category" not in gcols:
+        cur.execute("ALTER TABLE gastos ADD COLUMN category TEXT NOT NULL DEFAULT 'Other'")
+    conn.commit()
+
+
+def _ensure_savings_schema(conn):
+    cur = conn.cursor()
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS savings_deposits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            data TEXT NOT NULL,
+            nome TEXT NOT NULL DEFAULT '',
+            valor REAL NOT NULL
+        )"""
+    )
     conn.commit()
 
 
@@ -77,6 +94,7 @@ def init_finance_db(path: str):
     )
     _ensure_oneoff_schema(conn)
     _ensure_recurring_recurrence(conn)
+    _ensure_savings_schema(conn)
     conn.commit()
     conn.close()
 
@@ -112,18 +130,37 @@ def add_income(finance_db: str, nome: str, valor: float, recurrence: str = "mont
     return {"id": row_id, "entry": nome, "amount": valor, "recurrence": rec}
 
 
-def add_expense(finance_db: str, nome: str, valor: float, recurrence: str = "monthly"):
+def add_expense(finance_db: str, nome: str, valor: float, recurrence: str = "monthly", category: str | None = None):
     rec = (recurrence or "monthly").lower().strip()
     if rec not in ("daily", "weekly", "monthly", "yearly"):
         rec = "monthly"
+    cat = normalize_oneoff_category(category)
     conn = _conn(finance_db)
     _ensure_recurring_recurrence(conn)
     cur = conn.cursor()
-    cur.execute("INSERT INTO gastos (nome, valor, ativo, recurrence, ended) VALUES (?, ?, 1, ?, 0)", (nome, valor, rec))
+    cur.execute(
+        "INSERT INTO gastos (nome, valor, ativo, recurrence, ended, category) VALUES (?, ?, 1, ?, 0, ?)",
+        (nome, valor, rec, cat),
+    )
     conn.commit()
     row_id = cur.lastrowid
     conn.close()
-    return {"id": row_id, "entry": nome, "amount": valor, "recurrence": rec}
+    return {"id": row_id, "entry": nome, "amount": valor, "recurrence": rec, "category": cat}
+
+
+def add_savings_deposit(finance_db: str, data: str, valor: float, nome: str = ""):
+    conn = _conn(finance_db)
+    _ensure_savings_schema(conn)
+    cur = conn.cursor()
+    label = (nome or "").strip() or "Savings deposit"
+    cur.execute(
+        "INSERT INTO savings_deposits (data, nome, valor) VALUES (?, ?, ?)",
+        (data, label, float(valor)),
+    )
+    conn.commit()
+    row_id = cur.lastrowid
+    conn.close()
+    return {"id": row_id, "date": data, "entry": label, "amount": valor}
 
 
 def normalize_oneoff_category(category: str | None) -> str:
@@ -267,9 +304,12 @@ def list_finance_items(finance_db: str):
                 "next_due": r[5] if len(r) > 5 else None,
             }
         )
-    cur.execute("SELECT id, nome, valor, recurrence, COALESCE(ended,0), next_due FROM gastos WHERE ativo = 1 ORDER BY id")
+    cur.execute(
+        "SELECT id, nome, valor, recurrence, COALESCE(ended,0), next_due, category FROM gastos WHERE ativo = 1 ORDER BY id"
+    )
     expenses = []
     for r in cur.fetchall():
+        cat = r[6] if len(r) > 6 and r[6] is not None else "Other"
         expenses.append(
             {
                 "id": r[0],
@@ -278,6 +318,7 @@ def list_finance_items(finance_db: str):
                 "recurrence": r[3] if len(r) > 3 and r[3] else "monthly",
                 "ended": bool(r[4]) if len(r) > 4 else False,
                 "next_due": r[5] if len(r) > 5 else None,
+                "category": normalize_oneoff_category(cat),
             }
         )
     cur.execute("SELECT id, data, nome, valor, category, txn_type FROM transacoes_unicas ORDER BY data, id")
@@ -297,8 +338,14 @@ def list_finance_items(finance_db: str):
                 "txn_type": tt,
             }
         )
+    _ensure_savings_schema(conn)
+    cur.execute("SELECT id, data, nome, valor FROM savings_deposits ORDER BY data DESC, id DESC")
+    savings = [
+        {"id": r[0], "date": r[1], "name": r[2], "amount": float(r[3])}
+        for r in cur.fetchall()
+    ]
     conn.close()
-    return {"incomes": incomes, "expenses": expenses, "oneoffs": oneoffs}
+    return {"incomes": incomes, "expenses": expenses, "oneoffs": oneoffs, "savings": savings}
 
 
 def _calc_iefp(logic_db: str, month: str):

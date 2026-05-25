@@ -1,0 +1,27 @@
+# Optional AI overlay — Ollama sidecar + Webable AI env.
+# Usage (local build):
+#   docker compose -f docker-compose.yml -f docker-compose.ai.yml up -d
+# Usage (GHCR image):
+#   docker compose -f docker-compose.image.yml -f docker-compose.ai.yml up -d
+# Or: make ai / make ai-run
+#
+# Cloud-backed models are not auto-pulled. After start, sign in once:
+#   docker exec -it webable-ollama ollama signin
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: webable-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+
+  webable:
+    environment:
+      WEBABLE_AI_ENABLED: "1"
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: minimax-m2.5:cloud
+
+volumes:
+  ollama_data:

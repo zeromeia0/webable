@@ -23,9 +23,15 @@ REASON_UNREACHABLE = "ollama_unreachable"
 REASON_MODEL_UNAVAILABLE = "model_unavailable"
 REASON_TIMEOUT = "timeout"
 REASON_UNKNOWN = "unknown"
+REASON_DISABLED = "ai_disabled"
 
 MSG_AUTH_REQUIRED = "AI is not available right now. Make sure Ollama is running and signed in."
 MSG_UNREACHABLE = "AI is not available right now. Make sure Ollama is running."
+MSG_DISABLED = (
+    "AI is not enabled on this server. Run `make ai` (Docker) or enable the optional "
+    "docker-compose.ai.yml overlay to set up Ollama."
+)
+AI_SETUP_HINT = "Run `make ai` to install optional AI (Ollama), then sign in with `docker exec -it webable-ollama ollama signin`."
 
 # Legacy alias
 AI_UNAVAILABLE_MSG = MSG_AUTH_REQUIRED
@@ -44,11 +50,41 @@ class AiOllamaResult:
     signin_url: str | None = None
 
     def to_error_json(self) -> dict[str, Any]:
-        return {
+        out = {
             "error": self.error or MSG_AUTH_REQUIRED,
             "reason": self.reason or REASON_UNKNOWN,
             "can_signin": self.can_signin,
         }
+        if self.reason == REASON_DISABLED:
+            out["setup_hint"] = AI_SETUP_HINT
+        return out
+
+
+def _env_flag(name: str) -> str | None:
+    raw = os.environ.get(name)
+    if raw is None:
+        return None
+    v = str(raw).strip().lower()
+    return v if v else None
+
+
+def ai_configured() -> bool:
+    """True when this deployment intentionally enables Ollama (opt-in)."""
+    flag = _env_flag("WEBABLE_AI_ENABLED")
+    if flag in ("0", "false", "no", "off"):
+        return False
+    if flag in ("1", "true", "yes", "on"):
+        return True
+    return bool(os.environ.get("OLLAMA_BASE_URL", "").strip())
+
+
+def ai_disabled_result() -> AiOllamaResult:
+    return AiOllamaResult(
+        ok=False,
+        reason=REASON_DISABLED,
+        error=MSG_DISABLED,
+        can_signin=False,
+    )
 
 
 def ollama_model() -> str:
@@ -56,18 +92,74 @@ def ollama_model() -> str:
 
 
 def ollama_base_url() -> str:
-    return (os.environ.get("OLLAMA_BASE_URL") or DEFAULT_OLLAMA_BASE_URL).rstrip("/")
+    explicit = os.environ.get("OLLAMA_BASE_URL", "").strip()
+    if explicit:
+        return explicit.rstrip("/")
+    return DEFAULT_OLLAMA_BASE_URL
 
 
 def manual_signin_instructions() -> dict[str, str]:
     """Copy for UI when automatic signin URL is unavailable."""
+    if not ai_configured():
+        return {
+            "title": "AI not enabled",
+            "intro": MSG_DISABLED,
+            "signin_cmd": "make ai",
+            "test_cmd": "make ai-run",
+            "footer": AI_SETUP_HINT,
+        }
     return {
         "title": "Ollama sign-in required",
         "intro": f"To use Webable AI with {ollama_model()}, sign in to Ollama Cloud after the containers are running.",
-        "signin_cmd": "sudo docker exec -it webable-ollama ollama signin",
-        "test_cmd": f"sudo docker exec -it webable-ollama ollama run {ollama_model()}",
+        "signin_cmd": "docker exec -it webable-ollama ollama signin",
+        "test_cmd": f"docker exec -it webable-ollama ollama run {ollama_model()}",
         "footer": "After signing in, come back and try your AI message again.",
     }
+
+
+def ai_status(*, probe: bool = True) -> dict[str, Any]:
+    """Deployment AI availability (no auth secrets)."""
+    configured = ai_configured()
+    out: dict[str, Any] = {
+        "configured": configured,
+        "enabled": configured,
+        "model": ollama_model() if configured else None,
+    }
+    if not configured:
+        out.update(
+            {
+                "reachable": False,
+                "reason": REASON_DISABLED,
+                "message": MSG_DISABLED,
+                "setup_hint": AI_SETUP_HINT,
+            }
+        )
+        return out
+
+    out["base_url"] = ollama_base_url()
+    if not probe:
+        return out
+
+    me = _ollama_request("POST", "/api/me", {}, timeout=5)
+    out["reachable"] = bool(me.get("reachable"))
+    if me.get("ok"):
+        out["signed_in"] = True
+        out["reason"] = None
+        return out
+    if not me.get("reachable"):
+        out["reason"] = REASON_UNREACHABLE
+        out["message"] = MSG_UNREACHABLE
+        return out
+    if me.get("signin_url"):
+        out["signed_in"] = False
+        out["reason"] = REASON_AUTH_REQUIRED
+        out["signin_url"] = me.get("signin_url")
+        out["message"] = MSG_AUTH_REQUIRED
+        return out
+    out["signed_in"] = False
+    out["reason"] = REASON_AUTH_REQUIRED
+    out["message"] = MSG_AUTH_REQUIRED
+    return out
 
 
 def build_system_prompt() -> str:
@@ -208,6 +300,8 @@ def fetch_ollama_signin_link() -> dict[str, Any]:
     Ask Ollama for a fresh cloud sign-in URL via POST /api/me (official local API).
     Falls back to a minimal cloud generate probe if needed.
     """
+    if not ai_configured():
+        return {"error": MSG_DISABLED, "reason": REASON_DISABLED, "setup_hint": AI_SETUP_HINT}
     me = _ollama_request("POST", "/api/me", {})
     if me.get("ok"):
         return {"signed_in": True}
@@ -336,6 +430,8 @@ def summarize_user_context(db: Session, user: User, instance_id: int | None = No
 
 
 def ask_ollama(question: str, context: dict) -> AiOllamaResult:
+    if not ai_configured():
+        return ai_disabled_result()
     context_block = json.dumps(context, ensure_ascii=False, indent=2)[:_CONTEXT_JSON_LIMIT]
     payload = {
         "model": ollama_model(),

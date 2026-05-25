@@ -65,52 +65,59 @@ open /Applications/Docker.app   # must be running before any docker command
 
 ---
 
-### 2. Clone and run
+### 2. Clone and run (no AI downloads)
 
 ```bash
 git clone https://github.com/zeromeia0/webable.git
 cd webable
+make install   # optional: Python venv for local dev
+make run       # docker compose up -d --build — Webable only, no Ollama image
+```
+
+Or without Make:
+
+```bash
 docker compose up -d --build
 ```
 
 Then open **http://localhost:8080** in your browser.
 
-That's it. Data is stored in `./data` on your machine and persists across restarts and rebuilds.
+That's it. Data is stored in `./data` on your machine and persists across restarts and rebuilds. **AI is off by default** — no Ollama image pull, no model downloads, no AI startup during install.
 
 ### Optional AI (Ollama Cloud)
 
-`docker-compose.yml` includes an **Ollama** sidecar (`webable-ollama`). Webable works without it — the dashboard and budgeting features do not call AI on page load.
-
-After starting containers:
+Enable only when you want the finance chat assistant:
 
 ```bash
-docker compose up -d
+make ai        # pull/start Ollama sidecar + enable AI env on Webable
 ```
 
-AI requires **Ollama Cloud sign-in** (containers can be healthy before this step):
+Or start everything in one step:
 
 ```bash
-sudo docker exec -it webable-ollama ollama signin
+make ai-run    # docker compose with docker-compose.ai.yml overlay
 ```
 
-Test the model:
+AI requires **Ollama Cloud sign-in** after the Ollama container is running (not part of `make install`):
 
 ```bash
-sudo docker exec -it webable-ollama ollama run minimax-m2.5:cloud
+docker exec -it webable-ollama ollama signin
+docker exec -it webable-ollama ollama run minimax-m2.5:cloud
 ```
 
-The default model is **`minimax-m2.5:cloud`** (cloud-backed). Webable does **not** run `ollama pull` at startup.
+The default model is **`minimax-m2.5:cloud`** (cloud-backed). Webable does **not** run `ollama pull` during default setup.
 
-Environment (set in Compose for the `webable` service):
-
-| Variable | Default (Docker) |
-|----------|------------------|
+| Variable | When AI is enabled (`make ai`) |
+|----------|-------------------------------|
+| `WEBABLE_AI_ENABLED` | `1` |
 | `OLLAMA_BASE_URL` | `http://ollama:11434` |
 | `OLLAMA_MODEL` | `minimax-m2.5:cloud` |
 
-For local uvicorn without Docker, point at your host Ollama: `OLLAMA_BASE_URL=http://127.0.0.1:11434`.
+For local uvicorn without Docker: `WEBABLE_AI_ENABLED=1` and `OLLAMA_BASE_URL=http://127.0.0.1:11434`.
 
-If Webable shows *AI is not available right now. Make sure Ollama is running and **signed in**.*, click **signed in** in the chat panel. Webable asks the Ollama API for a fresh sign-in link when possible (`GET /api/ai/ollama/signin-link`), or shows the manual commands above.
+Check status: `GET /api/ai/status` — returns `configured: false` until AI is set up.
+
+If AI is disabled, the chat panel explains how to run `make ai`. If AI is enabled but unsigned in, click **signed in** in the chat panel for a sign-in link (`GET /api/ai/ollama/signin-link`).
 
 ---
 
@@ -128,15 +135,20 @@ If Webable shows *AI is not available right now. Make sure Ollama is running and
 
 If you have GNU Make installed (`winget install -e --id GnuWin32.Make` on Windows):
 
-```bash
-make up       # docker compose up -d --build
-make down     # docker compose down
-make logs     # docker compose logs -f
-make restart  # docker compose restart
-make update   # git pull && docker compose up -d --build
-make up-image        # pull ghcr.io/.../webable (tag from VERSION) — see “Prebuilt images” below
-make up-watchtower   # GHCR image + Watchtower sidecar for automatic image pulls
-```
+| Command | What it does |
+|---------|----------------|
+| `make install` | Lightweight setup (venv + pip). **No AI.** |
+| `make run` / `make up` | Start Webable in Docker. **No Ollama pull.** |
+| `make down` | Stop core stack |
+| `make logs` | Follow Webable logs |
+| `make ai` | Optional: pull/start Ollama + enable AI on Webable |
+| `make ai-run` | Start full stack with AI overlay |
+| `make ai-down` | Stop Ollama sidecar only |
+| `make run-local` | uvicorn dev server (after `make install`) |
+| `make update` | git pull + rebuild core stack |
+| `make up-image` | GHCR image (no local build) — see “Prebuilt images” |
+| `make up-image-ai` | GHCR image + optional AI overlay |
+| `make up-watchtower` | GHCR + Watchtower sidecar |
 
 ### Prebuilt images (GHCR) and Watchtower
 
@@ -179,7 +191,7 @@ flowchart LR
 
 4. **Build metadata & capabilities:** `GET /api/build-info` returns `version`, `commit`, `build_id`, `build_time`, `channel`, `deployment_mode`, update-capability flags, and `update_in_progress`. `GET /api/update/status` adds GitHub comparison fields plus `orchestration` (phase, message, errors). Signed-in users can call `POST /api/update/start` for a one-click job when the deployment supports it.
 
-5. **Compose files in this repo:** `docker-compose.yml` — local build / dev. `docker-compose.image.yml` — pull-only GHCR. `docker-compose.watchtower.yml` — optional sidecar.
+5. **Compose files in this repo:** `docker-compose.yml` — local build / dev (core only). `docker-compose.ai.yml` — optional Ollama overlay (`make ai`). `docker-compose.image.yml` — pull-only GHCR. `docker-compose.watchtower.yml` — optional sidecar.
 
 This path does **not** use in-container `git` for image installs. The **git** flow (`WEBABLE_AUTO_UPDATE`, `update.md`, `/api/update/*`) remains for installs that are a git working tree on disk.
 
@@ -517,7 +529,10 @@ Webable is designed for **local or trusted-network use only**.
 ├── tests/
 ├── Dockerfile
 ├── docker-compose.yml
+├── docker-compose.ai.yml   # optional Ollama overlay
 ├── Makefile
+├── scripts/webable-install.sh
+├── scripts/webable-ai-setup.sh
 ├── requirements.txt
 ├── webapp.py               # ASGI entry point
 └── budget.py               # legacy CLI helper (optional)

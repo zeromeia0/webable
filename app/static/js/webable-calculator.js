@@ -115,13 +115,93 @@
     return s;
   }
 
+  function clamp(n, min, max) {
+    return Math.min(max, Math.max(min, n));
+  }
+
+  function initDrag(panel, handle) {
+    var dragging = false;
+    var startX = 0;
+    var startY = 0;
+    var originLeft = 0;
+    var originTop = 0;
+
+    function ensurePositioned() {
+      if (panel.dataset.dragPositioned === '1') return;
+      var rect = panel.getBoundingClientRect();
+      panel.style.right = 'auto';
+      panel.style.bottom = 'auto';
+      panel.style.left = rect.left + 'px';
+      panel.style.top = rect.top + 'px';
+      panel.dataset.dragPositioned = '1';
+    }
+
+    function resetPosition() {
+      panel.style.left = '';
+      panel.style.top = '';
+      panel.style.right = '';
+      panel.style.bottom = '';
+      delete panel.dataset.dragPositioned;
+      panel.classList.remove('webable-calc-dragging');
+    }
+
+    function onPointerDown(e) {
+      if (e.button !== 0) return;
+      if (e.target.closest('#globalCalcClose')) return;
+      dragging = true;
+      ensurePositioned();
+      panel.classList.add('webable-calc-dragging');
+      var rect = panel.getBoundingClientRect();
+      originLeft = rect.left;
+      originTop = rect.top;
+      startX = e.clientX;
+      startY = e.clientY;
+      if (handle.setPointerCapture && e.pointerId != null) {
+        try { handle.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+      }
+      e.preventDefault();
+    }
+
+    function onPointerMove(e) {
+      if (!dragging) return;
+      var dx = e.clientX - startX;
+      var dy = e.clientY - startY;
+      var w = panel.offsetWidth;
+      var h = panel.offsetHeight;
+      var pad = 8;
+      var maxLeft = Math.max(pad, window.innerWidth - w - pad);
+      var maxTop = Math.max(pad, window.innerHeight - h - pad);
+      panel.style.left = clamp(originLeft + dx, pad, maxLeft) + 'px';
+      panel.style.top = clamp(originTop + dy, pad, maxTop) + 'px';
+    }
+
+    function endDrag(e) {
+      if (!dragging) return;
+      dragging = false;
+      panel.classList.remove('webable-calc-dragging');
+      if (handle.releasePointerCapture && e && e.pointerId != null) {
+        try { handle.releasePointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+      }
+    }
+
+    handle.addEventListener('pointerdown', onPointerDown);
+    handle.addEventListener('pointermove', onPointerMove);
+    handle.addEventListener('pointerup', endDrag);
+    handle.addEventListener('pointercancel', endDrag);
+
+    return { resetPosition: resetPosition };
+  }
+
   function init() {
     var fab = document.getElementById('globalCalcFab');
     var panel = document.getElementById('globalCalcPanel');
     var closeBtn = document.getElementById('globalCalcClose');
+    var dragHandle = document.getElementById('globalCalcDragHandle');
     var display = document.getElementById('globalCalcDisplay');
     var errEl = document.getElementById('globalCalcError');
     if (!fab || !panel || !display) return;
+
+    var drag = dragHandle ? initDrag(panel, dragHandle) : null;
 
     var expr = '';
     var lastOk = null;
@@ -165,25 +245,38 @@
       render();
     }
 
+    function closePanel() {
+      panel.classList.add('hidden');
+      fab.setAttribute('aria-expanded', 'false');
+    }
+
+    function openPanel() {
+      if (drag) drag.resetPosition();
+      ['globalAiPanel', 'globalQuickAddPanel', 'globalNotesPanel', 'globalExpensesPanel'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.classList.add('hidden');
+      });
+      ['globalAiFab', 'globalQuickAddFab', 'globalNotesFab', 'globalExpensesFab'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.setAttribute('aria-expanded', 'false');
+      });
+      panel.classList.remove('hidden');
+      fab.setAttribute('aria-expanded', 'true');
+    }
+
     fab.addEventListener('click', function () {
-      var opening = panel.classList.contains('hidden');
-      if (opening) {
-        ['globalAiPanel', 'globalQuickAddPanel', 'globalNotesPanel', 'globalExpensesPanel'].forEach(function (id) {
-          var el = document.getElementById(id);
-          if (el) el.classList.add('hidden');
-        });
-        ['globalAiFab', 'globalQuickAddFab', 'globalNotesFab', 'globalExpensesFab'].forEach(function (id) {
-          var el = document.getElementById(id);
-          if (el) el.setAttribute('aria-expanded', 'false');
-        });
+      var isOpen = !panel.classList.contains('hidden');
+      if (isOpen) {
+        closePanel();
+        return;
       }
-      panel.classList.toggle('hidden');
-      var open = !panel.classList.contains('hidden');
-      fab.setAttribute('aria-expanded', open ? 'true' : 'false');
+      openPanel();
     });
+
     if (closeBtn) {
-      closeBtn.addEventListener('click', function () {
-        panel.classList.add('hidden');
+      closeBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        closePanel();
       });
     }
 
@@ -213,7 +306,7 @@
         e.preventDefault();
         equals();
       } else if (e.key === 'Escape') {
-        panel.classList.add('hidden');
+        closePanel();
       } else if (e.key === 'Backspace') {
         e.preventDefault();
         backspace();
