@@ -1,5 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
-# PyInstaller spec — Webable Windows desktop (onedir, windowed release build).
+# Debug build: console=True, outputs dist/Webable-Debug/Webable-Debug.exe
+# Shows tracebacks on stdout/stderr AND logs to %LOCALAPPDATA%\Webable\logs\webable.log
+
 import os
 from pathlib import Path
 
@@ -16,7 +18,6 @@ datas = [
     (str(ROOT / "update.md"), "."),
 ]
 
-# SQLAlchemy 2.x: do NOT use sqlalchemy.sql.defaultcomparator (removed).
 hiddenimports = [
     "uvicorn",
     "uvicorn.logging",
@@ -81,7 +82,6 @@ hiddenimports = [
     "windows.bootstrap",
     "windows.import_app",
 ]
-
 hiddenimports += collect_submodules("app.services")
 
 a = Analysis(
@@ -110,12 +110,12 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="Webable",
-    debug=False,
+    name="Webable-Debug",
+    debug=True,
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    console=False,
+    console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -133,5 +133,5 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name="Webable",
+    name="Webable-Debug",
 )

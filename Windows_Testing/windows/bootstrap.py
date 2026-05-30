@@ -5,6 +5,7 @@ Only used by windows_launcher.py (not imported by the main web app in Docker).
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from pathlib import Path
@@ -12,14 +13,17 @@ from pathlib import Path
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 17890
 
+log = logging.getLogger("webable.bootstrap")
+
 
 def is_frozen() -> bool:
     return bool(getattr(sys, "frozen", False))
 
 
 def bundle_root() -> Path:
+    """Directory containing bundled app/templates and app/static."""
     if is_frozen():
-        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
     return Path(__file__).resolve().parent.parent
 
 
@@ -44,14 +48,33 @@ def configure_environment(*, port: int = DEFAULT_PORT) -> Path:
     os.environ.setdefault("WEBABLE_DEPLOYMENT_MODE", "image")
     os.environ.setdefault("WEBABLE_APP_VERSION", _read_version_file())
     os.environ.setdefault("APP_ENV", "production")
-    # AI off by default on Windows desktop (no Ollama bundled).
     os.environ.setdefault("WEBABLE_AI_ENABLED", "0")
 
     root = bundle_root()
     if is_frozen():
         os.chdir(root)
+        log.info("chdir bundle_root=%s", root)
 
     return data
+
+
+def verify_bundle_resources(logger: logging.Logger | None = None) -> dict[str, bool]:
+    """Log presence of bundled templates/static/config (PyInstaller datas check)."""
+    lg = logger or log
+    root = bundle_root()
+    checks = {
+        "app/templates": (root / "app" / "templates").is_dir(),
+        "app/static": (root / "app" / "static").is_dir(),
+        "VERSION": (root / "VERSION").is_file(),
+        "update.md": (root / "update.md").is_file(),
+    }
+    for label, ok in checks.items():
+        lg.info("bundle resource %s: %s", label, "OK" if ok else "MISSING")
+    sample_tpl = root / "app" / "templates" / "home.html"
+    sample_js = root / "app" / "static" / "js" / "webable-currency.js"
+    lg.info("sample template home.html: %s", "OK" if sample_tpl.is_file() else "MISSING")
+    lg.info("sample static webable-currency.js: %s", "OK" if sample_js.is_file() else "MISSING")
+    return checks
 
 
 def _read_version_file() -> str:

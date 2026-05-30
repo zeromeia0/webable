@@ -1,30 +1,15 @@
 #!/usr/bin/env bash
-# Refresh Windows_Testing app source from parent repo (../). Does not touch build/, dist/, or venv.
+# Refresh app/ and root stubs from parent repo (../). Preserves build/, windows_launcher.py, specs.
 set -euo pipefail
-
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 UPSTREAM="$(cd "$ROOT/.." && pwd)"
-
-if [[ ! -f "$UPSTREAM/webapp.py" ]]; then
-  echo "Upstream webable repo not found at $UPSTREAM" >&2
-  exit 1
-fi
-
-echo "Syncing from $UPSTREAM -> $ROOT"
+[[ -f "$UPSTREAM/webapp.py" ]] || { echo "Missing upstream at $UPSTREAM"; exit 1; }
 rsync -a --delete \
-  --exclude='.git' \
-  --exclude='.venv' \
-  --exclude='.venv-win' \
-  --exclude='data' \
-  --exclude='Windows_Testing' \
-  --exclude='dist' \
-  --exclude='build' \
   --exclude='__pycache__' \
   "$UPSTREAM/app" \
   "$UPSTREAM/webapp.py" \
-  "$UPSTREAM/requirements.txt" \
   "$UPSTREAM/VERSION" \
   "$UPSTREAM/update.md" \
+  "$UPSTREAM/requirements.txt" \
   "$ROOT/"
-
-echo "Done. Windows-only files (windows/, build/, installer/, windows_launcher.py) were preserved."
+echo "Synced app source from $UPSTREAM"

@@ -1,21 +1,28 @@
-# Webable — Windows Testing / Desktop packaging
+# Webable — Windows_Testing
 
-This directory is a **self-contained Windows packaging fork** of [Webable](../README.md). The parent repository is not modified; application code is copied here and refreshed via `scripts/sync-from-upstream.sh`.
+Windows desktop packaging for Webable (no Docker).
 
-**Full build and signing documentation:** [README-WINDOWS.md](README-WINDOWS.md)
-
-## Quick start (developers on Windows)
+## Quick build (Windows)
 
 ```powershell
 cd Windows_Testing
-.\build\build-installer.bat
+.\build\build-debug.bat    # console build — use first to see errors
+.\build\build.bat            # release build
+.\build\build-installer.bat  # release + installer
 ```
 
-Deliver to users: `dist\installer\Webable-Setup-*.exe`
+See **[README-WINDOWS.md](README-WINDOWS.md)** for troubleshooting frozen builds, log paths, and signing.
 
-## Quick start (test without installer)
+## Layout
 
-```powershell
-.\build\build.ps1
-.\dist\Webable\Webable.exe
+```
+Windows_Testing/
+├── app/                  # synced from parent webable repo
+├── build/                # build.ps1, build.bat, build-debug.bat, build-installer.bat
+├── windows_launcher.py   # desktop entry point
+├── windows/              # bootstrap, import_app
+├── webable.spec          # release PyInstaller spec
+├── webable-debug.spec    # console debug spec
+├── installer/            # Inno Setup
+└── scripts/              # sync-from-upstream.sh, verify_bundle.py
 ```
