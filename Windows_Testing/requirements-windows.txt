@@ -1,0 +1,16 @@
+# Pinned dependencies for reproducible Windows builds (PyInstaller bundle).
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+sqlalchemy==2.0.36
+jinja2==3.1.4
+python-multipart==0.0.17
+python-dateutil==2.9.0.post0
+reportlab==4.2.5
+matplotlib==3.9.3
+pypdf==5.1.0
+markdown==3.7
+bleach==6.2.0
+pyinstaller==6.11.1
+
+# Build-time only (icon generation on Windows build host)
+pillow==11.0.0

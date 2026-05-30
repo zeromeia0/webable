@@ -1,0 +1,44 @@
+/* Timeline event badges */
+.wb-timeline-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.15rem 0.45rem;
+  border-radius: 0.35rem;
+  background: rgb(51 65 85);
+  color: rgb(203 213 225);
+}
+.wb-timeline-income .wb-timeline-badge {
+  background: rgb(6 78 59 / 0.5);
+  color: rgb(110 231 183);
+}
+.wb-timeline-expense .wb-timeline-badge,
+.wb-timeline-large_expense .wb-timeline-badge {
+  background: rgb(127 29 29 / 0.45);
+  color: rgb(252 165 165);
+}
+.wb-timeline-fixed_expense .wb-timeline-badge {
+  background: rgb(124 45 18 / 0.45);
+  color: rgb(253 186 116);
+}
+.wb-timeline-snapshot .wb-timeline-badge {
+  background: rgb(76 29 149 / 0.45);
+  color: rgb(196 181 253);
+}
+.wb-timeline-insight .wb-timeline-badge {
+  background: rgb(22 78 99 / 0.5);
+  color: rgb(103 232 249);
+}
+.wb-timeline-note .wb-timeline-badge {
+  background: rgb(51 65 85);
+  color: rgb(148 163 184);
+}
+.wb-timeline-wishlist .wb-timeline-badge {
+  background: rgb(120 53 15 / 0.45);
+  color: rgb(253 224 71);
+}
+.wb-timeline-large_expense {
+  border-color: rgb(249 115 22 / 0.35);
+}

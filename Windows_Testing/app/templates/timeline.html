@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Timeline — Webable</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/static/js/webable-currency.js"></script>
+  <link rel="stylesheet" href="/static/css/webable-timeline.css" />
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+  <div class="flex flex-col md:flex-row min-h-screen">
+    {% include "partials/app_sidebar.html" %}
+    <div class="flex-1 min-w-0 flex flex-col">
+    {% include "partials/app_topbar.html" %}
+  <main class="flex-1 max-w-4xl w-full mx-auto p-6 md:p-8 space-y-8 pb-24">
+    <header>
+      <h1 class="text-3xl font-bold tracking-tight">Timeline</h1>
+      <p class="text-slate-400 mt-2 text-sm max-w-2xl">Your money history as a story.</p>
+    </header>
+
+    {% if not instance %}
+    <div class="rounded-2xl border border-dashed border-slate-700 bg-slate-900/50 p-8 text-center text-slate-400">
+      <p>Create a workspace to see your financial timeline.</p>
+    </div>
+    {% else %}
+
+    <form method="get" class="flex flex-wrap gap-3 items-end rounded-xl border border-slate-800 bg-slate-900/80 p-4">
+      {% if instances|length > 1 %}
+      <label class="text-xs text-slate-400">Workspace
+        <select name="instance_id" class="mt-1 block rounded-lg bg-slate-800 border border-slate-700 px-2 py-1.5 text-sm">
+          {% for ins in instances %}
+          <option value="{{ ins.id }}" {% if ins.id == instance.id %}selected{% endif %}>{{ ins.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% endif %}
+      <label class="text-xs text-slate-400">Month
+        <input type="month" name="month" value="{{ month_filter }}" class="mt-1 block rounded-lg bg-slate-800 border border-slate-700 px-2 py-1.5 text-sm" />
+      </label>
+      <label class="text-xs text-slate-400">Event type
+        <select name="event_type" class="mt-1 block rounded-lg bg-slate-800 border border-slate-700 px-2 py-1.5 text-sm">
+          <option value="">All</option>
+          <option value="income" {% if event_type_filter == 'income' %}selected{% endif %}>Income</option>
+          <option value="expense" {% if event_type_filter == 'expense' %}selected{% endif %}>Expense</option>
+          <option value="large_expense" {% if event_type_filter == 'large_expense' %}selected{% endif %}>Large expense</option>
+          <option value="fixed_expense" {% if event_type_filter == 'fixed_expense' %}selected{% endif %}>Fixed expense</option>
+          <option value="snapshot" {% if event_type_filter == 'snapshot' %}selected{% endif %}>Snapshot</option>
+          <option value="insight" {% if event_type_filter == 'insight' %}selected{% endif %}>Insight</option>
+          <option value="note" {% if event_type_filter == 'note' %}selected{% endif %}>Note</option>
+          <option value="wishlist" {% if event_type_filter == 'wishlist' %}selected{% endif %}>Wishlist</option>
+        </select>
+      </label>
+      <button type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm font-medium">Apply</button>
+      <a href="/timeline{% if instances|length > 1 %}?instance_id={{ instance.id }}{% endif %}" class="text-sm text-slate-400 hover:text-slate-200 py-2">Clear</a>
+    </form>
+
+    <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+      <h2 class="text-lg font-semibold text-slate-200 mb-1">Monthly summaries</h2>
+      <p class="text-xs text-slate-500 mb-4"><a href="/eom-summary?instance_id={{ instance.id }}" class="text-cyan-400 hover:underline">EOM Summary</a> — full recap and PDF.</p>
+      {% if snapshots %}
+      <ul class="flex flex-wrap gap-2">
+        {% for s in snapshots[:12] %}
+        <li><a href="/eom-summary?instance_id={{ instance.id }}&year={{ s.year }}&month={{ s.month }}" class="inline-block px-3 py-1 rounded-full text-xs border border-slate-700 bg-slate-800 hover:border-violet-500/50">{{ s.month_label }}</a></li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="text-sm text-slate-500">No saved summaries yet.</p>
+      {% endif %}
+    </section>
+
+    {% if not grouped_events %}
+    <div class="rounded-2xl border border-dashed border-slate-700 p-10 text-center text-slate-400">
+      <p class="text-slate-300 font-medium">No timeline events yet</p>
+      <p class="text-sm mt-2">Add transactions or generate a monthly summary.</p>
+    </div>
+    {% else %}
+    <div class="wb-timeline space-y-8">
+      {% for group in grouped_events %}
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">{{ group.date }}</p>
+        <ul class="space-y-3 border-l-2 border-slate-800 ml-2 pl-4">
+          {% for ev in group.events %}
+          <li class="wb-timeline-event wb-timeline-{{ ev.type }} rounded-xl border border-slate-800 bg-slate-900/80 p-4">
+            <div class="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <span class="wb-timeline-badge">{{ ev.type|replace('_', ' ') }}</span>
+                <p class="font-medium text-slate-100 mt-1">{{ ev.title }}</p>
+                {% if ev.description %}<p class="text-sm text-slate-400 mt-0.5">{{ ev.description }}</p>{% endif %}
+              </div>
+              {% if ev.amount is not none %}
+              <p class="text-sm font-semibold tabular-nums {% if ev.amount >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}">
+                <span class="wb-money" data-eur="{{ ev.amount }}">—</span>
+              </p>
+              {% endif %}
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% endif %}
+  </main>
+    </div>
+  </div>
+  {% include "partials/global_fab_stack.html" %}
+</body>
+</html>

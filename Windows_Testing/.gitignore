@@ -1,0 +1,12 @@
+.venv-win/
+venv-win/
+__pycache__/
+*.py[cod]
+build/
+dist/
+*.spec.bak
+data/
+*.log
+.env
+.DS_Store
+Thumbs.db

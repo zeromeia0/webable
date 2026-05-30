@@ -1,0 +1,31 @@
+{# Non-dismissible update modal — styled like existing slate-900 / border-slate-700 modals #}
+<div id="wbUpdateModal" class="hidden fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6" aria-modal="true" role="dialog" aria-labelledby="wbUpdateTitle">
+  {# Block clicks to underlying UI (no backdrop-dismiss) #}
+  <div class="absolute inset-0 bg-black/70 backdrop-blur-sm" aria-hidden="true"></div>
+  <div class="relative w-full max-w-lg max-h-[min(90vh,32rem)] flex flex-col rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl shadow-black/50 ring-1 ring-white/5 transition-all duration-200">
+    <div class="shrink-0 px-5 pt-5 pb-3 border-b border-slate-800/80">
+      <div class="flex items-start gap-3">
+        <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-500/15 border border-indigo-500/30 text-lg" aria-hidden="true">✨</span>
+        <div class="min-w-0">
+          <h2 id="wbUpdateTitle" class="text-lg font-semibold text-slate-100 tracking-tight">Application update</h2>
+          <p id="wbUpdateSubtitle" class="mt-1 text-sm text-slate-400 leading-relaxed hidden"></p>
+        </div>
+      </div>
+    </div>
+    <div id="wbUpdateScroll" class="min-h-0 flex-1 overflow-y-auto px-5 py-4 border-b border-slate-800/80">
+      <div id="wbUpdateBody" class="text-sm text-slate-300 leading-relaxed space-y-3 [&_a]:text-indigo-400 [&_a]:underline [&_h1]:text-lg [&_h1]:font-semibold [&_h1]:text-slate-100 [&_h2]:text-base [&_h2]:font-semibold [&_h2]:text-slate-100 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_code]:text-emerald-200 [&_code]:text-xs [&_pre]:rounded-lg [&_pre]:bg-slate-950 [&_pre]:p-3 [&_pre]:border [&_pre]:border-slate-800"></div>
+    </div>
+    <div id="wbUpdateProgress" class="hidden shrink-0 px-5 py-3 border-b border-slate-800/80 bg-slate-950/60">
+      <p id="wbUpdateProgressText" class="text-xs text-slate-400 font-mono leading-relaxed"></p>
+    </div>
+    <div class="shrink-0 px-5 py-4 flex flex-wrap justify-end gap-2 bg-slate-950/40 rounded-b-2xl">
+      <button type="button" id="wbUpdateDismiss" class="hidden px-4 py-2.5 rounded-lg border border-slate-600 text-slate-200 text-sm hover:bg-slate-800">
+        Not now
+      </button>
+      <button type="button" id="wbUpdateGotIt" class="px-5 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 text-white text-sm font-semibold shadow-lg shadow-indigo-900/30 transition-colors duration-150">
+        Apply update
+      </button>
+    </div>
+  </div>
+</div>
+<script defer src="/static/js/webable-update.js"></script>

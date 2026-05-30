@@ -1,0 +1,11 @@
+Welcome to Webable setup.
+
+Webable runs entirely on your computer. Your budgets and workspaces are stored in:
+
+  %LOCALAPPDATA%\Webable
+
+No Docker, Git, or command line is required.
+
+The app listens only on 127.0.0.1 (this PC) and opens your web browser automatically.
+
+Optional AI (Ollama) is not included in this Windows build.

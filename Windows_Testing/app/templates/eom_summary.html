@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EOM Summary — Webable</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/static/js/webable-currency.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+  <div class="flex flex-col md:flex-row min-h-screen">
+    {% include "partials/app_sidebar.html" %}
+    <div class="flex-1 min-w-0 flex flex-col">
+    {% include "partials/app_topbar.html" %}
+  <main class="flex-1 max-w-5xl w-full mx-auto p-6 md:p-8 space-y-8 pb-24">
+    <header class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">EOM Summary</h1>
+        <p class="text-slate-400 mt-2 text-sm max-w-2xl">End-of-month recap — what happened, what changed, and where the money went.</p>
+      </div>
+      {% if instance and summary %}
+      <div class="flex flex-wrap gap-2 shrink-0">
+        <a href="/eom-summary/current/pdf?instance_id={{ instance.id }}" class="px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-sm hover:bg-slate-700">Download PDF (this month)</a>
+        <a href="/eom-summary/{{ summary.year }}/{{ summary.month }}/pdf?instance_id={{ instance.id }}{% if summary.is_preview %}&preview=1{% endif %}" class="px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm font-medium">Download PDF</a>
+      </div>
+      {% endif %}
+    </header>
+
+    {% if not instance %}
+    <div class="rounded-2xl border border-dashed border-slate-700 p-8 text-center text-slate-400">
+      <p>Create a workspace to view monthly summaries.</p>
+    </div>
+    {% else %}
+
+    <div class="grid lg:grid-cols-[220px_1fr] gap-6">
+      <aside class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 h-fit">
+        <p class="text-xs font-semibold uppercase text-slate-500 mb-3">Available summaries</p>
+        {% if instances|length > 1 %}
+        <form method="get" class="mb-3">
+          <select name="instance_id" onchange="this.form.submit()" class="w-full text-xs rounded-lg bg-slate-800 border border-slate-700 px-2 py-1.5">
+            {% for ins in instances %}
+            <option value="{{ ins.id }}" {% if ins.id == instance.id %}selected{% endif %}>{{ ins.name }}</option>
+            {% endfor %}
+          </select>
+        </form>
+        {% endif %}
+        <ul class="space-y-1 max-h-64 overflow-y-auto text-sm">
+          {% for s in snapshots %}
+          <li>
+            <a href="/eom-summary?instance_id={{ instance.id }}&year={{ s.year }}&month={{ s.month }}"
+               class="block px-2 py-1.5 rounded-lg hover:bg-slate-800 {% if summary and summary.year == s.year and summary.month == s.month %}bg-violet-900/40 text-violet-200{% else %}text-slate-300{% endif %}">
+              {{ s.month_label }}
+            </a>
+          </li>
+          {% else %}
+          <li class="text-slate-500 text-xs">No saved months yet.</li>
+          {% endfor %}
+        </ul>
+        <form method="get" class="mt-4 pt-4 border-t border-slate-800 space-y-2">
+          <input type="hidden" name="instance_id" value="{{ instance.id }}" />
+          <label class="text-xs text-slate-500">Jump to month</label>
+          <input type="month" name="month_q" class="w-full rounded-lg bg-slate-800 border border-slate-700 px-2 py-1.5 text-sm"
+                 value="{% if summary %}{{ '%04d-%02d'|format(summary.year, summary.month) }}{% endif %}" />
+          <button type="submit" class="w-full py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs font-medium">View</button>
+        </form>
+      </aside>
+
+      {% if summary %}
+      <section class="space-y-6">
+        <div class="flex flex-wrap items-center gap-2">
+          <h2 class="text-xl font-semibold">{{ summary.month_label }}</h2>
+          {% if summary.is_preview %}
+          <span class="text-xs px-2 py-0.5 rounded-full bg-amber-900/50 text-amber-200 border border-amber-700/50">Preview — month not finished</span>
+          {% elif summary.is_finalized %}
+          <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-900/40 text-emerald-200 border border-emerald-700/40">Saved summary</span>
+          {% endif %}
+          {% if summary.updated_at %}
+          <span class="text-xs text-slate-500">Updated {{ summary.updated_at[:10] }}</span>
+          {% endif %}
+        </div>
+
+        <div class="grid sm:grid-cols-3 gap-4">
+          <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4">
+            <p class="text-xs text-slate-500">Income</p>
+            <p class="text-2xl font-bold text-emerald-300 mt-1"><span class="wb-money" data-eur="{{ summary.total_income }}">—</span></p>
+          </div>
+          <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4">
+            <p class="text-xs text-slate-500">Expenses</p>
+            <p class="text-2xl font-bold text-rose-300 mt-1"><span class="wb-money" data-eur="{{ summary.total_expenses }}">—</span></p>
+          </div>
+          <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4">
+            <p class="text-xs text-slate-500">Net balance</p>
+            <p class="text-2xl font-bold mt-1 {% if summary.net_balance >= 0 %}text-sky-300{% else %}text-rose-300{% endif %}"><span class="wb-money" data-eur="{{ summary.net_balance }}">—</span></p>
+          </div>
+        </div>
+
+        {% if summary.comparison %}
+        <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+          <h3 class="font-semibold text-slate-200 mb-2">Compared with last month</h3>
+          <ul class="text-sm text-slate-300 space-y-1">
+            {% if summary.comparison.income_change is not none %}
+            <li>Income change: <span class="wb-money" data-eur="{{ summary.comparison.income_change }}">—</span></li>
+            {% endif %}
+            {% if summary.comparison.expenses_change is not none %}
+            <li>Expenses change: <span class="wb-money" data-eur="{{ summary.comparison.expenses_change }}">—</span></li>
+            {% endif %}
+            {% if summary.comparison.savings_change is not none %}
+            <li>Savings change: <span class="wb-money" data-eur="{{ summary.comparison.savings_change }}">—</span></li>
+            {% endif %}
+          </ul>
+          {% if summary.comparison.plain_summary %}
+          <p class="text-sm text-slate-400 mt-3">{{ summary.comparison.plain_summary }}</p>
+          {% endif %}
+        </div>
+        {% endif %}
+
+        <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+          <h3 class="font-semibold text-slate-200 mb-2">What changed</h3>
+          <ul class="list-disc pl-5 text-sm text-slate-300 space-y-1">
+            {% for line in summary.summary_lines %}
+            <li>{{ line }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+
+        <div class="grid md:grid-cols-2 gap-6">
+          <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+            <h3 class="font-semibold text-rose-200 mb-3">Top expenses</h3>
+            <ul class="space-y-2 text-sm">
+              {% for row in summary.top_expenses %}
+              <li class="flex justify-between gap-2 border-b border-slate-800/80 pb-2">
+                <span class="text-slate-200 truncate">{{ row.name }}</span>
+                <span class="shrink-0 text-right">
+                  <span class="text-rose-300 font-medium"><span class="wb-money" data-eur="{{ row.amount_eur }}">—</span></span>
+                  <span class="block text-[10px] text-slate-500">{{ row.pct_expenses_label }} · {{ row.pct_income_label }}</span>
+                </span>
+              </li>
+              {% else %}
+              <li class="text-slate-500">No expenses recorded.</li>
+              {% endfor %}
+            </ul>
+          </div>
+          <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+            <h3 class="font-semibold text-emerald-200 mb-3">Top income</h3>
+            <ul class="space-y-2 text-sm">
+              {% for row in summary.top_income %}
+              <li class="flex justify-between gap-2 border-b border-slate-800/80 pb-2">
+                <span class="text-slate-200 truncate">{{ row.name }}</span>
+                <span class="text-emerald-300 font-medium shrink-0"><span class="wb-money" data-eur="{{ row.amount_eur }}">—</span></span>
+              </li>
+              {% else %}
+              <li class="text-slate-500">No income recorded.</li>
+              {% endfor %}
+            </ul>
+            {% if summary.fixed_expenses_percent_income %}
+            <p class="text-xs text-slate-400 mt-4 pt-3 border-t border-slate-800">Fixed expenses: <span class="wb-money" data-eur="{{ summary.fixed_expenses_total }}">—</span> ({{ summary.fixed_expenses_percent_income }}% of income)</p>
+            {% endif %}
+            {% if summary.safe_to_spend is not none %}
+            <p class="text-xs text-slate-400 mt-2">Safe to spend (25%): <span class="wb-money" data-eur="{{ summary.safe_to_spend }}">—</span></p>
+            {% endif %}
+          </div>
+        </div>
+
+        <form method="post" action="/eom-summary/generate" class="flex flex-wrap gap-3 items-center pt-2 border-t border-slate-800">
+          <input type="hidden" name="instance_id" value="{{ instance.id }}" />
+          <input type="hidden" name="year" value="{{ summary.year }}" />
+          <input type="hidden" name="month" value="{{ summary.month }}" />
+          <button type="submit" class="px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm font-medium">Regenerate snapshot</button>
+          <span class="text-xs text-slate-500">Updates the saved summary for this month (idempotent).</span>
+        </form>
+      </section>
+      {% else %}
+      <p class="text-slate-400">Select a month to view its summary.</p>
+      {% endif %}
+    </div>
+    {% endif %}
+  </main>
+    </div>
+  </div>
+  {% include "partials/global_fab_stack.html" %}
+</body>
+</html>
