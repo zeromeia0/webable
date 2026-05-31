@@ -133,6 +133,7 @@ def _run_uvicorn(port: int) -> None:
             host=HOST,
             port=port,
             log_level="info",
+            log_config=None,
             access_log=False,
             loop="asyncio",
         )

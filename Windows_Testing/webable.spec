@@ -9,11 +9,20 @@ block_cipher = None
 ROOT = Path(os.path.abspath(SPECPATH))
 version_file = ROOT / "assets" / "version_info.txt"
 
+import sys
+
+PYTHON_BASE = Path(sys.base_prefix)
+TCL_DIR = PYTHON_BASE / "tcl" / "tcl8.6"
+TK_DIR = PYTHON_BASE / "tcl" / "tk8.6"
+
 datas = [
     (str(ROOT / "app" / "templates"), "app/templates"),
     (str(ROOT / "app" / "static"), "app/static"),
     (str(ROOT / "VERSION"), "."),
     (str(ROOT / "update.md"), "."),
+
+    (str(TCL_DIR), "_tcl_data"),
+    (str(TK_DIR), "_tk_data"),
 ]
 
 # SQLAlchemy 2.x: do NOT use sqlalchemy.sql.defaultcomparator (removed).
