@@ -65,10 +65,12 @@
       var mode = data.deployment_mode || 'git';
       var msg =
         mode === 'image'
-          ? 'A new container version is now running (' +
-            ver +
-            (commit ? ', ' + commit : '') +
-            '). Reload if the UI looks stale.'
+          ? data.watchtower_expected
+            ? 'A new container version is now running (' +
+              ver +
+              (commit ? ', ' + commit : '') +
+              '). Reload if the UI looks stale.'
+            : 'Webable updated successfully to version ' + ver + (commit ? ' (' + commit + ')' : '') + '.'
           : 'Webable updated successfully to version ' + ver + (commit ? ' (' + commit + ')' : '') + '.';
       show(msg);
     } else {

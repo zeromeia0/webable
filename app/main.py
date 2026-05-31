@@ -4,6 +4,7 @@ import json
 import logging
 import os
 from datetime import date, datetime
+from pathlib import Path
 from uuid import uuid4
 
 from contextlib import asynccontextmanager
@@ -71,8 +72,11 @@ async def _lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Webable", version="1.0.0", lifespan=_lifespan)
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
-templates = Jinja2Templates(directory="app/templates")
+_APP_DIR = Path(__file__).resolve().parent
+_STATIC_DIR = _APP_DIR / "static"
+_TEMPLATE_DIR = _APP_DIR / "templates"
+app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
 
 Base.metadata.create_all(bind=engine)
 ROOT = DATA_ROOT

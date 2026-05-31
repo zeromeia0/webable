@@ -253,10 +253,13 @@
     var ext = caps.watchtower_expected;
     var action = caps.update_action_mode;
     if (mode === 'image' && action === 'external_only') {
-      var t = 'This instance runs from a container image.';
-      if (ext) t += ' Updates are expected from an external updater (for example Watchtower) or your platform.';
-      else t += ' Install updates by pulling a new image or running compose on the host.';
-      return t;
+      if (ext) {
+        return (
+          'This instance runs from a container image. Updates are expected from an external updater ' +
+          '(for example Watchtower) or your platform.'
+        );
+      }
+      return 'A new version is available. Install it from the vendor website or run the latest installer.';
     }
     if (mode === 'git') {
       return 'Git deployment: updates apply to this server\'s working tree when enabled.';
@@ -277,7 +280,9 @@
     el.textContent = t;
     el.title =
       c.deployment_mode === 'image' && c.update_action_mode === 'external_only'
-        ? 'Updates are managed outside the app (e.g. Watchtower or your platform).'
+        ? c.watchtower_expected
+          ? 'Updates are managed outside the app (e.g. Watchtower or your platform).'
+          : 'Install updates from the vendor website or latest installer.'
         : c.deployment_mode === 'git'
           ? 'Self-hosted git deployment.'
           : 'Compose-based image updates may be available from this UI when enabled.';
