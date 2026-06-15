@@ -57,10 +57,12 @@
     </section>
     {% endif %}
 
-    <section class="grid md:grid-cols-4 gap-4">
+    <section class="grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
       <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4"><p class="text-xs text-slate-400">Total income</p><p class="text-2xl font-bold text-emerald-300"><span class="wb-money" data-eur="{{ chart_data.income_total }}">{{ chart_data.income_total }}</span></p></div>
       <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4"><p class="text-xs text-slate-400">Total expenses</p><p class="text-2xl font-bold text-red-300"><span class="wb-money" data-eur="{{ chart_data.expense_total }}">{{ chart_data.expense_total }}</span></p></div>
-      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4"><p class="text-xs text-slate-400">Savings estimate</p><p class="text-2xl font-bold {% if chart_data.savings_total >= 0 %}text-emerald-300{% else %}text-red-300{% endif %}"><span class="wb-money" data-eur="{{ chart_data.savings_total }}">{{ chart_data.savings_total }}</span></p></div>
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4"><p class="text-xs text-slate-400">Net savings (month)</p><p class="text-2xl font-bold {% if chart_data.savings_total >= 0 %}text-emerald-300{% else %}text-red-300{% endif %}"><span class="wb-money" data-eur="{{ chart_data.savings_total }}">{{ chart_data.savings_total }}</span></p></div>
+      <div class="bg-slate-900 border border-emerald-900/40 rounded-2xl p-4"><p class="text-xs text-slate-400">Savings reserved</p><p class="text-2xl font-bold text-emerald-200"><span class="wb-money" data-eur="{{ chart_data.savings_reserved_total }}">{{ chart_data.savings_reserved_total }}</span></p></div>
+      <div class="bg-slate-900 border border-sky-900/40 rounded-2xl p-4"><p class="text-xs text-slate-400">Available balance</p><p class="text-2xl font-bold text-sky-300"><span class="wb-money" data-eur="{{ chart_data.available_balance }}">{{ chart_data.available_balance }}</span></p></div>
       <div id="wbSafeToSpendCard" class="bg-slate-900 border border-slate-800 rounded-2xl p-4" data-month-savings="{{ chart_data.current_month_savings }}">
         <div class="flex items-center justify-between gap-2">
           <p class="text-xs text-slate-400">Safe to spend</p>

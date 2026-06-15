@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from .auth import SESSION_COOKIE, current_user, hash_password, issue_session, verify_password
 from .db import DATA_ROOT, Base, SessionLocal, engine, get_db
-from .models import BankStatement, CategoryBudget, DatabaseInstance, FinanceAuditLog, JobRun, MonthlySnapshot, MotherInsightEvent, User
+from .models import BankStatement, CategoryBudget, DatabaseInstance, FinanceAuditLog, JobRun, MonthlySnapshot, MotherInsightEvent, User, WorkspaceInvite, WorkspaceMember
 from .services import (
     ai_service,
     analysis_service,
@@ -48,6 +48,8 @@ from .services import (
     spending_report,
     update_orchestration,
     update_service,
+    workspace_export_service,
+    workspace_service,
 )
 
 log = logging.getLogger("webable")
@@ -142,10 +144,8 @@ def require_user(request: Request, db: Session) -> User:
     return user
 
 
-def require_instance(db: Session, user: User, instance_id: int) -> DatabaseInstance:
-    inst = db.query(DatabaseInstance).filter(DatabaseInstance.id == instance_id, DatabaseInstance.owner_id == user.id).first()
-    if not inst:
-        raise HTTPException(status_code=404)
+def require_instance(db: Session, user: User, instance_id: int, action: str = "read") -> DatabaseInstance:
+    inst, _member = workspace_service.require_workspace(db, user, instance_id, action)
     return inst
 
 
@@ -523,18 +523,23 @@ def dashboard_intelligence(instances: list[DatabaseInstance], jobs: list[JobRun]
     }
 
 
-def build_dashboard_chart_data(db: Session, user: User, instances: list[DatabaseInstance]) -> dict:
+def build_dashboard_chart_data(db: Session, user: User, instances: list[DatabaseInstance], active: DatabaseInstance | None = None) -> dict:
     current_month = datetime.utcnow().strftime("%Y-%m")
     income_total = 0.0
     expense_total = 0.0
     savings_total = 0.0
+    available_total = 0.0
+    savings_reserved = 0.0
     by_workspace_labels = []
     by_workspace_income = []
     by_workspace_expenses = []
     monthly_labels = []
     monthly_savings = []
 
-    for ins in instances:
+    scope = [active] if active else instances
+    for ins in scope:
+        if not ins:
+            continue
         items = instance_service.list_finance_items(ins.finance_db_path)
         income = sum(i["amount"] for i in items["incomes"])
         expenses = sum(i["amount"] for i in items["expenses"])
@@ -547,21 +552,23 @@ def build_dashboard_chart_data(db: Session, user: User, instances: list[Database
         income_total += income
         expense_total += expenses
         savings_total += month.get("estimated_savings", 0)
+        available_total += month.get("available_balance", 0)
+        savings_reserved += month.get("savings_total", 0)
         by_workspace_labels.append(ins.name)
         by_workspace_income.append(round(income, 2))
         by_workspace_expenses.append(round(expenses, 2))
 
-    if instances:
-        primary = instances[0]
+    chart_instance = active or (instances[0] if instances else None)
+    if chart_instance:
         range_6 = instance_service.long_range(
-            primary.finance_db_path,
-            primary.logic_db_path,
+            chart_instance.finance_db_path,
+            chart_instance.logic_db_path,
             current_month,
             6,
             include_iefp=bool(user.enable_iefp_mode),
         )
         monthly_labels = [row["month"] for row in range_6]
-        monthly_savings = [row["estimated_savings"] for row in range_6]
+        monthly_savings = [row.get("available_balance", row["estimated_savings"]) for row in range_6]
 
     growth = 0.0
     if len(monthly_savings) >= 2 and monthly_savings[0] != 0:
@@ -571,7 +578,9 @@ def build_dashboard_chart_data(db: Session, user: User, instances: list[Database
         "income_total": round(income_total, 2),
         "expense_total": round(expense_total, 2),
         "savings_total": round(savings_total, 2),
-        "current_month_savings": round(savings_total, 2),
+        "available_balance": round(available_total, 2),
+        "savings_reserved_total": round(savings_reserved, 2),
+        "current_month_savings": round(available_total, 2),
         "growth_percent": growth,
         "workspace_labels": by_workspace_labels,
         "workspace_income": by_workspace_income,
@@ -624,6 +633,8 @@ def run_job(db: Session, user: User, inst: DatabaseInstance, job_type: str, call
         "delete_income": "Income deleted successfully",
         "delete_expense": "Expense deleted successfully",
         "delete_oneoff": "Transaction deleted successfully",
+        "delete_savings": "Savings deposit removed",
+        "update_savings": "Savings deposit updated",
         "ai_chat": "AI assistant response ready",
     }
     job = JobRun(instance_id=inst.id, job_type=job_type, status="running", logs="Execution started.", friendly_message="Processing", technical_logs="", metrics_json="{}")
@@ -693,6 +704,9 @@ def register(username: str = Form(...), password: str = Form(...), db: Session =
     db.refresh(user)
     resp = RedirectResponse("/dashboard", status_code=302)
     resp.set_cookie(SESSION_COOKIE, issue_session(user), httponly=True, samesite="lax")
+    instances = workspace_service.list_user_workspaces(db, user)
+    if len(instances) == 1:
+        resp.set_cookie(workspace_service.ACTIVE_WORKSPACE_COOKIE, str(instances[0].id), httponly=True, samesite="lax")
     return resp
 
 
@@ -703,6 +717,11 @@ def login(username: str = Form(...), password: str = Form(...), db: Session = De
         return RedirectResponse("/?err=invalid_login", status_code=302)
     resp = RedirectResponse("/dashboard", status_code=302)
     resp.set_cookie(SESSION_COOKIE, issue_session(user), httponly=True, samesite="lax")
+    instances = workspace_service.list_user_workspaces(db, user)
+    if user.active_workspace_id:
+        resp.set_cookie(workspace_service.ACTIVE_WORKSPACE_COOKIE, str(user.active_workspace_id), httponly=True, samesite="lax")
+    elif len(instances) == 1:
+        resp.set_cookie(workspace_service.ACTIVE_WORKSPACE_COOKIE, str(instances[0].id), httponly=True, samesite="lax")
     return resp
 
 
@@ -710,34 +729,44 @@ def login(username: str = Form(...), password: str = Form(...), db: Session = De
 def logout():
     resp = RedirectResponse("/", status_code=302)
     resp.delete_cookie(SESSION_COOKIE)
+    resp.delete_cookie(workspace_service.ACTIVE_WORKSPACE_COOKIE)
     return resp
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard(request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
-    instances = db.query(DatabaseInstance).filter(DatabaseInstance.owner_id == user.id).order_by(DatabaseInstance.created_at.desc()).all()
+    instances, active = workspace_service.resolve_active_workspace(db, user, request)
     metadata = {ins.id: instance_service.list_metadata(ins.finance_db_path, ins.logic_db_path) for ins in instances}
-    jobs = db.query(JobRun).join(DatabaseInstance).filter(DatabaseInstance.owner_id == user.id).order_by(JobRun.started_at.desc()).limit(20).all()
+    member_ids = [m.workspace_id for m in workspace_service.list_memberships(db, user)]
+    jobs = (
+        db.query(JobRun)
+        .filter(JobRun.instance_id.in_(member_ids) if member_ids else JobRun.instance_id == -1)
+        .order_by(JobRun.started_at.desc())
+        .limit(20)
+        .all()
+    )
     intelligence = dashboard_intelligence(instances, jobs, metadata)
     jobs_view = [human_job_view(job, user.enable_iefp_mode) for job in jobs]
     now_m = datetime.utcnow().strftime("%Y-%m")
     month_rows = []
-    for ins in instances:
-        month_rows.append(
-            instance_service.month_summary(
-                ins.finance_db_path,
-                ins.logic_db_path,
-                now_m,
-                include_iefp=bool(user.enable_iefp_mode),
+    chart_scope = [active] if active else instances
+    for ins in chart_scope:
+        if ins:
+            month_rows.append(
+                instance_service.month_summary(
+                    ins.finance_db_path,
+                    ins.logic_db_path,
+                    now_m,
+                    include_iefp=bool(user.enable_iefp_mode),
+                )
             )
-        )
     month_totals = dashboard_metrics.aggregate_current_month_totals(month_rows) if month_rows else {}
     mother_output = build_mother_output(intelligence, jobs, metadata, instances, month_totals=month_totals)
-    primary = instances[0] if instances else None
+    primary = active or (instances[0] if instances else None)
     if primary:
         eom_summary_service.ensure_eom_snapshots(db, primary, user, max_months=6)
-    chart_data = build_dashboard_chart_data(db, user, instances)
+    chart_data = build_dashboard_chart_data(db, user, instances, active=active)
     insights = db.query(MotherInsightEvent).filter(MotherInsightEvent.owner_id == user.id).order_by(MotherInsightEvent.created_at.desc()).limit(10).all()
     latest_statement = None
     budget_alerts = []
@@ -749,26 +778,32 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             .first()
         )
         budget_alerts = _budget_alerts(db, primary, now_m)
-    return templates.TemplateResponse(request=request, name="dashboard.html", context={
-        "request": request,
-        "user": user,
-        "instances": instances,
-        "primary_instance": primary,
-        "workspace_for_nav": primary,
-        "nav_active": "overview",
-        "metadata": metadata,
-        "jobs_view": jobs_view,
-        "intelligence": intelligence,
-        "chart_data": chart_data,
-        "mother_output": mother_output,
-        "insights": insights,
-        "humanize_delta": humanize_delta,
-        "show_back_to_dashboard": False,
-        "current_month": now_m,
-        "latest_bank_statement": latest_statement,
-        "budget_alerts": budget_alerts,
-        "oneoff_categories": list(instance_service.ONEOFF_CATEGORIES),
-    })
+    roles = workspace_service.membership_map(db, user)
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard.html",
+        context={
+            "request": request,
+            "user": user,
+            "instances": instances,
+            "active_workspace": active,
+            "workspace_roles": roles,
+            "primary_instance": primary,
+            "workspace_for_nav": primary,
+            "nav_active": "overview",
+            "jobs_view": jobs_view,
+            "intelligence": intelligence,
+            "chart_data": chart_data,
+            "mother_output": mother_output,
+            "insights": insights,
+            "humanize_delta": humanize_delta,
+            "show_back_to_dashboard": False,
+            "current_month": now_m,
+            "latest_bank_statement": latest_statement,
+            "budget_alerts": budget_alerts,
+            "oneoff_categories": list(instance_service.ONEOFF_CATEGORIES),
+        },
+    )
 
 
 @app.post("/instances/create")
@@ -783,15 +818,21 @@ def create_instance(request: Request, name: str = Form(...), db: Session = Depen
     db.add(inst)
     db.commit()
     db.refresh(inst)
+    workspace_service.add_owner_member(db, inst.id, user.id)
+    user.active_workspace_id = inst.id
+    db.add(user)
+    db.commit()
     db.add(MotherInsightEvent(owner_id=user.id, instance_id=inst.id, event_type="create_instance", severity="success", title="Database created successfully", details=f"Workspace '{inst.name}' is ready."))
     db.commit()
-    return RedirectResponse("/dashboard", status_code=302)
+    resp = RedirectResponse("/dashboard", status_code=302)
+    resp.set_cookie(workspace_service.ACTIVE_WORKSPACE_COOKIE, str(inst.id), httponly=True, samesite="lax")
+    return resp
 
 
 @app.post("/instances/{instance_id}/delete")
 def delete_instance(instance_id: int, request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
-    inst = require_instance(db, user, instance_id)
+    inst = require_instance(db, user, instance_id, action="delete_workspace")
     inst_name = inst.name
     for st in db.query(BankStatement).filter(BankStatement.instance_id == inst.id).all():
         fp = ROOT / st.storage_rel_path
@@ -800,6 +841,8 @@ def delete_instance(instance_id: int, request: Request, db: Session = Depends(ge
                 fp.unlink()
         except OSError:
             log.warning("could not remove statement file %s", fp)
+    db.query(WorkspaceMember).filter(WorkspaceMember.workspace_id == inst.id).delete()
+    db.query(WorkspaceInvite).filter(WorkspaceInvite.workspace_id == inst.id).delete()
     for p in [inst.finance_db_path, inst.logic_db_path]:
         if p and os.path.exists(p):
             os.remove(p)
@@ -890,7 +933,7 @@ def build_reports_payload(inst: DatabaseInstance) -> dict:
 def reports_page(instance_id: int, request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
     inst = require_instance(db, user, instance_id)
-    instances = db.query(DatabaseInstance).filter(DatabaseInstance.owner_id == user.id).order_by(DatabaseInstance.created_at.desc()).all()
+    instances = workspace_service.list_user_workspaces(db, user)
     base = build_reports_payload(inst)
     statements = bank_statement_service.list_for_instance(db, inst.id)
     return templates.TemplateResponse(
@@ -979,7 +1022,7 @@ def reports_pdf_export(
 def investment_calculator_page(instance_id: int, request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
     inst = require_instance(db, user, instance_id)
-    instances = db.query(DatabaseInstance).filter(DatabaseInstance.owner_id == user.id).order_by(DatabaseInstance.created_at.desc()).all()
+    instances = workspace_service.list_user_workspaces(db, user)
     latest_range = (
         db.query(JobRun)
         .filter(
@@ -1112,19 +1155,24 @@ def instance_view(instance_id: int, request: Request, db: Session = Depends(get_
     ai_job = next((j for j in jobs if j.job_type == "ai_chat"), None)
     ai_answer = ai_service.render_ai_answer(ai_job.technical_logs if ai_job else "")
     msg = request.query_params.get("msg", "")
-    instances = db.query(DatabaseInstance).filter(DatabaseInstance.owner_id == user.id).order_by(DatabaseInstance.created_at.desc()).all()
+    instances = workspace_service.list_user_workspaces(db, user)
     now_m = datetime.utcnow().strftime("%Y-%m")
     budgets = db.query(CategoryBudget).filter(CategoryBudget.instance_id == inst.id).all()
     budget_alerts = _budget_alerts(db, inst, now_m)
+    membership = workspace_service.get_membership(db, user.id, inst.id)
+    workspace_role = membership.role if membership else "viewer"
     return templates.TemplateResponse(request=request, name="instance.html", context={
         "request": request,
         "user": user,
         "instance": inst,
         "instances": instances,
         "workspace_for_nav": inst,
+        "workspace_role": workspace_role,
+        "can_write": workspace_service.role_allows(workspace_role, "write"),
         "nav_active": None,
         "state_summary": state_summary,
         "latest_output": latest_output,
+        "jobs_view": jobs_view,
         "finance_items": finance_items,
         "ai_answer": ai_answer,
         "msg": msg,
@@ -1718,20 +1766,14 @@ def _user_month_totals(user: User, instances: list[DatabaseInstance], month: str
     return dashboard_metrics.aggregate_current_month_totals(rows) if rows else {}
 
 
-def _user_instances_and_primary(db: Session, user: User) -> tuple[list[DatabaseInstance], DatabaseInstance | None]:
-    instances = (
-        db.query(DatabaseInstance)
-        .filter(DatabaseInstance.owner_id == user.id)
-        .order_by(DatabaseInstance.created_at.desc())
-        .all()
-    )
-    return instances, (instances[0] if instances else None)
+def _user_instances_and_primary(db: Session, user: User, request: Request | None = None) -> tuple[list[DatabaseInstance], DatabaseInstance | None]:
+    return workspace_service.resolve_active_workspace(db, user, request)
 
 
 def _resolve_workspace(
-    db: Session, user: User, instance_id: int | None
+    db: Session, user: User, instance_id: int | None, request: Request | None = None
 ) -> tuple[list[DatabaseInstance], DatabaseInstance | None]:
-    instances, primary = _user_instances_and_primary(db, user)
+    instances, primary = _user_instances_and_primary(db, user, request)
     if instance_id is not None:
         inst = require_instance(db, user, instance_id)
         return instances, inst
@@ -1925,7 +1967,7 @@ def eom_summary_month_pdf(
 @app.get("/wishlist", response_class=HTMLResponse)
 def wishlist_page(request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
-    instances = db.query(DatabaseInstance).filter(DatabaseInstance.owner_id == user.id).order_by(DatabaseInstance.created_at.desc()).all()
+    instances = workspace_service.list_user_workspaces(db, user)
     primary = instances[0] if instances else None
     now_m = datetime.utcnow().strftime("%Y-%m")
     mt = _user_month_totals(user, instances, now_m)
@@ -1983,12 +2025,7 @@ def api_expenses_panel(request: Request, db: Session = Depends(get_db)):
     user = current_user(request, db)
     if not user:
         return JSONResponse({"error": "auth_required"}, status_code=401)
-    instances = (
-        db.query(DatabaseInstance)
-        .filter(DatabaseInstance.owner_id == user.id)
-        .order_by(DatabaseInstance.created_at.desc())
-        .all()
-    )
+    instances = workspace_service.list_user_workspaces(db, user)
     now_m = datetime.utcnow().strftime("%Y-%m")
     month_rows = [
         instance_service.month_summary(
@@ -2077,7 +2114,7 @@ def notes_delete(note_id: int, request: Request, db: Session = Depends(get_db)):
 @app.get("/learn", response_class=HTMLResponse)
 def learn_finance(request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
-    primary = db.query(DatabaseInstance).filter(DatabaseInstance.owner_id == user.id).order_by(DatabaseInstance.created_at.desc()).first()
+    _instances, primary = workspace_service.resolve_active_workspace(db, user, request)
     return templates.TemplateResponse(
         request=request,
         name="learn_finance.html",
@@ -2095,7 +2132,7 @@ def learn_finance(request: Request, db: Session = Depends(get_db)):
 def market_watch_page(instance_id: int, request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
     inst = require_instance(db, user, instance_id)
-    instances = db.query(DatabaseInstance).filter(DatabaseInstance.owner_id == user.id).order_by(DatabaseInstance.created_at.desc()).all()
+    instances = workspace_service.list_user_workspaces(db, user)
     try:
         market_data_service.refresh_if_stale(db, ROOT)
     except Exception as exc:
@@ -2176,7 +2213,7 @@ def analysis_data(instance_id: int, request: Request, db: Session = Depends(get_
 def analysis_page(instance_id: int, request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
     inst = require_instance(db, user, instance_id)
-    instances = db.query(DatabaseInstance).filter(DatabaseInstance.owner_id == user.id).order_by(DatabaseInstance.created_at.desc()).all()
+    instances = workspace_service.list_user_workspaces(db, user)
     now_m = datetime.utcnow().strftime("%Y-%m")
     stmt_count = db.query(BankStatement).filter(BankStatement.instance_id == inst.id).count()
     latest_stmt = (
@@ -2217,7 +2254,7 @@ def analysis_page(instance_id: int, request: Request, db: Session = Depends(get_
 def savings_calculator_page(instance_id: int, request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
     inst = require_instance(db, user, instance_id)
-    instances = db.query(DatabaseInstance).filter(DatabaseInstance.owner_id == user.id).order_by(DatabaseInstance.created_at.desc()).all()
+    instances = workspace_service.list_user_workspaces(db, user)
     return templates.TemplateResponse(
         request=request,
         name="savings_calculator.html",
@@ -2469,9 +2506,257 @@ def budget_upsert(
 @app.post("/instances/{instance_id}/budgets/{budget_id}/delete")
 def budget_delete(instance_id: int, budget_id: int, request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
-    inst = require_instance(db, user, instance_id)
+    inst = require_instance(db, user, instance_id, action="write")
     row = db.query(CategoryBudget).filter(CategoryBudget.id == budget_id, CategoryBudget.instance_id == inst.id).first()
     if row:
         db.delete(row)
         db.commit()
     return RedirectResponse(f"/instances/{instance_id}", status_code=302)
+
+
+@app.post("/instances/{instance_id}/savings/{item_id}/delete")
+def delete_savings_deposit(instance_id: int, item_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    inst = require_instance(db, user, instance_id, action="delete")
+    result = instance_service.delete_savings_deposit(inst.finance_db_path, item_id, deleted_by=user.id)
+    if not result:
+        return RedirectResponse(f"/instances/{instance_id}?msg=savings_not_found#workspace-data", status_code=302)
+    run_job(db, user, inst, "delete_savings", lambda: {"deleted": result})
+    return RedirectResponse(f"/instances/{instance_id}?msg=savings_deleted#workspace-data", status_code=302)
+
+
+@app.post("/instances/{instance_id}/savings/{item_id}/edit")
+def edit_savings_deposit(
+    instance_id: int,
+    item_id: int,
+    request: Request,
+    data: str = Form(...),
+    valor: str = Form(...),
+    nome: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    inst = require_instance(db, user, instance_id, action="write")
+    try:
+        amount = numeric_input.parse_positive_decimal(valor)
+    except ValueError:
+        return RedirectResponse(f"/instances/{instance_id}?err=invalid_amount#workspace-data", status_code=302)
+    result = instance_service.update_savings_deposit(
+        inst.finance_db_path, item_id, data=data, valor=amount, nome=nome
+    )
+    if not result:
+        return RedirectResponse(f"/instances/{instance_id}?msg=savings_not_found#workspace-data", status_code=302)
+    run_job(db, user, inst, "update_savings", lambda: result)
+    return RedirectResponse(f"/instances/{instance_id}?msg=savings_updated#workspace-data", status_code=302)
+
+
+@app.post("/workspaces/{workspace_id}/switch")
+def switch_workspace(workspace_id: int, request: Request, db: Session = Depends(get_db), next_url: str = Form("/dashboard")):
+    user = require_user(request, db)
+    require_instance(db, user, workspace_id)
+    safe_next = next_url if next_url.startswith("/") and not next_url.startswith("//") else "/dashboard"
+    resp = RedirectResponse(safe_next, status_code=302)
+    workspace_service.set_active_workspace(resp, db, user, workspace_id)
+    return resp
+
+
+@app.get("/workspaces/{workspace_id}/members", response_class=HTMLResponse)
+def workspace_members_page(workspace_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    inst, membership = workspace_service.require_workspace(db, user, workspace_id, "read")
+    members = (
+        db.query(WorkspaceMember, User)
+        .join(User, User.id == WorkspaceMember.user_id)
+        .filter(WorkspaceMember.workspace_id == workspace_id)
+        .all()
+    )
+    pending_invites = (
+        db.query(WorkspaceInvite)
+        .filter(
+            WorkspaceInvite.workspace_id == workspace_id,
+            WorkspaceInvite.accepted_at.is_(None),
+        )
+        .order_by(WorkspaceInvite.created_at.desc())
+        .all()
+    )
+    instances = workspace_service.list_user_workspaces(db, user)
+    return templates.TemplateResponse(
+        request=request,
+        name="workspace_members.html",
+        context={
+            "request": request,
+            "user": user,
+            "instance": inst,
+            "instances": instances,
+            "workspace_for_nav": inst,
+            "nav_active": None,
+            "show_back_to_dashboard": True,
+            "members": [{"member": m, "user": u} for m, u in members],
+            "pending_invites": pending_invites,
+            "workspace_role": membership.role,
+            "can_invite": workspace_service.role_allows(membership.role, "invite"),
+            "can_manage": workspace_service.role_allows(membership.role, "remove_member"),
+        },
+    )
+
+
+@app.post("/workspaces/{workspace_id}/invite")
+def workspace_invite(
+    workspace_id: int,
+    request: Request,
+    email: str = Form(...),
+    role: str = Form("member"),
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    workspace_service.require_workspace(db, user, workspace_id, "invite")
+    invite = workspace_service.create_invite(db, workspace_id, email, role, user.id)
+    db.commit()
+    db.refresh(invite)
+    return RedirectResponse(
+        f"/workspaces/{workspace_id}/members?msg=invite_created&token={invite.token}",
+        status_code=302,
+    )
+
+
+@app.post("/workspaces/{workspace_id}/members/{member_user_id}/remove")
+def workspace_remove_member(workspace_id: int, member_user_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    workspace_service.remove_member(db, workspace_id, member_user_id, user)
+    return RedirectResponse(f"/workspaces/{workspace_id}/members?msg=member_removed", status_code=302)
+
+
+@app.get("/invite/{token}", response_class=HTMLResponse)
+def invite_accept_page(token: str, request: Request, db: Session = Depends(get_db)):
+    user = current_user(request, db)
+    invite = db.query(WorkspaceInvite).filter(WorkspaceInvite.token == token).first()
+    if not invite:
+        raise HTTPException(status_code=404, detail="Invite not found.")
+    inst = db.query(DatabaseInstance).filter(DatabaseInstance.id == invite.workspace_id).first()
+    return templates.TemplateResponse(
+        request=request,
+        name="invite_accept.html",
+        context={
+            "request": request,
+            "user": user,
+            "invite": invite,
+            "instance": inst,
+            "show_back_to_dashboard": False,
+        },
+    )
+
+
+@app.post("/invite/{token}/accept")
+def invite_accept(token: str, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    inst = workspace_service.accept_invite(db, user, token)
+    db.commit()
+    resp = RedirectResponse(f"/instances/{inst.id}", status_code=302)
+    workspace_service.set_active_workspace(resp, db, user, inst.id)
+    return resp
+
+
+@app.get("/instances/{instance_id}/import-export", response_class=HTMLResponse)
+def import_export_page(instance_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    inst, membership = workspace_service.require_workspace(db, user, instance_id, "read")
+    instances = workspace_service.list_user_workspaces(db, user)
+    return templates.TemplateResponse(
+        request=request,
+        name="import_export.html",
+        context={
+            "request": request,
+            "user": user,
+            "instance": inst,
+            "instances": instances,
+            "workspace_for_nav": inst,
+            "nav_active": "import_export",
+            "show_back_to_dashboard": True,
+            "workspace_role": membership.role,
+            "can_export": workspace_service.role_allows(membership.role, "export"),
+            "can_import": workspace_service.role_allows(membership.role, "import"),
+        },
+    )
+
+
+@app.get("/instances/{instance_id}/export/workspace.zip")
+def export_workspace_zip(
+    instance_id: int,
+    request: Request,
+    include_deleted: bool = False,
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    inst = require_instance(db, user, instance_id, action="export")
+    zip_bytes = workspace_export_service.build_export_zip(
+        db, inst, include_deleted_records=include_deleted
+    )
+    safe_name = slugify(inst.name) or "workspace"
+    fname = f"webable-{safe_name}-{datetime.utcnow().strftime('%Y%m%d')}.zip"
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+@app.post("/instances/{instance_id}/import/validate")
+async def import_validate(instance_id: int, request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    require_instance(db, user, instance_id, action="import")
+    data = await file.read()
+    try:
+        validated = workspace_export_service.validate_import_zip(data)
+    except workspace_export_service.ImportValidationError as exc:
+        log.warning("import validation failed: %s", exc.technical)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+    except Exception as exc:
+        log.exception("import validation error")
+        return JSONResponse({"ok": False, "error": "Could not validate import file."}, status_code=400)
+
+    token = uuid4().hex
+    staging = ROOT / "import_staging"
+    staging.mkdir(parents=True, exist_ok=True)
+    staging_path = staging / f"{user.id}_{token}.zip"
+    staging_path.write_bytes(data)
+    return JSONResponse({"ok": True, "preview": validated["preview"], "staging_token": token})
+
+
+@app.post("/instances/{instance_id}/import/confirm")
+def import_confirm(
+    instance_id: int,
+    request: Request,
+    staging_token: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    require_instance(db, user, instance_id, action="import")
+    staging_path = ROOT / "import_staging" / f"{user.id}_{staging_token}.zip"
+    if not staging_path.is_file():
+        return RedirectResponse(
+            f"/instances/{instance_id}/import-export?err=staging_expired",
+            status_code=302,
+        )
+    data = staging_path.read_bytes()
+    try:
+        validated = workspace_export_service.validate_import_zip(data)
+        new_inst = workspace_export_service.import_as_new_workspace(db, user, ROOT, validated)
+        staging_path.unlink(missing_ok=True)
+    except workspace_export_service.ImportValidationError as exc:
+        log.warning("import confirm failed: %s", exc.technical)
+        return RedirectResponse(
+            f"/instances/{instance_id}/import-export?err={slugify(str(exc))[:80]}",
+            status_code=302,
+        )
+    except Exception:
+        log.exception("import confirm failed")
+        return RedirectResponse(
+            f"/instances/{instance_id}/import-export?err=import_failed",
+            status_code=302,
+        )
+    resp = RedirectResponse(
+        f"/instances/{new_inst.id}/import-export?msg=import_success&new_id={new_inst.id}",
+        status_code=302,
+    )
+    workspace_service.set_active_workspace(resp, db, user, new_inst.id)
+    return resp

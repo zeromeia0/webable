@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Workspace Members - {{ instance.name }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+  <div class="flex flex-col md:flex-row min-h-screen">
+    {% include "partials/app_sidebar.html" %}
+    <div class="flex-1 min-w-0 flex flex-col">
+      {% include "partials/app_topbar.html" %}
+      <main class="flex-1 max-w-3xl w-full mx-auto p-6 md:p-8 space-y-8">
+        <header class="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 class="text-3xl font-bold">Workspace members</h1>
+            <p class="text-slate-400 mt-1">{{ instance.name }}</p>
+          </div>
+          <a href="/instances/{{ instance.id }}" class="text-sm text-indigo-300 hover:text-indigo-200">← Back to workspace</a>
+        </header>
+
+        {% if request.query_params.get('msg') == 'invite_created' %}
+        <div class="rounded-xl border border-emerald-700/50 bg-emerald-950/40 p-4 text-sm text-emerald-200">
+          Invite created. Share this link with the invited user:
+          <code class="block mt-2 break-all text-emerald-100">/invite/{{ request.query_params.get('token', '') }}</code>
+        </div>
+        {% endif %}
+
+        <section class="rounded-2xl border border-slate-800 bg-slate-900/80 p-6">
+          <h2 class="text-lg font-semibold mb-4">Members</h2>
+          <ul class="space-y-2">
+            {% for row in members %}
+            <li class="flex flex-wrap items-center justify-between gap-2 py-2 border-b border-slate-800 text-sm">
+              <span>{{ row.user.username }} <span class="text-slate-500">({{ row.member.role }})</span></span>
+              {% if can_manage and row.member.role != 'owner' and row.user.id != user.id %}
+              <form method="post" action="/workspaces/{{ instance.id }}/members/{{ row.user.id }}/remove">
+                <button type="submit" class="text-rose-400 hover:text-rose-300 text-xs">Remove</button>
+              </form>
+              {% endif %}
+            </li>
+            {% endfor %}
+          </ul>
+        </section>
+
+        {% if can_invite %}
+        <section class="rounded-2xl border border-slate-800 bg-slate-900/80 p-6 space-y-4">
+          <h2 class="text-lg font-semibold">Invite someone</h2>
+          <form method="post" action="/workspaces/{{ instance.id }}/invite" class="grid sm:grid-cols-3 gap-3">
+            <input type="email" name="email" required placeholder="Email (must match login username)" class="sm:col-span-2 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" />
+            <select name="role" class="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700">
+              <option value="viewer">Viewer</option>
+              <option value="member" selected>Member</option>
+              <option value="admin">Admin</option>
+            </select>
+            <button type="submit" class="sm:col-span-3 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm font-medium w-fit">Send invite</button>
+          </form>
+          {% if pending_invites %}
+          <div class="text-xs text-slate-500">
+            Pending: {% for inv in pending_invites %}{{ inv.email }} ({{ inv.role }}){% if not loop.last %}, {% endif %}{% endfor %}
+          </div>
+          {% endif %}
+        </section>
+        {% endif %}
+      </main>
+    </div>
+  </div>
+</body>
+</html>

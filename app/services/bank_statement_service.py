@@ -9,7 +9,7 @@ import uuid
 from pathlib import Path
 from sqlalchemy.orm import Session
 
-from ..models import BankStatement, DatabaseInstance
+from ..models import BankStatement, DatabaseInstance, WorkspaceMember
 
 log = logging.getLogger("webable.bank_statement")
 
@@ -104,9 +104,10 @@ def get_owned(db: Session, user_id: int, statement_id: int) -> BankStatement | N
     return (
         db.query(BankStatement)
         .join(DatabaseInstance)
+        .join(WorkspaceMember, WorkspaceMember.workspace_id == DatabaseInstance.id)
         .filter(
             BankStatement.id == statement_id,
-            DatabaseInstance.owner_id == user_id,
+            WorkspaceMember.user_id == user_id,
         )
         .first()
     )

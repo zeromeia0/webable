@@ -71,10 +71,22 @@ def _ensure_savings_schema(conn):
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             data TEXT NOT NULL,
             nome TEXT NOT NULL DEFAULT '',
-            valor REAL NOT NULL
+            valor REAL NOT NULL,
+            deleted_at TEXT,
+            deleted_by INTEGER
         )"""
     )
+    cur.execute("PRAGMA table_info(savings_deposits)")
+    cols = {row[1] for row in cur.fetchall()}
+    if "deleted_at" not in cols:
+        cur.execute("ALTER TABLE savings_deposits ADD COLUMN deleted_at TEXT")
+    if "deleted_by" not in cols:
+        cur.execute("ALTER TABLE savings_deposits ADD COLUMN deleted_by INTEGER")
     conn.commit()
+
+
+def _savings_active_clause(include_deleted: bool = False) -> str:
+    return "" if include_deleted else " AND deleted_at IS NULL"
 
 
 def init_finance_db(path: str):
@@ -161,6 +173,84 @@ def add_savings_deposit(finance_db: str, data: str, valor: float, nome: str = ""
     row_id = cur.lastrowid
     conn.close()
     return {"id": row_id, "date": data, "entry": label, "amount": valor}
+
+
+def delete_savings_deposit(finance_db: str, item_id: int, deleted_by: int | None = None):
+    conn = _conn(finance_db)
+    _ensure_savings_schema(conn)
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT data, nome, valor FROM savings_deposits WHERE id = ? AND deleted_at IS NULL",
+        (item_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return None
+    now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
+    cur.execute(
+        "UPDATE savings_deposits SET deleted_at = ?, deleted_by = ? WHERE id = ?",
+        (now, deleted_by, item_id),
+    )
+    conn.commit()
+    conn.close()
+    return {"id": item_id, "date": row[0], "entry": row[1], "amount": float(row[2])}
+
+
+def update_savings_deposit(
+    finance_db: str,
+    item_id: int,
+    *,
+    data: str | None = None,
+    valor: float | None = None,
+    nome: str | None = None,
+):
+    conn = _conn(finance_db)
+    _ensure_savings_schema(conn)
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT data, nome, valor FROM savings_deposits WHERE id = ? AND deleted_at IS NULL",
+        (item_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return None
+    new_data = data if data is not None else row[0]
+    new_nome = nome if nome is not None else row[1]
+    new_valor = float(valor) if valor is not None else float(row[2])
+    cur.execute(
+        "UPDATE savings_deposits SET data = ?, nome = ?, valor = ? WHERE id = ?",
+        (new_data, new_nome, new_valor, item_id),
+    )
+    conn.commit()
+    conn.close()
+    return {"id": item_id, "date": new_data, "entry": new_nome, "amount": new_valor}
+
+
+def total_savings_deposits(finance_db: str, *, include_deleted: bool = False) -> float:
+    conn = _conn(finance_db)
+    _ensure_savings_schema(conn)
+    cur = conn.cursor()
+    clause = _savings_active_clause(include_deleted)
+    cur.execute(f"SELECT COALESCE(SUM(valor), 0) FROM savings_deposits WHERE 1=1{clause}")
+    total = float(cur.fetchone()[0] or 0)
+    conn.close()
+    return round(total, 2)
+
+
+def savings_deposits_for_month(finance_db: str, month: str, *, include_deleted: bool = False) -> float:
+    conn = _conn(finance_db)
+    _ensure_savings_schema(conn)
+    cur = conn.cursor()
+    clause = _savings_active_clause(include_deleted)
+    cur.execute(
+        f"SELECT COALESCE(SUM(valor), 0) FROM savings_deposits WHERE substr(data,1,7)=?{clause}",
+        (month[:7],),
+    )
+    total = float(cur.fetchone()[0] or 0)
+    conn.close()
+    return round(total, 2)
 
 
 def normalize_oneoff_category(category: str | None) -> str:
@@ -284,7 +374,7 @@ def oneoff_month_totals(finance_db: str, month: str) -> tuple[float, float]:
     return round(inc, 2), round(exp, 2)
 
 
-def list_finance_items(finance_db: str):
+def list_finance_items(finance_db: str, *, include_deleted_savings: bool = False):
     conn = _conn(finance_db)
     _ensure_oneoff_schema(conn)
     _ensure_recurring_recurrence(conn)
@@ -339,9 +429,18 @@ def list_finance_items(finance_db: str):
             }
         )
     _ensure_savings_schema(conn)
-    cur.execute("SELECT id, data, nome, valor FROM savings_deposits ORDER BY data DESC, id DESC")
+    clause = _savings_active_clause(include_deleted=include_deleted_savings)
+    cur.execute(
+        f"SELECT id, data, nome, valor, deleted_at FROM savings_deposits WHERE 1=1{clause} ORDER BY data DESC, id DESC"
+    )
     savings = [
-        {"id": r[0], "date": r[1], "name": r[2], "amount": float(r[3])}
+        {
+            "id": r[0],
+            "date": r[1],
+            "name": r[2],
+            "amount": float(r[3]),
+            "deleted_at": r[4] if len(r) > 4 else None,
+        }
         for r in cur.fetchall()
     ]
     conn.close()
@@ -376,10 +475,12 @@ def month_summary(finance_db: str, logic_db: str, month: str, include_iefp: bool
     gastos = sum(i["amount"] for i in items["expenses"] if not i.get("ended"))
     oneoff_inc, oneoff_exp = oneoff_month_totals(finance_db, month)
     oneoff_net = round(oneoff_inc - oneoff_exp, 2)
-    # Legacy field: net effect of one-time transactions (income minus expenses)
     unicas = oneoff_net
     total = round(iefp + extras + oneoff_inc, 2)
     poupanca = round(total - gastos - oneoff_exp, 2)
+    savings_month = savings_deposits_for_month(finance_db, month)
+    savings_total = total_savings_deposits(finance_db)
+    available_balance = round(poupanca - savings_month, 2)
     oneoffs = list_oneoffs_for_month(finance_db, month)
     return {
         "month": month,
@@ -393,6 +494,9 @@ def month_summary(finance_db: str, logic_db: str, month: str, include_iefp: bool
         "expenses": round(gastos, 2),
         "total_before_expenses": total,
         "estimated_savings": poupanca,
+        "savings_deposits_month": savings_month,
+        "savings_total": savings_total,
+        "available_balance": available_balance,
         "income_items": items["incomes"],
         "expense_items": items["expenses"],
     }

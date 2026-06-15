@@ -12,7 +12,7 @@ from urllib.error import HTTPError, URLError
 
 from sqlalchemy.orm import Session
 
-from app.models import DatabaseInstance, User
+from app.models import DatabaseInstance, User, WorkspaceMember
 from app.services import dashboard_metrics, eom_summary_service, monthly_snapshot_service as mss, wishlist_service
 
 DEFAULT_OLLAMA_MODEL = "minimax-m2.5:cloud"
@@ -417,10 +417,11 @@ def summarize_workspace_context(
 
 def summarize_user_context(db: Session, user: User, instance_id: int | None = None) -> dict[str, Any]:
     """Summarized context across workspaces for the global AI panel."""
-    instances_q = db.query(DatabaseInstance).filter(DatabaseInstance.owner_id == user.id)
+    from app.services import workspace_service
+
+    instances = workspace_service.list_user_workspaces(db, user)
     if instance_id is not None:
-        instances_q = instances_q.filter(DatabaseInstance.id == instance_id)
-    instances = instances_q.order_by(DatabaseInstance.created_at.desc()).all()
+        instances = [i for i in instances if i.id == instance_id]
 
     return {
         "user": user.username,

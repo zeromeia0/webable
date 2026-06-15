@@ -11,13 +11,15 @@ class User(Base):
     username = Column(String(120), unique=True, index=True, nullable=False)
     password_hash = Column(String(256), nullable=False)
     enable_iefp_mode = Column(Boolean, default=False, nullable=False)
+    active_workspace_id = Column(Integer, ForeignKey("database_instances.id"), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
-    databases = relationship("DatabaseInstance", back_populates="owner", cascade="all, delete-orphan")
+    databases = relationship("DatabaseInstance", back_populates="owner", cascade="all, delete-orphan", foreign_keys="DatabaseInstance.owner_id")
     bank_statements = relationship("BankStatement", back_populates="owner_user", cascade="all, delete-orphan")
     audit_logs = relationship("FinanceAuditLog", back_populates="user")
     wishlist_items = relationship("WishlistItem", back_populates="owner", cascade="all, delete-orphan")
     notes = relationship("UserNote", back_populates="owner", cascade="all, delete-orphan")
+    workspace_memberships = relationship("WorkspaceMember", back_populates="user", cascade="all, delete-orphan")
 
 
 class DatabaseInstance(Base):
@@ -35,11 +37,43 @@ class DatabaseInstance(Base):
     last_activity_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
-    owner = relationship("User", back_populates="databases")
+    owner = relationship("User", back_populates="databases", foreign_keys=[owner_id])
     jobs = relationship("JobRun", back_populates="instance", cascade="all, delete-orphan")
     bank_statements = relationship("BankStatement", back_populates="instance", cascade="all, delete-orphan")
     category_budgets = relationship("CategoryBudget", back_populates="instance", cascade="all, delete-orphan")
     monthly_snapshots = relationship("MonthlySnapshot", back_populates="instance", cascade="all, delete-orphan")
+    members = relationship("WorkspaceMember", back_populates="workspace", cascade="all, delete-orphan")
+    invites = relationship("WorkspaceInvite", back_populates="workspace", cascade="all, delete-orphan")
+
+
+class WorkspaceMember(Base):
+    __tablename__ = "workspace_members"
+    __table_args__ = (UniqueConstraint("workspace_id", "user_id", name="uq_workspace_member"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    workspace_id = Column(Integer, ForeignKey("database_instances.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    role = Column(String(20), default="member", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    workspace = relationship("DatabaseInstance", back_populates="members")
+    user = relationship("User", back_populates="workspace_memberships")
+
+
+class WorkspaceInvite(Base):
+    __tablename__ = "workspace_invites"
+
+    id = Column(Integer, primary_key=True, index=True)
+    workspace_id = Column(Integer, ForeignKey("database_instances.id"), nullable=False, index=True)
+    email = Column(String(120), nullable=False, index=True)
+    role = Column(String(20), default="member", nullable=False)
+    token = Column(String(64), unique=True, nullable=False, index=True)
+    invited_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    accepted_at = Column(DateTime, nullable=True)
+    expires_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    workspace = relationship("DatabaseInstance", back_populates="invites")
 
 
 class JobRun(Base):

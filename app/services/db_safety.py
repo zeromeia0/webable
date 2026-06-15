@@ -95,6 +95,8 @@ def migrate_app_schema(engine: "Engine") -> None:
         user_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(users)")).fetchall()}
         if "enable_iefp_mode" not in user_cols:
             conn.execute(text("ALTER TABLE users ADD COLUMN enable_iefp_mode BOOLEAN NOT NULL DEFAULT 0"))
+        if "active_workspace_id" not in user_cols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN active_workspace_id INTEGER"))
 
         existing = {row[1] for row in conn.execute(text("PRAGMA table_info(database_instances)")).fetchall()}
         if "health_status" not in existing:
@@ -118,6 +120,45 @@ def migrate_app_schema(engine: "Engine") -> None:
         if "duration_ms" not in job_cols:
             conn.execute(text("ALTER TABLE job_runs ADD COLUMN duration_ms INTEGER"))
 
+        _backfill_workspace_members(conn)
+
+
+def _table_exists(conn, name: str) -> bool:
+    from sqlalchemy import text
+
+    row = conn.execute(
+        text("SELECT name FROM sqlite_master WHERE type='table' AND name=:n"),
+        {"n": name},
+    ).fetchone()
+    return row is not None
+
+
+def _backfill_workspace_members(conn) -> None:
+    """Ensure every existing workspace has an owner membership row."""
+    from sqlalchemy import text
+
+    if not _table_exists(conn, "database_instances"):
+        return
+    if not _table_exists(conn, "workspace_members"):
+        return
+
+    rows = conn.execute(text("SELECT id, owner_id FROM database_instances")).fetchall()
+    for inst_id, owner_id in rows:
+        exists = conn.execute(
+            text(
+                "SELECT 1 FROM workspace_members WHERE workspace_id = :wid AND user_id = :uid LIMIT 1"
+            ),
+            {"wid": inst_id, "uid": owner_id},
+        ).fetchone()
+        if not exists:
+            conn.execute(
+                text(
+                    "INSERT INTO workspace_members (workspace_id, user_id, role, created_at) "
+                    "VALUES (:wid, :uid, 'owner', datetime('now'))"
+                ),
+                {"wid": inst_id, "uid": owner_id},
+            )
+
 
 def migrate_workspace_sqlite(path: str | Path) -> None:
     """Apply additive migrations to a single workspace finance or logic file."""
@@ -130,7 +171,7 @@ def migrate_workspace_sqlite(path: str | Path) -> None:
         if name.endswith("_financas.db"):
             instance_service._ensure_oneoff_schema(conn)
             instance_service._ensure_recurring_recurrence(conn)
-        # logic DB: schema created at init; no destructive changes yet
+            instance_service._ensure_savings_schema(conn)
         conn.commit()
     finally:
         conn.close()

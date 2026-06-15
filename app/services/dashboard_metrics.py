@@ -64,18 +64,24 @@ def aggregate_current_month_totals(month_rows: list[dict[str, Any]]) -> dict[str
     expenses = 0.0
     savings = 0.0
     fixed = 0.0
+    available = 0.0
+    savings_reserved = 0.0
     for m in month_rows:
         income += float(m.get("iefp", 0) or 0) + float(m.get("extras", 0) or 0) + float(m.get("oneoff_income_total", 0) or 0)
         exp = float(m.get("expenses", 0) or 0) + float(m.get("oneoff_expense_total", 0) or 0)
         expenses += exp
         fixed += float(m.get("expenses", 0) or 0)
         savings += float(m.get("estimated_savings", 0) or 0)
+        available += float(m.get("available_balance", 0) or 0)
+        savings_reserved += float(m.get("savings_total", 0) or 0)
     return {
         "income_total": round(income, 2),
         "expense_total": round(expenses, 2),
         "fixed_expenses_total": round(fixed, 2),
         "current_month_savings": round(savings, 2),
         "current_month_balance": current_month_balance(income, expenses),
+        "available_balance": round(available, 2),
+        "savings_reserved_total": round(savings_reserved, 2),
     }
 
 
