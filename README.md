@@ -18,6 +18,18 @@
 
 ## Quick start
 
+### Linux — one command
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/zeromeia0/webable/main/scripts/webable-linux-setup.sh | bash
+```
+
+Already cloned the repo? Run `make setup` inside it instead.
+
+This installs Docker and Docker Compose if they're missing (Arch, Debian/Ubuntu, Fedora/RHEL, openSUSE), starts the Docker service, downloads Webable into `~/webable`, starts it and opens **http://localhost:8080** when it's ready. AI stays off. You'll be asked for your `sudo` password only if something needs installing. Set `WEBABLE_DIR=/some/path` before `bash` to install somewhere else.
+
+Prefer to do it by hand, or on Windows/macOS? Follow the steps below.
+
 ### 1. Install prerequisites
 
 Pick your OS:
@@ -137,6 +149,7 @@ If you have GNU Make installed (`winget install -e --id GnuWin32.Make` on Window
 
 | Command | What it does |
 |---------|----------------|
+| `make setup` | Linux: install Docker if missing, start Webable, wait until it's ready. **No AI.** |
 | `make install` | Lightweight setup (venv + pip). **No AI.** |
 | `make run` / `make up` | Start Webable in Docker. **No Ollama pull.** |
 | `make down` | Stop core stack |
@@ -501,7 +514,7 @@ Webable is designed for **local or trusted-network use only**.
 |---------|-------------|
 | **Port 8080 already in use** | Change the left side of the port mapping in `docker-compose.yml` (e.g. `"8081:8000"`), then run `docker compose up -d --build`. |
 | **Docker daemon not running** | Windows/macOS: open Docker Desktop and wait for the whale icon. Linux: `sudo systemctl start docker`. |
-| **Permission denied on Linux** | Add yourself to the docker group: `sudo usermod -aG docker $USER`, then log out and back in. Or prefix commands with `sudo`. |
+| **Permission denied on Linux** | `make setup` adds you to the docker group automatically — log out and back in once. Manually: add yourself to the docker group: `sudo usermod -aG docker $USER`, then log out and back in. Or prefix commands with `sudo`. |
 | **`docker compose` not found** | Windows/macOS: open Docker Desktop — Compose v2 is bundled. Linux: install `docker-compose-plugin`. |
 | **File sharing / bind-mount errors** | Docker Desktop → Settings → Resources → File Sharing — make sure the project folder's drive is shared. |
 | **WSL 2 not installed (Windows)** | Run `wsl --install` in an admin PowerShell, reboot, then reopen Docker Desktop. |

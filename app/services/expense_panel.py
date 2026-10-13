@@ -8,15 +8,17 @@ from app.models import DatabaseInstance
 from app.services import dashboard_metrics, instance_service
 
 
-def _money(value: float) -> str:
-    return f"EUR {float(value):,.2f}"
+def _money(value: float, currency: str = "EUR") -> str:
+    return f"{currency} {float(value):,.2f}"
 
 
 def build_expense_panel_payload(
     instances: list[DatabaseInstance],
     month_totals: dict[str, float] | None = None,
+    currency: str | None = None,
 ) -> dict[str, Any]:
-    """Recurring expense entries with % labels for the floating Expenses panel."""
+    """Recurring expense entries with % labels for the floating Expenses panel (one workspace's currency)."""
+    cur = currency or (getattr(instances[0], "currency", None) if instances else None) or "EUR"
     expense_entries: list[dict[str, Any]] = []
     for ins in instances:
         items = instance_service.list_finance_items(ins.finance_db_path)
@@ -45,12 +47,13 @@ def build_expense_panel_payload(
     ]
     expense_income_pct = dashboard_metrics.format_pct_of_total(recurring_expense_total, month_income)
     if expense_income_pct:
-        summary = f"Total expenses: {_money(recurring_expense_total)} — {expense_income_pct}% of income"
+        summary = f"Total expenses: {_money(recurring_expense_total, cur)} — {expense_income_pct}% of income"
     else:
-        summary = f"Total expenses: {_money(recurring_expense_total)} — income unavailable"
+        summary = f"Total expenses: {_money(recurring_expense_total, cur)} — income unavailable"
 
     return {
         "entries": expense_entries_enriched,
         "summary": summary,
         "total_eur": recurring_expense_total,
+        "currency": cur,
     }

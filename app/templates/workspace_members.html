@@ -15,52 +15,119 @@
         <header class="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 class="text-3xl font-bold">Workspace members</h1>
-            <p class="text-slate-400 mt-1">{{ instance.name }}</p>
+            <p class="text-slate-400 mt-1">{{ instance.name }} · {{ instance.currency or 'EUR' }} · you are <strong class="text-slate-300">{{ workspace_role }}</strong></p>
           </div>
           <a href="/instances/{{ instance.id }}" class="text-sm text-indigo-300 hover:text-indigo-200">← Back to workspace</a>
         </header>
 
-        {% if request.query_params.get('msg') == 'invite_created' %}
-        <div class="rounded-xl border border-emerald-700/50 bg-emerald-950/40 p-4 text-sm text-emerald-200">
-          Invite created. Share this link with the invited user:
-          <code class="block mt-2 break-all text-emerald-100">/invite/{{ request.query_params.get('token', '') }}</code>
-        </div>
+        {% if msg %}
+        <div role="status" class="rounded-xl border border-emerald-700/50 bg-emerald-950/40 p-4 text-sm text-emerald-200">{{ msg }}</div>
         {% endif %}
+        {% if err %}
+        <div role="alert" class="rounded-xl border border-rose-700/50 bg-rose-950/40 p-4 text-sm text-rose-200">{{ err }}</div>
+        {% endif %}
+
+        <p class="text-sm text-slate-400">Everyone listed here works on the <strong class="text-slate-300">same</strong> workspace data: income, expenses, savings, one-time transactions, projections and reports. Changes made by any member are visible to all members.</p>
 
         <section class="rounded-2xl border border-slate-800 bg-slate-900/80 p-6">
           <h2 class="text-lg font-semibold mb-4">Members</h2>
           <ul class="space-y-2">
             {% for row in members %}
             <li class="flex flex-wrap items-center justify-between gap-2 py-2 border-b border-slate-800 text-sm">
-              <span>{{ row.user.username }} <span class="text-slate-500">({{ row.member.role }})</span></span>
-              {% if can_manage and row.member.role != 'owner' and row.user.id != user.id %}
-              <form method="post" action="/workspaces/{{ instance.id }}/members/{{ row.user.id }}/remove">
+              <span>{{ row.user.username }}{% if row.user.id == user.id %} <span class="text-slate-500">(you)</span>{% endif %} <span class="text-slate-500">· {{ row.member.role }}</span></span>
+              {% if can_manage and row.member.role != 'owner' and row.user.id != user.id and row.user.id != instance.owner_id %}
+              <form method="post" action="/workspaces/{{ instance.id }}/members/{{ row.user.id }}/remove" onsubmit="return confirm('Remove {{ row.user.username }} from this workspace?');">
                 <button type="submit" class="text-rose-400 hover:text-rose-300 text-xs">Remove</button>
               </form>
               {% endif %}
             </li>
             {% endfor %}
           </ul>
+          {% if not is_owner and workspace_role != 'owner' %}
+          <form method="post" action="/workspaces/{{ instance.id }}/leave" class="mt-4" onsubmit="return confirm('Leave this workspace? You will lose access to its data.');">
+            <button type="submit" class="text-xs text-rose-300 hover:text-rose-200">Leave this workspace</button>
+          </form>
+          {% endif %}
         </section>
 
         {% if can_invite %}
         <section class="rounded-2xl border border-slate-800 bg-slate-900/80 p-6 space-y-4">
-          <h2 class="text-lg font-semibold">Invite someone</h2>
-          <form method="post" action="/workspaces/{{ instance.id }}/invite" class="grid sm:grid-cols-3 gap-3">
-            <input type="email" name="email" required placeholder="Email (must match login username)" class="sm:col-span-2 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" />
-            <select name="role" class="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700">
-              <option value="viewer">Viewer</option>
-              <option value="member" selected>Member</option>
-              <option value="admin">Admin</option>
-            </select>
-            <button type="submit" class="sm:col-span-3 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm font-medium w-fit">Send invite</button>
+          <div>
+            <h2 class="text-lg font-semibold">Invite a user</h2>
+            <p class="text-xs text-slate-500 mt-1">Enter the <strong class="text-slate-400">username</strong> of a registered account. They get an in-app notification and can accept or decline.</p>
+          </div>
+          <form method="post" action="/workspaces/{{ instance.id }}/invite" class="grid sm:grid-cols-3 gap-3" autocomplete="off">
+            <label class="sm:col-span-2 block">
+              <span class="sr-only">Username</span>
+              <input type="text" name="username" id="inviteUsername" list="inviteUsernameList" required minlength="1" maxlength="120" placeholder="Username" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" />
+              <datalist id="inviteUsernameList"></datalist>
+            </label>
+            <label class="block">
+              <span class="sr-only">Role</span>
+              <select name="role" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700">
+                <option value="member" selected>Member (view &amp; edit data)</option>
+                <option value="viewer">Viewer (read-only)</option>
+                <option value="admin">Admin (can also invite)</option>
+              </select>
+            </label>
+            <button type="submit" class="sm:col-span-3 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm font-medium w-fit">Send invitation</button>
           </form>
-          {% if pending_invites %}
-          <div class="text-xs text-slate-500">
-            Pending: {% for inv in pending_invites %}{{ inv.email }} ({{ inv.role }}){% if not loop.last %}, {% endif %}{% endfor %}
+
+          <div>
+            <h3 class="text-sm font-semibold text-slate-300 mb-2">Pending invitations</h3>
+            {% if pending_invites %}
+            <ul class="space-y-2 text-sm">
+              {% for inv in pending_invites %}
+              <li class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 px-3 py-2">
+                <span>{{ inv.invitee.username if inv.invitee else inv.email }} <span class="text-slate-500">· {{ inv.role }} · sent {{ inv.created_at.strftime('%Y-%m-%d') }}</span></span>
+                <form method="post" action="/workspaces/{{ instance.id }}/invites/{{ inv.id }}/cancel">
+                  <button type="submit" class="text-xs text-slate-400 hover:text-rose-300">Cancel</button>
+                </form>
+              </li>
+              {% endfor %}
+            </ul>
+            {% else %}
+            <p class="text-sm text-slate-500">No pending invitations.</p>
+            {% endif %}
+          </div>
+
+          {% if recent_invites %}
+          <div>
+            <h3 class="text-sm font-semibold text-slate-300 mb-2">Recent responses</h3>
+            <ul class="space-y-1 text-xs text-slate-400">
+              {% for inv in recent_invites %}
+              <li>{{ inv.invitee.username if inv.invitee else inv.email }} — {{ inv.status }}{% if inv.responded_at %} ({{ inv.responded_at.strftime('%Y-%m-%d') }}){% endif %}</li>
+              {% endfor %}
+            </ul>
           </div>
           {% endif %}
         </section>
+        <script>
+          (function () {
+            var input = document.getElementById('inviteUsername');
+            var list = document.getElementById('inviteUsernameList');
+            if (!input || !list) return;
+            var t;
+            input.addEventListener('input', function () {
+              clearTimeout(t);
+              var q = input.value.trim();
+              if (q.length < 2) { list.innerHTML = ''; return; }
+              t = setTimeout(function () {
+                fetch('/api/users/search?q=' + encodeURIComponent(q), { credentials: 'same-origin' })
+                  .then(function (r) { return r.ok ? r.json() : { usernames: [] }; })
+                  .then(function (d) {
+                    list.innerHTML = '';
+                    (d.usernames || []).forEach(function (u) {
+                      var o = document.createElement('option');
+                      o.value = u;
+                      list.appendChild(o);
+                    });
+                  })
+                  .catch(function () {});
+              }, 250);
+            });
+          })();
+        </script>
         {% endif %}
       </main>
     </div>

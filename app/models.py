@@ -29,6 +29,8 @@ class DatabaseInstance(Base):
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     name = Column(String(120), nullable=False)
     mode = Column(String(40), default="general", nullable=False)
+    # ISO 4217 base currency; fixed at creation (no silent conversion of stored amounts).
+    currency = Column(String(3), default="EUR", nullable=False)
     finance_db_path = Column(String(255), nullable=False)
     logic_db_path = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
@@ -65,15 +67,37 @@ class WorkspaceInvite(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     workspace_id = Column(Integer, ForeignKey("database_instances.id"), nullable=False, index=True)
+    # Legacy column (email invites); username invites store the invitee's username here.
     email = Column(String(120), nullable=False, index=True)
+    invitee_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     role = Column(String(20), default="member", nullable=False)
+    status = Column(String(20), default="pending", nullable=False, index=True)
     token = Column(String(64), unique=True, nullable=False, index=True)
     invited_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     accepted_at = Column(DateTime, nullable=True)
+    responded_at = Column(DateTime, nullable=True)
     expires_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     workspace = relationship("DatabaseInstance", back_populates="invites")
+    invitee = relationship("User", foreign_keys=[invitee_user_id])
+    invited_by = relationship("User", foreign_keys=[invited_by_user_id])
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    kind = Column(String(40), nullable=False)
+    title = Column(String(160), nullable=False)
+    body = Column(Text, default="", nullable=False)
+    workspace_id = Column(Integer, ForeignKey("database_instances.id", ondelete="SET NULL"), nullable=True, index=True)
+    invite_id = Column(Integer, ForeignKey("workspace_invites.id", ondelete="SET NULL"), nullable=True, index=True)
+    actor_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    is_read = Column(Boolean, default=False, nullable=False, index=True)
+    read_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
 class JobRun(Base):

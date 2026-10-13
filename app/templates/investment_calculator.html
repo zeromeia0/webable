@@ -17,7 +17,7 @@
   <main class="max-w-5xl mx-auto p-6 md:p-8 space-y-8">
     <header>
       <h1 class="text-3xl font-bold">Investment calculator</h1>
-      <p class="text-slate-400 mt-1">Compound growth with flexible timing and compounding frequency.</p>
+      <p class="text-slate-400 mt-1">Long-term projection: what you contribute vs. what compounding adds.</p>
     </header>
     {% if instances|length > 1 %}
     <label class="text-sm text-slate-400 block max-w-xs">Workspace
@@ -32,28 +32,30 @@
     <section class="rounded-2xl border border-slate-800 bg-slate-900/80 p-6 space-y-5">
       <h2 class="text-lg font-semibold">Inputs</h2>
       <div class="grid sm:grid-cols-2 gap-4">
-        <label class="block space-y-1 text-sm"><span class="text-slate-400">Initial balance (EUR, base)</span>
-          <input id="icInitial" type="number" step="0.01" value="0" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" /></label>
-        <label class="block space-y-1 text-sm"><span class="text-slate-400">Monthly contribution (EUR, base)</span>
-          <input id="icMonthly" type="number" step="0.01" value="100" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" /></label>
-        <label class="block space-y-1 text-sm"><span class="text-slate-400">Annual return (%)</span>
-          <input id="icAnnual" type="number" step="0.1" value="7" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" /></label>
-        <label class="block space-y-1 text-sm"><span class="text-slate-400">Duration (years)</span>
-          <input id="icYears" type="number" step="0.25" value="10" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" /></label>
-        <label class="block space-y-1 text-sm"><span class="text-slate-400">Compounding periods / year</span>
+        <label class="block space-y-1 text-sm"><span class="text-slate-400">Initial amount ({{ instance.currency or 'EUR' }})</span>
+          <input id="icInitial" type="number" min="0" step="0.01" value="1000" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" /></label>
+        <label class="block space-y-1 text-sm"><span class="text-slate-400">Monthly contribution ({{ instance.currency or 'EUR' }})</span>
+          <input id="icMonthly" type="number" min="0" step="0.01" value="250" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" /></label>
+        <label class="block space-y-1 text-sm"><span class="text-slate-400">Expected annual return (%) — may be 0 or negative</span>
+          <input id="icAnnual" type="number" min="-50" max="50" step="0.1" value="7" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" /></label>
+        <label class="block space-y-1 text-sm"><span class="text-slate-400">Projection duration (years)</span>
+          <input id="icYears" type="number" min="0.0833" max="80" step="0.25" value="10" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" /></label>
+        <label class="block space-y-1 text-sm"><span class="text-slate-400">Rate convention</span>
           <select id="icN" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700">
+            <option value="0" selected>Effective annual return — monthly (1 + r)^(1/12) − 1</option>
             <option value="1">Annual (1)</option>
             <option value="2">Semi-annual (2)</option>
             <option value="4">Quarterly (4)</option>
-            <option value="12" selected>Monthly (12)</option>
+            <option value="12">Nominal, compounded monthly (12)</option>
             <option value="365">Daily (365)</option>
           </select></label>
         <label class="block space-y-1 text-sm"><span class="text-slate-400">Contribution timing</span>
           <select id="icTiming" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700">
+            <option value="end" selected>End of month</option>
             <option value="beginning">Beginning of month</option>
-            <option value="end">End of month</option>
           </select></label>
       </div>
+      <p id="icAssumptions" class="text-xs text-slate-500"></p>
       <div class="flex flex-wrap items-center gap-3">
         <button type="button" id="icRun" class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-medium">Recalculate</button>
         <button type="button" id="icExportPdf" class="px-5 py-2.5 rounded-xl bg-slate-800 border border-slate-600 hover:border-indigo-500/50 font-medium text-sm">Export PDF</button>
@@ -65,21 +67,30 @@
         <h2 class="text-lg font-semibold">Results</h2>
         <button type="button" id="icExportPdfHeader" class="text-sm px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 font-medium md:hidden">Export PDF</button>
       </div>
-      <div class="grid sm:grid-cols-3 gap-4">
-        <div class="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
-          <p class="text-xs text-emerald-200/80 uppercase">Final balance</p>
-          <p id="icFinal" class="text-2xl font-bold text-emerald-300 mt-1">—</p>
+      <div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <div class="rounded-xl border border-slate-700 p-3">
+          <p class="text-[11px] text-slate-400 uppercase">Initial investment</p>
+          <p id="icInitialOut" class="text-lg font-semibold mt-1 tabular-nums">—</p>
         </div>
-        <div class="rounded-xl border border-slate-700 p-4">
-          <p class="text-xs text-slate-400 uppercase">Total contributions</p>
-          <p id="icContrib" class="text-xl font-semibold mt-1">—</p>
+        <div class="rounded-xl border border-slate-700 p-3">
+          <p class="text-[11px] text-slate-400 uppercase">Monthly contribution</p>
+          <p id="icMonthlyOut" class="text-lg font-semibold mt-1 tabular-nums">—</p>
         </div>
-        <div class="rounded-xl border border-slate-700 p-4">
-          <p class="text-xs text-slate-400 uppercase">Interest / profit</p>
-          <p id="icProfit" class="text-xl font-semibold mt-1 text-slate-200">—</p>
+        <div class="rounded-xl border border-violet-500/40 bg-violet-500/10 p-3">
+          <p class="text-[11px] text-violet-200/80 uppercase">Total contributions</p>
+          <p id="icContrib" class="text-lg font-semibold mt-1 tabular-nums text-violet-200">—</p>
+        </div>
+        <div class="rounded-xl border border-slate-700 p-3">
+          <p class="text-[11px] text-slate-400 uppercase">Compound growth</p>
+          <p id="icProfit" class="text-lg font-semibold mt-1 tabular-nums text-slate-200">—</p>
+        </div>
+        <div class="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 col-span-2 lg:col-span-1">
+          <p class="text-[11px] text-emerald-200/80 uppercase">Projected final balance</p>
+          <p id="icFinal" class="text-xl font-bold text-emerald-300 mt-1 tabular-nums">—</p>
         </div>
       </div>
-      <div class="h-72"><canvas id="icChart"></canvas></div>
+      <div class="h-80"><canvas id="icChart" aria-label="Projected balance split into contributions and compound growth" role="img"></canvas></div>
+      <p class="text-xs text-slate-500">Violet area: money you put in. Green band: growth from compounding (red when returns are negative). Final balance = total contributions + compound growth. Results are estimates, not guaranteed returns.</p>
     </section>
 
     <section class="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-6 space-y-4">
@@ -91,13 +102,20 @@
       </div>
       <p class="text-xs text-slate-400">Uses your <strong class="text-slate-300">latest completed</strong> multi-month database calculation in this workspace and the same engine as the workspace view. Adjust invest %, horizon, and rate; annual return defaults to the value in <strong class="text-slate-300">Inputs</strong> above.</p>
       {% if latest_projection_job_id %}
-      <div class="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
+      <div class="grid sm:grid-cols-2 md:grid-cols-5 gap-3">
+        <label class="text-sm"><span class="text-slate-400 block">Initial amount</span>
+          <input id="lrInitial" type="number" value="0" min="0" step="0.01" class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700" /></label>
+        <label class="text-sm"><span class="text-slate-400 block">Contribution timing</span>
+          <select id="lrTiming" class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700">
+            <option value="beginning">Beginning of month</option>
+            <option value="end">End of month</option>
+          </select></label>
         <label class="text-sm"><span class="text-slate-400 block">Invest % of projected savings</span>
           <input id="lrPct" type="number" value="15" step="1" class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700" /></label>
         <label class="text-sm"><span class="text-slate-400 block">Horizon (years)</span>
           <input id="lrYears" type="number" value="10" step="0.25" class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700" /></label>
         <label class="text-sm sm:col-span-2 md:col-span-1"><span class="text-slate-400 block">Annual return for scenario (%)</span>
-          <input id="lrAnnual" type="number" value="7" step="0.1" class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700" /></label>
+          <input id="lrAnnual" type="number" value="7" min="-50" max="50" step="0.1" class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700" /></label>
       </div>
       <button type="button" id="lrRun" class="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-sm font-medium">Load projection scenario</button>
       <div id="lrSummary" class="text-sm text-slate-300 hidden"></div>
@@ -133,70 +151,92 @@
       else el.classList.add('text-slate-200');
     }
 
-    function icTooltipCallbacks() {
-      return {
-        title: function (items) {
-          const i = items[0].dataIndex;
-          const d = lastIcPayload && lastIcPayload.series;
-          if (!d) return items[0].label || '';
-          const lab = (d.labels && d.labels[i]) ? d.labels[i] : ('Month ' + (i + 1));
-          return 'Period: ' + lab;
-        },
-        label: function (ctx) {
-          const i = ctx.dataIndex;
-          const d = lastIcPayload && lastIcPayload.series;
-          if (!d) return ctx.dataset.label + ': —';
-          const bal = (d.balance || [])[i];
-          const cum = (d.cumulative_contributed || [])[i];
-          const intr = (d.interest_earned || [])[i];
-          return [
-            'Balance: ' + fmt(bal),
-            'Total contributed: ' + fmt(cum),
-            'Interest earned: ' + fmt(intr)
-          ];
+    // Shared chart: contributions area + growth band + balance line, one tooltip row per month.
+    function splitChart(canvasId, labels, contributed, balance, extraDatasets, titleFn, extraLines) {
+      const opts = Object.assign({}, base, {
+        interaction: { mode: 'index', intersect: false },
+        plugins: Object.assign({}, base.plugins, {
+          legend: { labels: { color: '#cbd5e1', boxWidth: 12, padding: 10 } },
+          tooltip: Object.assign({}, base.plugins.tooltip, {
+            filter: function (item) { return item.datasetIndex === 0; },
+            callbacks: {
+              title: function (items) { return titleFn(items[0].dataIndex); },
+              label: function (ctx) {
+                const i = ctx.dataIndex;
+                const lines = [
+                  'Total contributed: ' + fmt(contributed[i]),
+                  'Compound growth: ' + fmt(balance[i] - contributed[i]),
+                  'Projected balance: ' + fmt(balance[i])
+                ];
+                return extraLines ? lines.concat(extraLines(i)) : lines;
+              }
+            }
+          })
+        }),
+        scales: {
+          x: Object.assign({}, base.scales.x, { ticks: Object.assign({}, base.scales.x.ticks, { maxTicksLimit: 14, autoSkip: true }) }),
+          y: Object.assign({}, base.scales.y, { ticks: Object.assign({}, base.scales.y.ticks, { callback: moneyTick }) })
         }
-      };
+      });
+      return new Chart(document.getElementById(canvasId), {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            { label: 'Total contributions', data: contributed, borderColor: '#a78bfa', backgroundColor: 'rgba(167,139,250,0.30)', fill: 'origin', borderWidth: 1.5, tension: 0.2, pointRadius: 0, pointHoverRadius: 4 },
+            { label: 'Projected balance (incl. compound growth)', data: balance, borderColor: '#34d399', fill: { target: '-1', above: 'rgba(52,211,153,0.35)', below: 'rgba(248,113,113,0.35)' }, borderWidth: 2.4, tension: 0.2, pointRadius: 0, pointHoverRadius: 5 }
+          ].concat(extraDatasets || [])
+        },
+        options: opts
+      });
     }
 
-    async function runIc() {
-      const body = {
+    function icBody() {
+      return {
         initial_balance: parseFloat(document.getElementById('icInitial').value) || 0,
         monthly_contribution: parseFloat(document.getElementById('icMonthly').value) || 0,
         annual_rate_pct: parseFloat(document.getElementById('icAnnual').value) || 0,
         years: parseFloat(document.getElementById('icYears').value) || 1,
-        compounding_per_year: parseInt(document.getElementById('icN').value, 10) || 12,
+        compounding_per_year: parseInt(document.getElementById('icN').value, 10) || 0,
         contribution_timing: document.getElementById('icTiming').value
       };
-      const res = await fetch('/instances/' + INSTANCE_ID + '/investment-calculator/simulate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify(body)
-      });
+    }
+
+    function paintIcSummary(data) {
+      const s = data.summary;
+      const m = data.meta;
+      document.getElementById('icInitialOut').textContent = fmt(s.initial_balance);
+      document.getElementById('icMonthlyOut').textContent = fmt(s.monthly_contribution);
+      document.getElementById('icFinal').textContent = fmt(s.final_balance);
+      document.getElementById('icContrib').textContent = fmt(s.total_contributions);
+      paintProfitEl(document.getElementById('icProfit'), s.compound_growth);
+      const conv = m.compounding_per_year ? ('nominal rate compounded ' + m.compounding_per_year + '×/year') : 'effective annual rate, monthly rate = (1 + r)^(1/12) − 1';
+      document.getElementById('icAssumptions').textContent = 'Assumptions: ' + m.annual_rate_pct + '% per year (' + conv + ' = ' +
+        (m.effective_monthly_rate * 100).toFixed(4) + '%/month), contributions at the ' + m.contribution_timing + ' of each month, ' +
+        m.months + ' months. Estimates only.';
+    }
+
+    let icAbort;
+    async function runIc() {
+      if (icAbort) icAbort.abort();
+      icAbort = new AbortController();
+      let res;
+      try {
+        res = await fetch('/instances/' + INSTANCE_ID + '/investment-calculator/simulate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify(icBody()),
+          signal: icAbort.signal
+        });
+      } catch (e) { return; }
       const data = await res.json();
       if (!res.ok) return;
       lastIcPayload = data;
-      const s = data.summary;
-      document.getElementById('icFinal').textContent = fmt(s.final_balance);
-      document.getElementById('icContrib').textContent = fmt(s.total_contributions);
-      paintProfitEl(document.getElementById('icProfit'), s.total_interest_profit);
-      const labels = data.series.labels;
-      const bal = data.series.balance;
+      paintIcSummary(data);
+      const d = data.series;
       if (icChart) icChart.destroy();
-      const icOpts = Object.assign({}, base, {
-        plugins: Object.assign({}, base.plugins, {
-          tooltip: Object.assign({}, base.plugins.tooltip, { callbacks: icTooltipCallbacks() })
-        }),
-        scales: {
-          x: Object.assign({}, base.scales.x),
-          y: Object.assign({}, base.scales.y, { ticks: Object.assign({}, base.scales.y.ticks, { callback: moneyTick }) })
-        }
-      });
-      icChart = new Chart(document.getElementById('icChart'), {
-        type: 'line',
-        data: { labels: labels, datasets: [{ label: 'Balance', data: bal, borderColor: '#a78bfa', backgroundColor: 'rgba(167,139,250,0.15)', fill: true, tension: 0.2, pointRadius: 0, pointHoverRadius: 4 }] },
-        options: icOpts
-      });
+      icChart = splitChart('icChart', d.labels, d.cumulative_contributed, d.balance, [], function (i) { return 'Month ' + d.month_index[i]; });
       window.webableRefreshCharts = function () {
         [icChart, lrChart].forEach(function (ch) {
           if (!ch || !ch.options || !ch.options.scales || !ch.options.scales.y) return;
@@ -205,23 +245,17 @@
         });
       };
       const lrA = document.getElementById('lrAnnual');
-      if (lrA) lrA.value = String(document.getElementById('icAnnual').value || '0');
+      if (lrA && !lrA.dataset.touched) lrA.value = String(document.getElementById('icAnnual').value || '0');
     }
 
     async function exportIcPdf(includeProjection) {
-      const body = {
-        initial_balance: parseFloat(document.getElementById('icInitial').value) || 0,
-        monthly_contribution: parseFloat(document.getElementById('icMonthly').value) || 0,
-        annual_rate_pct: parseFloat(document.getElementById('icAnnual').value) || 0,
-        years: parseFloat(document.getElementById('icYears').value) || 1,
-        compounding_per_year: parseInt(document.getElementById('icN').value, 10) || 12,
-        contribution_timing: document.getElementById('icTiming').value,
-        include_projection: !!includeProjection
-      };
+      const body = Object.assign(icBody(), { include_projection: !!includeProjection });
       if (includeProjection) {
         body.invest_pct = parseFloat(document.getElementById('lrPct').value) || 0;
         body.horizon_years = parseFloat(document.getElementById('lrYears').value) || 1;
         body.projection_annual_rate_pct = parseFloat(document.getElementById('lrAnnual').value) || 0;
+        body.projection_initial_amount = parseFloat(document.getElementById('lrInitial').value) || 0;
+        body.projection_contribution_timing = document.getElementById('lrTiming').value;
       }
       if (window.WebableCurrency && typeof window.WebableCurrency.getCode === 'function') {
         body.display_currency = window.WebableCurrency.getCode();
@@ -234,13 +268,7 @@
           body: JSON.stringify(body)
         });
         if (!res.ok) throw new Error('pdf');
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'webable-investment-calculator-' + INSTANCE_ID + '.pdf';
-        a.click();
-        URL.revokeObjectURL(url);
+        await window.WebableDownload.save(res, 'Webable_Investment-Projection.pdf');
       } catch (e) {
         alert('Could not export PDF. Check login and server dependencies.');
       }
@@ -253,9 +281,14 @@
     const lrPdf = document.getElementById('lrExportPdf');
     if (lrPdf) lrPdf.addEventListener('click', function () { exportIcPdf(true); });
 
+    let icDeb;
     ['icInitial','icMonthly','icAnnual','icYears','icN','icTiming'].forEach(function (id) {
-      document.getElementById(id).addEventListener('change', runIc);
+      ['input', 'change'].forEach(function (ev) {
+        document.getElementById(id).addEventListener(ev, function () { clearTimeout(icDeb); icDeb = setTimeout(runIc, 200); });
+      });
     });
+    const lrAnnualEl = document.getElementById('lrAnnual');
+    if (lrAnnualEl) lrAnnualEl.addEventListener('input', function () { lrAnnualEl.dataset.touched = '1'; });
 
     let lrTooltipRows = [];
     let lastLrSim = null;
@@ -265,64 +298,29 @@
         const q = new URLSearchParams({
           invest_pct: document.getElementById('lrPct').value,
           annual_rate: document.getElementById('lrAnnual').value,
-          horizon_years: document.getElementById('lrYears').value
+          horizon_years: document.getElementById('lrYears').value,
+          initial_amount: document.getElementById('lrInitial').value || '0',
+          contribution_timing: document.getElementById('lrTiming').value
         });
         const res = await fetch('/instances/' + INSTANCE_ID + '/investment-simulation?' + q.toString(), { credentials: 'same-origin' });
         const data = await res.json();
         if (!res.ok) return;
         lastLrSim = data;
         lrTooltipRows = data.projection_tooltip || [];
-        document.getElementById('lrSummary').classList.remove('hidden');
-        document.getElementById('lrSummary').innerHTML =
-          '<strong>Final (projection-linked):</strong> ' + fmt(Number(data.summary.final_investment_balance)) +
-          ' · <strong>Contributed:</strong> ' + fmt(Number(data.summary.final_cumulative_contributed)) +
-          ' · <strong>Profit:</strong> ' + fmt(Number(data.summary.final_compounded_profit));
+        paintLrSummary(data);
         const c = data.chart;
         if (lrChart) lrChart.destroy();
-        const lrOpts = Object.assign({}, base, {
-          scales: {
-            x: Object.assign({}, base.scales.x),
-            y: Object.assign({}, base.scales.y, { ticks: Object.assign({}, base.scales.y.ticks, { callback: moneyTick }) })
-          },
-          plugins: Object.assign({}, base.plugins, {
-            tooltip: Object.assign({}, base.plugins.tooltip, {
-              callbacks: {
-                title: function (items) {
-                  const i = items[0].dataIndex;
-                  return (c.months && c.months[i]) ? 'Period: ' + c.months[i] : '';
-                },
-                label: function (ctx) {
-                  const v = ctx.parsed.y;
-                  if (v == null || Number.isNaN(v)) return ctx.dataset.label + ': —';
-                  return ctx.dataset.label + ': ' + fmt(v);
-                },
-                afterBody: function (items) {
-                  const i = items[0].dataIndex;
-                  const pt = lrTooltipRows[i];
-                  if (!pt) return [];
-                  if (pt.note) return [pt.note];
-                  const lines = [];
-                  if (pt.projected_income != null) lines.push('Projected income (total in): ' + fmt(pt.projected_income));
-                  if (pt.projected_expenses != null) lines.push('Projected expenses: ' + fmt(pt.projected_expenses));
-                  if (pt.projected_savings != null) lines.push('Projected savings: ' + fmt(pt.projected_savings));
-                  if (pt.net_result != null) lines.push('Net (savings): ' + fmt(pt.net_result));
-                  return lines;
-                }
-              }
-            })
-          })
-        });
-        lrChart = new Chart(document.getElementById('lrChart'), {
-          type: 'line',
-          data: {
-            labels: c.months,
-            datasets: [
-              { label: 'Wealth', data: c.accumulated_wealth, borderColor: '#60a5fa', tension: 0.2, pointRadius: 0, pointHoverRadius: 4 },
-              { label: 'Investment', data: c.investment_balance, borderColor: '#fbbf24', tension: 0.2, pointRadius: 0, pointHoverRadius: 4 }
-            ]
-          },
-          options: lrOpts
-        });
+        lrChart = splitChart(
+          'lrChart', c.months, c.cumulative_contributed, c.investment_balance,
+          [{ label: 'Total projected wealth', data: c.accumulated_wealth, borderColor: '#60a5fa', borderDash: [6, 4], fill: false, borderWidth: 1.6, tension: 0.2, pointRadius: 0, pointHoverRadius: 4 }],
+          function (i) { return 'Month ' + (i + 1) + ' (' + c.months[i] + ')'; },
+          function (i) {
+            const pt = lrTooltipRows[i];
+            if (!pt) return [];
+            if (pt.note) return [pt.note];
+            return pt.projected_savings != null ? ['Projected savings: ' + fmt(pt.projected_savings)] : [];
+          }
+        );
         window.webableRefreshCharts = function () {
           [icChart, lrChart].forEach(function (ch) {
             if (!ch || !ch.options || !ch.options.scales || !ch.options.scales.y) return;
@@ -333,20 +331,20 @@
       });
     }
 
+    function paintLrSummary(d) {
+      const el = document.getElementById('lrSummary');
+      if (!el) return;
+      el.classList.remove('hidden');
+      el.innerHTML =
+        '<strong>Initial:</strong> ' + fmt(Number(d.summary.initial_amount || 0)) +
+        ' · <strong>Total contributions:</strong> ' + fmt(Number(d.summary.final_cumulative_contributed)) +
+        ' · <strong>Compound growth:</strong> ' + fmt(Number(d.summary.final_compounded_profit)) +
+        ' · <strong>Projected balance:</strong> ' + fmt(Number(d.summary.final_investment_balance));
+    }
+
     document.addEventListener('webable:currency', function () {
-      if (lastIcPayload) {
-        const s = lastIcPayload.summary;
-        document.getElementById('icFinal').textContent = fmt(s.final_balance);
-        document.getElementById('icContrib').textContent = fmt(s.total_contributions);
-        paintProfitEl(document.getElementById('icProfit'), s.total_interest_profit);
-      }
-      if (lastLrSim && lastLrSim.summary && document.getElementById('lrSummary') && !document.getElementById('lrSummary').classList.contains('hidden')) {
-        const d = lastLrSim;
-        document.getElementById('lrSummary').innerHTML =
-          '<strong>Final (projection-linked):</strong> ' + fmt(Number(d.summary.final_investment_balance)) +
-          ' · <strong>Contributed:</strong> ' + fmt(Number(d.summary.final_cumulative_contributed)) +
-          ' · <strong>Profit:</strong> ' + fmt(Number(d.summary.final_compounded_profit));
-      }
+      if (lastIcPayload) paintIcSummary(lastIcPayload);
+      if (lastLrSim && lastLrSim.summary) paintLrSummary(lastLrSim);
     });
 
     runIc();

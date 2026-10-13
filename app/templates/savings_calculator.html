@@ -256,13 +256,7 @@
         body: JSON.stringify(body)
       });
       if (!res.ok) { alert('PDF export failed'); return; }
-      var blob = await res.blob();
-      var url = URL.createObjectURL(blob);
-      var a = document.createElement('a');
-      a.href = url;
-      a.download = 'webable-emergency-fund-' + INSTANCE_ID + '.pdf';
-      a.click();
-      URL.revokeObjectURL(url);
+      await window.WebableDownload.save(res, 'Webable_Emergency-Fund.pdf');
     });
     document.addEventListener('webable:currency', function () { if (!document.getElementById('results').classList.contains('hidden')) runCalc(); });
   </script>

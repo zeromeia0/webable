@@ -571,14 +571,8 @@
           } catch (e2) { /* ignore */ }
           throw new Error(detail);
         }
-        const blob = await res.blob();
-        if (!blob || blob.size < 100) throw new Error('PDF file was empty.');
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'webable-spending-report-' + INSTANCE_ID + '.pdf';
-        a.click();
-        URL.revokeObjectURL(url);
+        if (Number(res.headers.get('Content-Length') || 1000) < 100) throw new Error('PDF file was empty.');
+        await window.WebableDownload.save(res, 'Webable_Spending-Report.pdf');
       } catch (e) {
         alert(e.message || 'Could not export PDF. Check that you are logged in and server dependencies are installed.');
       } finally {

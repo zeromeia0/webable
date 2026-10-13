@@ -18,12 +18,13 @@ from sqlalchemy.orm import Session
 
 from .auth import SESSION_COOKIE, current_user, hash_password, issue_session, verify_password
 from .db import DATA_ROOT, Base, SessionLocal, engine, get_db
-from .models import BankStatement, CategoryBudget, DatabaseInstance, FinanceAuditLog, JobRun, MonthlySnapshot, MotherInsightEvent, User, WorkspaceInvite, WorkspaceMember
+from .models import BankStatement, CategoryBudget, DatabaseInstance, FinanceAuditLog, JobRun, MonthlySnapshot, MotherInsightEvent, Notification, User, WorkspaceInvite, WorkspaceMember
 from .services import (
     ai_service,
     analysis_service,
     bank_statement_service,
     build_info,
+    category_breakdown_service,
     currency_service,
     dashboard_metrics,
     db_safety,
@@ -31,10 +32,12 @@ from .services import (
     eom_summary_service,
     eom_summary_pdf,
     expense_panel,
+    export_naming,
     financial_timeline_service,
     instance_service,
     monthly_snapshot_service,
     notes_service,
+    notification_service,
     numeric_input,
     wishlist_service,
     investment_pdf,
@@ -119,8 +122,20 @@ def slugify(name: str) -> str:
     return "".join(c.lower() if c.isalnum() else "_" for c in name).strip("_") or "db"
 
 
-def money(value: float) -> str:
-    return f"EUR {float(value):,.2f}"
+def money(value: float, currency: str = "EUR") -> str:
+    return f"{currency or 'EUR'} {float(value):,.2f}"
+
+
+def ws_currency(inst: DatabaseInstance | None) -> str:
+    return currency_service.workspace_currency(getattr(inst, "currency", None) if inst else None)
+
+
+def download_response(content: bytes, media_type: str, filename: str) -> Response:
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": export_naming.content_disposition(filename)},
+    )
 
 
 def humanize_delta(dt: datetime | None) -> str:
@@ -189,7 +204,16 @@ def reports_range_label(preset: str | None, start_d: date | None, end_d: date | 
     return "All time"
 
 
-def pdf_currency_context(display_currency: str | None) -> tuple[str, dict[str, float], str | None]:
+def pdf_currency_context(
+    display_currency: str | None, base_currency: str = "EUR"
+) -> tuple[str, dict[str, float], str | None]:
+    """
+    EUR workspaces keep the optional display conversion. Other workspaces are always rendered in
+    their own currency with an identity rate (amounts are never converted across currencies).
+    """
+    base = currency_service.workspace_currency(base_currency)
+    if base != "EUR":
+        return base, {base: 1.0}, currency_service.NO_CONVERSION_MARKER
     currency_service.ensure_fresh_rates(ROOT)
     st = currency_service.rates_public_dict(ROOT)
     cur = currency_service.normalize_currency(display_currency)
@@ -197,7 +221,10 @@ def pdf_currency_context(display_currency: str | None) -> tuple[str, dict[str, f
     return cur, rates, st.get("updated_at")
 
 
-def build_monthly_output(metrics: dict, show_iefp: bool) -> dict:
+def build_monthly_output(metrics: dict, show_iefp: bool, currency: str = "EUR") -> dict:
+    def money(v):
+        return globals()["money"](v, currency)
+
     savings = float(metrics.get("estimated_savings", 0))
     income_items = metrics.get("income_items") or []
     expense_items = metrics.get("expense_items") or []
@@ -317,7 +344,10 @@ def build_monthly_output(metrics: dict, show_iefp: bool) -> dict:
     }
 
 
-def build_projection_output(rows: list[dict]) -> dict:
+def build_projection_output(rows: list[dict], currency: str = "EUR") -> dict:
+    def money(v):
+        return globals()["money"](v, currency)
+
     if not rows:
         return {"cards": [], "sections": [], "bars": [], "recommendation": "Run a projection to see long-term trends."}
     savings = [float(r.get("estimated_savings", 0)) for r in rows]
@@ -374,14 +404,19 @@ def human_job_view(job: JobRun, show_iefp: bool) -> dict:
     status = "Success" if job.status == "done" else "Needs attention"
     badge_class = "bg-emerald-500/20 text-emerald-300 border-emerald-500/40" if job.status == "done" else "bg-amber-500/20 text-amber-300 border-amber-500/40"
     metrics = parse_metrics(job.metrics_json)
+    cur = ws_currency(job.instance)
+
+    def money(v):
+        return globals()["money"](v, cur)
+
     details = {"cards": [], "sections": [], "bars": [], "recommendation": "Everything looks good."}
     projection_series: list[dict] | None = None
 
     if isinstance(metrics, dict) and "month" in metrics and "estimated_savings" in metrics:
-        details = build_monthly_output(metrics, show_iefp)
+        details = build_monthly_output(metrics, show_iefp, cur)
     elif isinstance(metrics, list):
         rows = [r for r in metrics if isinstance(r, dict)]
-        details = build_projection_output(rows)
+        details = build_projection_output(rows, cur)
         if rows and all("month" in r and "accumulated" in r for r in rows):
             projection_series = []
             for r in rows:
@@ -427,6 +462,12 @@ def build_mother_output(
     instances: list[DatabaseInstance] | None = None,
     month_totals: dict | None = None,
 ) -> dict:
+    """Insights for the workspaces passed in (the dashboard passes only the active one)."""
+    cur = ws_currency((instances or [None])[0])
+
+    def money(v):
+        return globals()["money"](v, cur)
+
     savings = []
     for job in jobs:
         m = parse_metrics(job.metrics_json)
@@ -468,7 +509,7 @@ def build_mother_output(
     fixed_total = float(mt.get("fixed_expenses_total") or recurring_expense_total)
     current_balance = float(mt.get("current_month_balance") or dashboard_metrics.current_month_balance(month_income, month_expenses))
 
-    panel = expense_panel.build_expense_panel_payload(instances or [], month_totals=mt)
+    panel = expense_panel.build_expense_panel_payload(instances or [], month_totals=mt, currency=cur)
     expense_entries_enriched = panel["entries"]
     expenses_summary_line = panel["summary"]
     fixed_summary = dashboard_metrics.fixed_expenses_summary(fixed_total, month_income)
@@ -606,6 +647,11 @@ def _append_finance_audit(db: Session, user_id: int, instance_id: int, job_type:
         entity, action = "income", "deleted"
     elif job_type == "delete_expense":
         entity, action = "expense", "deleted"
+    elif job_type in ("update_income", "update_expense", "update_oneoff", "update_savings"):
+        entity = job_type.split("_", 1)[1]
+        action = "moved" if result.get("moved_from_id") is not None else "updated"
+        raw_id = result.get("moved_from_id", result.get("id"))
+        eid = int(raw_id) if raw_id is not None else None
     else:
         return
     db.add(
@@ -635,6 +681,9 @@ def run_job(db: Session, user: User, inst: DatabaseInstance, job_type: str, call
         "delete_oneoff": "Transaction deleted successfully",
         "delete_savings": "Savings deposit removed",
         "update_savings": "Savings deposit updated",
+        "update_income": "Income entry updated",
+        "update_expense": "Expense entry updated",
+        "update_oneoff": "One-time transaction updated",
         "ai_chat": "AI assistant response ready",
     }
     job = JobRun(instance_id=inst.id, job_type=job_type, status="running", logs="Execution started.", friendly_message="Processing", technical_logs="", metrics_json="{}")
@@ -762,8 +811,13 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
                 )
             )
     month_totals = dashboard_metrics.aggregate_current_month_totals(month_rows) if month_rows else {}
-    mother_output = build_mother_output(intelligence, jobs, metadata, instances, month_totals=month_totals)
     primary = active or (instances[0] if instances else None)
+    # Workspaces can use different currencies, so insights never aggregate across them.
+    mother_output = build_mother_output(intelligence, jobs, metadata, [primary] if primary else [], month_totals=month_totals)
+    breakdown_range = request.query_params.get("breakdown_range") or category_breakdown_service.DEFAULT_RANGE
+    category_breakdown = (
+        category_breakdown_service.build_category_breakdown(primary.finance_db_path, breakdown_range) if primary else None
+    )
     if primary:
         eom_summary_service.ensure_eom_snapshots(db, primary, user, max_months=6)
     chart_data = build_dashboard_chart_data(db, user, instances, active=active)
@@ -802,19 +856,42 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             "latest_bank_statement": latest_statement,
             "budget_alerts": budget_alerts,
             "oneoff_categories": list(instance_service.ONEOFF_CATEGORIES),
+            "category_breakdown": category_breakdown,
+            "currency_options": currency_service.currency_options(),
+            "workspace_currency": ws_currency(primary),
         },
     )
 
 
-@app.post("/instances/create")
-def create_instance(request: Request, name: str = Form(...), db: Session = Depends(get_db)):
+@app.get("/instances/{instance_id}/category-breakdown")
+def category_breakdown_data(instance_id: int, request: Request, range: str | None = None, db: Session = Depends(get_db)):
     user = require_user(request, db)
-    clean_name = name.strip()
+    inst = require_instance(db, user, instance_id)
+    data = category_breakdown_service.build_category_breakdown(inst.finance_db_path, range)
+    data["currency"] = ws_currency(inst)
+    data["workspace"] = inst.name
+    return JSONResponse(data)
+
+
+@app.post("/instances/create")
+def create_instance(
+    request: Request,
+    name: str = Form(...),
+    currency: str = Form("EUR"),
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    clean_name = name.strip()[:120]
+    if not clean_name:
+        return RedirectResponse("/dashboard?err=workspace_name", status_code=302)
+    code = (currency or "EUR").upper().strip()
+    if code not in currency_service.SUPPORTED:
+        return RedirectResponse("/dashboard?err=workspace_currency", status_code=302)
     tmp = int(datetime.utcnow().timestamp())
     finance_path, logic_path = instance_service.instance_paths(ROOT, user.id, tmp, f"{slugify(clean_name)}_{uuid4().hex[:8]}")
     instance_service.init_finance_db(finance_path)
     instance_service.init_logic_db(logic_path)
-    inst = DatabaseInstance(owner_id=user.id, name=clean_name, mode="general", finance_db_path=finance_path, logic_db_path=logic_path, last_sync_status="Database created successfully", last_activity_at=datetime.utcnow())
+    inst = DatabaseInstance(owner_id=user.id, name=clean_name, mode="general", currency=code, finance_db_path=finance_path, logic_db_path=logic_path, last_sync_status="Database created successfully", last_activity_at=datetime.utcnow())
     db.add(inst)
     db.commit()
     db.refresh(inst)
@@ -841,6 +918,17 @@ def delete_instance(instance_id: int, request: Request, db: Session = Depends(ge
                 fp.unlink()
         except OSError:
             log.warning("could not remove statement file %s", fp)
+    invite_ids = [i.id for i in db.query(WorkspaceInvite.id).filter(WorkspaceInvite.workspace_id == inst.id).all()]
+    if invite_ids:
+        db.query(Notification).filter(Notification.invite_id.in_(invite_ids)).update(
+            {Notification.invite_id: None}, synchronize_session=False
+        )
+    db.query(Notification).filter(Notification.workspace_id == inst.id).update(
+        {Notification.workspace_id: None}, synchronize_session=False
+    )
+    for u in db.query(User).filter(User.active_workspace_id == inst.id).all():
+        u.active_workspace_id = None
+        db.add(u)
     db.query(WorkspaceMember).filter(WorkspaceMember.workspace_id == inst.id).delete()
     db.query(WorkspaceInvite).filter(WorkspaceInvite.workspace_id == inst.id).delete()
     for p in [inst.finance_db_path, inst.logic_db_path]:
@@ -995,7 +1083,7 @@ def reports_pdf_export(
         label = reports_range_label(None, date.fromisoformat(report["range"]["start"]), date.fromisoformat(report["range"]["end"]))
     else:
         label = reports_range_label(preset, start_d, end_d)
-    cur, rates, fx_at = pdf_currency_context(display_currency)
+    cur, rates, fx_at = pdf_currency_context(display_currency, ws_currency(inst))
     try:
         pdf_bytes = reports_pdf.build_reports_pdf(
             workspace_name=inst.name,
@@ -1010,12 +1098,11 @@ def reports_pdf_export(
             status_code=503,
             detail="PDF export needs optional packages: pip install reportlab matplotlib pypdf",
         ) from exc
-    fname = f"webable-spending-report-{instance_id}.pdf"
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    rng = report.get("range") or {}
+    fname = export_naming.workspace_filename(
+        inst, "Spending-Report", "pdf", start=rng.get("start") or start_d, end=rng.get("end") or end_d
     )
+    return download_response(pdf_bytes, "application/pdf", fname)
 
 
 @app.get("/instances/{instance_id}/investment-calculator", response_class=HTMLResponse)
@@ -1049,28 +1136,34 @@ def investment_calculator_page(instance_id: int, request: Request, db: Session =
     )
 
 
+def _calculator_inputs(body: dict) -> dict:
+    """Validated long-term projection inputs (shared by the live chart and the PDF export)."""
+
+    def num(key: str, default: float) -> float:
+        try:
+            v = float(body.get(key, default))
+        except (TypeError, ValueError):
+            return default
+        return v if v == v else default
+
+    raw_n = str(body.get("compounding_per_year", "0") or "0").strip().lower()
+    n = 0 if raw_n in ("0", "effective", "") else max(1, min(365, int(float(raw_n))))
+    return {
+        "initial_balance": max(0.0, num("initial_balance", 0.0)),
+        "monthly_contribution": max(0.0, num("monthly_contribution", 0.0)),
+        "annual_rate_pct": projection_finance.clamp_annual_rate(num("annual_rate_pct", 0.0)),
+        "years": max(1 / 12, min(80.0, num("years", 1.0))),
+        "compounding_per_year": n,
+        "contribution_timing": projection_finance.normalize_timing(str(body.get("contribution_timing") or "end"), "end"),
+    }
+
+
 @app.post("/instances/{instance_id}/investment-calculator/simulate")
 async def investment_calculator_simulate(instance_id: int, request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
     require_instance(db, user, instance_id)
     body = await request.json()
-    initial = float(body.get("initial_balance", 0) or 0)
-    monthly = float(body.get("monthly_contribution", 0) or 0)
-    annual = float(body.get("annual_rate_pct", 0) or 0)
-    years = float(body.get("years", 1) or 1)
-    n = int(body.get("compounding_per_year", 12) or 12)
-    timing = str(body.get("contribution_timing", "beginning") or "beginning")
-    n = max(1, min(365, n))
-    years = max(0.08, min(80.0, years))
-    annual = max(0.0, min(50.0, annual))
-    result = projection_finance.run_investment_calculator(
-        initial_balance=initial,
-        monthly_contribution=monthly,
-        annual_rate_pct=annual,
-        years=years,
-        compounding_per_year=n,
-        contribution_timing=timing,
-    )
+    result = projection_finance.run_investment_calculator(**_calculator_inputs(body or {}))
     return JSONResponse(result)
 
 
@@ -1079,48 +1172,33 @@ async def investment_calculator_pdf_export(instance_id: int, request: Request, d
     user = require_user(request, db)
     inst = require_instance(db, user, instance_id)
     body = await request.json()
-    initial = float(body.get("initial_balance", 0) or 0)
-    monthly = float(body.get("monthly_contribution", 0) or 0)
-    annual = float(body.get("annual_rate_pct", 0) or 0)
-    years = float(body.get("years", 1) or 1)
-    n = int(body.get("compounding_per_year", 12) or 12)
-    timing = str(body.get("contribution_timing", "beginning") or "beginning")
-    n = max(1, min(365, n))
-    years = max(0.08, min(80.0, years))
-    annual = max(0.0, min(50.0, annual))
-    calc_in = {
-        "initial_balance": initial,
-        "monthly_contribution": monthly,
-        "annual_rate_pct": annual,
-        "years": years,
-        "compounding_per_year": n,
-        "contribution_timing": timing,
-    }
-    calc_result = projection_finance.run_investment_calculator(
-        initial_balance=initial,
-        monthly_contribution=monthly,
-        annual_rate_pct=annual,
-        years=years,
-        compounding_per_year=n,
-        contribution_timing=timing,
-    )
+    calc_in = _calculator_inputs(body or {})
+    annual = calc_in["annual_rate_pct"]
+    calc_result = projection_finance.run_investment_calculator(**calc_in)
+    pdf_inputs = dict(calc_in)
+    if not pdf_inputs["compounding_per_year"]:
+        pdf_inputs["compounding_per_year"] = "Effective annual rate"
     projection_result = None
     projection_label = None
     if bool(body.get("include_projection")):
         _inst2, _job2, rows = load_latest_completed_range_projection(db, user, instance_id)
         invest_pct = max(0.0, min(100.0, float(body.get("invest_pct", 15) or 15)))
         horizon_years = max(0.08, min(60.0, float(body.get("horizon_years", 5) or 5)))
-        proj_rate = max(0.0, min(50.0, float(body.get("projection_annual_rate_pct", annual) or 0)))
-        projection_result = projection_finance.run_monthly_simulation(rows, invest_pct, proj_rate, horizon_years)
+        proj_rate = projection_finance.clamp_annual_rate(body.get("projection_annual_rate_pct", annual) or 0)
+        projection_result = projection_finance.run_monthly_simulation(
+            rows, invest_pct, proj_rate, horizon_years,
+            initial_amount=max(0.0, float(body.get("projection_initial_amount") or 0)),
+            contribution_timing=str(body.get("projection_contribution_timing") or "beginning"),
+        )
         projection_label = (
             f"Latest long-range projection in this workspace · {invest_pct:g}% of monthly savings · "
             f"{horizon_years:g} yr horizon @ {proj_rate:g}% APR"
         )
-    cur, rates, fx_at = pdf_currency_context(body.get("display_currency"))
+    cur, rates, fx_at = pdf_currency_context(body.get("display_currency"), ws_currency(inst))
     try:
         pdf_bytes = investment_pdf.build_investment_calculator_pdf(
             workspace_name=inst.name,
-            calculator_inputs=calc_in,
+            calculator_inputs=pdf_inputs,
             calculator_result=calc_result,
             projection_result=projection_result,
             projection_label=projection_label,
@@ -1133,12 +1211,8 @@ async def investment_calculator_pdf_export(instance_id: int, request: Request, d
             status_code=503,
             detail="PDF export needs optional packages: pip install reportlab matplotlib pypdf",
         ) from exc
-    fname = f"webable-investment-calculator-{instance_id}.pdf"
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
-    )
+    fname = export_naming.workspace_filename(inst, "Investment-Projection", "pdf")
+    return download_response(pdf_bytes, "application/pdf", fname)
 
 
 @app.get("/instances/{instance_id}", response_class=HTMLResponse)
@@ -1161,6 +1235,11 @@ def instance_view(instance_id: int, request: Request, db: Session = Depends(get_
     budget_alerts = _budget_alerts(db, inst, now_m)
     membership = workspace_service.get_membership(db, user.id, inst.id)
     workspace_role = membership.role if membership else "viewer"
+    roles = workspace_service.membership_map(db, user)
+    move_targets = [
+        w for w in instances
+        if w.id != inst.id and ws_currency(w) == ws_currency(inst) and workspace_service.role_allows(roles.get(w.id), "create")
+    ]
     return templates.TemplateResponse(request=request, name="instance.html", context={
         "request": request,
         "user": user,
@@ -1169,6 +1248,9 @@ def instance_view(instance_id: int, request: Request, db: Session = Depends(get_
         "workspace_for_nav": inst,
         "workspace_role": workspace_role,
         "can_write": workspace_service.role_allows(workspace_role, "write"),
+        "move_targets": move_targets,
+        "workspace_currency": ws_currency(inst),
+        "err": request.query_params.get("err", ""),
         "nav_active": None,
         "state_summary": state_summary,
         "latest_output": latest_output,
@@ -1193,6 +1275,8 @@ def investment_simulation(
     invest_pct: float = 15.0,
     annual_rate: float = 5.0,
     horizon_years: float = 5.0,
+    initial_amount: float = 0.0,
+    contribution_timing: str = "beginning",
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
@@ -1201,11 +1285,15 @@ def investment_simulation(
     else:
         _inst, _job, rows = load_latest_completed_range_projection(db, user, instance_id)
     invest_pct = max(0.0, min(100.0, float(invest_pct)))
-    annual_rate = max(0.0, min(50.0, float(annual_rate)))
+    annual_rate = projection_finance.clamp_annual_rate(annual_rate)
     horizon_years = max(0.08, min(60.0, float(horizon_years)))
-    sim = projection_finance.run_monthly_simulation(rows, invest_pct, annual_rate, horizon_years)
+    sim = projection_finance.run_monthly_simulation(
+        rows, invest_pct, annual_rate, horizon_years,
+        initial_amount=max(0.0, float(initial_amount)), contribution_timing=contribution_timing,
+    )
     chart = {
         "months": [r["month"] for r in sim["rows"]],
+        "month_index": [r["month_index"] for r in sim["rows"]],
         "accumulated_wealth": [r["accumulated_wealth"] for r in sim["rows"]],
         "investment_balance": [r["investment_balance"] for r in sim["rows"]],
         "cumulative_contributed": [r["cumulative_contributed"] for r in sim["rows"]],
@@ -1250,6 +1338,8 @@ def projection_report_pdf(
     invest_pct: float = Form(15.0),
     annual_rate: float = Form(5.0),
     horizon_years: float = Form(5.0),
+    initial_amount: float = Form(0.0),
+    contribution_timing: str = Form("beginning"),
     display_currency: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
@@ -1259,11 +1349,14 @@ def projection_report_pdf(
     else:
         inst, job, rows = load_latest_completed_range_projection(db, user, instance_id)
     invest_pct = max(0.0, min(100.0, float(invest_pct)))
-    annual_rate = max(0.0, min(50.0, float(annual_rate)))
+    annual_rate = projection_finance.clamp_annual_rate(annual_rate)
     horizon_years = max(0.08, min(60.0, float(horizon_years)))
-    sim = projection_finance.run_monthly_simulation(rows, invest_pct, annual_rate, horizon_years)
-    details = build_projection_output(rows)
-    cur, rates, fx_at = pdf_currency_context(display_currency)
+    sim = projection_finance.run_monthly_simulation(
+        rows, invest_pct, annual_rate, horizon_years,
+        initial_amount=max(0.0, float(initial_amount)), contribution_timing=contribution_timing,
+    )
+    details = build_projection_output(rows, ws_currency(inst))
+    cur, rates, fx_at = pdf_currency_context(display_currency, ws_currency(inst))
     try:
         pdf_bytes = projection_pdf.build_projection_report_pdf(
             workspace_name=inst.name,
@@ -1281,13 +1374,10 @@ def projection_report_pdf(
             status_code=503,
             detail="PDF export needs optional packages: pip install reportlab matplotlib pypdf",
         ) from exc
-    stamp = (job.started_at or datetime.utcnow()).strftime("%Y%m%d-%H%M")
-    fname = f"webable-projection-{instance_id}-{stamp}.pdf"
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    fname = export_naming.workspace_filename(
+        inst, "Long-Term-Projection", "pdf", start=rows[0].get("month"), end=rows[-1].get("month")
     )
+    return download_response(pdf_bytes, "application/pdf", fname)
 
 
 @app.post("/instances/{instance_id}/results-report")
@@ -1316,7 +1406,7 @@ def results_summary_pdf(
         "bars": output_view.get("bars") or [],
         "recommendation": output_view.get("recommendation") or "",
     }
-    cur, rates, fx_at = pdf_currency_context(display_currency)
+    cur, rates, fx_at = pdf_currency_context(display_currency, ws_currency(inst))
     try:
         pdf_bytes = projection_pdf.build_results_summary_pdf(
             workspace_name=inst.name,
@@ -1332,13 +1422,14 @@ def results_summary_pdf(
             status_code=503,
             detail="PDF export needs optional packages: pip install reportlab matplotlib pypdf",
         ) from exc
-    stamp = (job.started_at or datetime.utcnow()).strftime("%Y%m%d-%H%M")
-    fname = f"webable-results-{instance_id}-{stamp}.pdf"
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
-    )
+    metrics = parse_metrics(job.metrics_json)
+    period: dict = {"on": job.started_at or datetime.utcnow()}
+    if isinstance(metrics, dict) and metrics.get("month"):
+        period = {"month": str(metrics["month"])}
+    elif isinstance(metrics, list) and metrics and isinstance(metrics[0], dict) and metrics[0].get("month"):
+        period = {"start": metrics[0].get("month"), "end": metrics[-1].get("month")}
+    fname = export_naming.workspace_filename(inst, "Results-Summary", "pdf", **period)
+    return download_response(pdf_bytes, "application/pdf", fname)
 
 
 @app.get("/api/ai/status")
@@ -1379,6 +1470,29 @@ def ai_global(request: Request, question: str = Form(...), instance_id: int | No
     return JSONResponse(body, status_code=503)
 
 
+def _entry_redirect(instance_id: int, msg: str | None = None, err: str | None = None) -> RedirectResponse:
+    qs = []
+    if msg:
+        qs.append(f"msg={msg}")
+    if err:
+        qs.append(f"err={err}")
+    q = ("?" + "&".join(qs)) if qs else ""
+    return RedirectResponse(f"/instances/{instance_id}{q}#workspace-data", status_code=302)
+
+
+def _err_code(exc: ValueError) -> str:
+    text_ = str(exc).lower()
+    if "category" in text_:
+        return "invalid_category"
+    if "end date" in text_:
+        return "invalid_date_range"
+    if "date" in text_:
+        return "invalid_date"
+    if "name" in text_:
+        return "invalid_name"
+    return "invalid_amount"
+
+
 @app.post("/instances/{instance_id}/income")
 def add_income(
     instance_id: int,
@@ -1386,16 +1500,24 @@ def add_income(
     nome: str = Form(...),
     valor: str = Form(...),
     recurrence: str = Form("monthly"),
+    start_date: str = Form(""),
+    end_date: str = Form(""),
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
-    inst = require_instance(db, user, instance_id)
+    inst = require_instance(db, user, instance_id, action="create")
     try:
         amount = numeric_input.parse_positive_decimal(valor)
-    except ValueError:
-        return RedirectResponse(f"/instances/{instance_id}?err=invalid_amount#workspace-data", status_code=302)
-    run_job(db, user, inst, "add_income", lambda: instance_service.add_income(inst.finance_db_path, nome, amount, recurrence=recurrence))
-    return RedirectResponse(f"/instances/{instance_id}#workspace-data", status_code=302)
+        instance_service.validate_date_window(start_date, end_date)
+    except ValueError as exc:
+        return _entry_redirect(instance_id, err=_err_code(exc))
+    run_job(
+        db, user, inst, "add_income",
+        lambda: instance_service.add_income(
+            inst.finance_db_path, nome.strip(), amount, recurrence=recurrence, start_date=start_date, end_date=end_date
+        ),
+    )
+    return _entry_redirect(instance_id)
 
 
 @app.post("/instances/{instance_id}/expense")
@@ -1406,22 +1528,29 @@ def add_expense(
     valor: str = Form(...),
     recurrence: str = Form("monthly"),
     category: str = Form("Other"),
+    start_date: str = Form(""),
+    end_date: str = Form(""),
+    expense_type: str = Form(""),
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
-    inst = require_instance(db, user, instance_id)
+    inst = require_instance(db, user, instance_id, action="create")
     try:
         amount = numeric_input.parse_positive_decimal(valor)
-    except ValueError:
-        return RedirectResponse(f"/instances/{instance_id}?err=invalid_amount#workspace-data", status_code=302)
+        instance_service.validate_date_window(start_date, end_date)
+    except ValueError as exc:
+        return _entry_redirect(instance_id, err=_err_code(exc))
     run_job(
         db,
         user,
         inst,
         "add_expense",
-        lambda: instance_service.add_expense(inst.finance_db_path, nome, amount, recurrence=recurrence, category=category),
+        lambda: instance_service.add_expense(
+            inst.finance_db_path, nome.strip(), amount, recurrence=recurrence, category=category,
+            start_date=start_date, end_date=end_date, expense_type=expense_type,
+        ),
     )
-    return RedirectResponse(f"/instances/{instance_id}#workspace-data", status_code=302)
+    return _entry_redirect(instance_id)
 
 
 @app.post("/instances/{instance_id}/savings-deposit")
@@ -1434,19 +1563,20 @@ def add_savings_deposit(
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
-    inst = require_instance(db, user, instance_id)
+    inst = require_instance(db, user, instance_id, action="create")
     try:
         amount = numeric_input.parse_positive_decimal(valor)
-    except ValueError:
-        return RedirectResponse(f"/instances/{instance_id}?err=invalid_amount#workspace-data", status_code=302)
+        day = instance_service.parse_iso_date(data, required=True)
+    except ValueError as exc:
+        return _entry_redirect(instance_id, err=_err_code(exc))
     run_job(
         db,
         user,
         inst,
         "add_savings",
-        lambda: instance_service.add_savings_deposit(inst.finance_db_path, data, amount, nome=nome),
+        lambda: instance_service.add_savings_deposit(inst.finance_db_path, day, amount, nome=nome),
     )
-    return RedirectResponse(f"/instances/{instance_id}#workspace-data", status_code=302)
+    return _entry_redirect(instance_id)
 
 
 @app.post("/instances/{instance_id}/quick-oneoff")
@@ -1463,18 +1593,22 @@ def quick_oneoff(
 ):
     """Quick-add one-time transaction from the global + button."""
     user = require_user(request, db)
-    inst = require_instance(db, user, instance_id)
+    inst = require_instance(db, user, instance_id, action="create")
     try:
         parsed_amount = numeric_input.parse_positive_decimal(amount)
     except ValueError:
         parsed_amount = None
     errs = dashboard_metrics.validate_quick_oneoff(parsed_amount, description, txn_type)
     safe_next = next_url if next_url.startswith("/") and not next_url.startswith("//") else "/dashboard"
+    try:
+        date_s = instance_service.parse_iso_date(txn_date) or datetime.utcnow().strftime("%Y-%m-%d")
+    except ValueError:
+        errs = errs or ["date"]
+        date_s = ""
     if errs:
         sep = "&" if "?" in safe_next else "?"
         return RedirectResponse(f"{safe_next}{sep}quick_err=1", status_code=302)
     tt = "income" if str(txn_type).lower() == "income" else "expense"
-    date_s = (txn_date or "").strip() or datetime.utcnow().strftime("%Y-%m-%d")
     cat = category
     if tt == "expense" and (cat or "").strip() not in instance_service.ONEOFF_CATEGORIES:
         cat = "Other"
@@ -1502,29 +1636,153 @@ def add_oneoff(
     valor: str = Form(...),
     txn_type: str = Form("expense"),
     category: str | None = Form(None),
+    expense_type: str = Form(""),
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
-    inst = require_instance(db, user, instance_id)
+    inst = require_instance(db, user, instance_id, action="create")
     try:
         parsed_valor = numeric_input.parse_positive_decimal(valor)
-    except ValueError:
-        return RedirectResponse(f"/instances/{instance_id}?err=invalid_amount#workspace-data", status_code=302)
+        day = instance_service.parse_iso_date(data, required=True)
+    except ValueError as exc:
+        return _entry_redirect(instance_id, err=_err_code(exc))
     tt = "income" if str(txn_type).lower() == "income" else "expense"
     if tt == "expense" and (category or "").strip() not in instance_service.ONEOFF_CATEGORIES:
         return RedirectResponse(f"/instances/{instance_id}?msg=oneoff_category_required", status_code=302)
 
     def _add():
-        return instance_service.add_oneoff(inst.finance_db_path, data, nome, parsed_valor, txn_type=tt, category=category)
+        return instance_service.add_oneoff(
+            inst.finance_db_path, day, nome.strip(), parsed_valor, txn_type=tt, category=category, expense_type=expense_type
+        )
 
     run_job(db, user, inst, "add_oneoff", _add)
-    return RedirectResponse(f"/instances/{instance_id}#workspace-data", status_code=302)
+    return _entry_redirect(instance_id)
+
+
+def _resolve_move_target(db: Session, user: User, inst: DatabaseInstance, target_workspace_id: str | None) -> DatabaseInstance | None:
+    """Optional 'associated workspace' change; only to a workspace the user can write to, same currency."""
+    raw = (target_workspace_id or "").strip()
+    if not raw:
+        return None
+    try:
+        tid = int(raw)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid target workspace.") from None
+    if tid == inst.id:
+        return None
+    target = require_instance(db, user, tid, action="create")
+    if ws_currency(target) != ws_currency(inst):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Entries can only move between workspaces with the same currency ({ws_currency(inst)} → {ws_currency(target)}).",
+        )
+    return target
+
+
+def _finish_edit(
+    db: Session, user: User, inst: DatabaseInstance, kind: str, item_id: int, result: dict | None, target: DatabaseInstance | None
+) -> RedirectResponse:
+    if result is None:
+        return _entry_redirect(inst.id, msg=f"{kind}_not_found")
+    run_job(db, user, inst, f"update_{kind}", lambda: result)
+    if target is not None:
+        moved = instance_service.move_entry(inst.finance_db_path, target.finance_db_path, kind, item_id, deleted_by=user.id)
+        if moved:
+            run_job(db, user, target, f"update_{kind}", lambda: {**moved, "moved_from_workspace": inst.name})
+            return _entry_redirect(inst.id, msg="entry_moved")
+    return _entry_redirect(inst.id, msg="entry_updated")
+
+
+@app.post("/instances/{instance_id}/income/{item_id}/edit")
+def edit_income(
+    instance_id: int,
+    item_id: int,
+    request: Request,
+    nome: str = Form(...),
+    valor: str = Form(...),
+    recurrence: str = Form("monthly"),
+    start_date: str = Form(""),
+    end_date: str = Form(""),
+    ended: str = Form(""),
+    target_workspace_id: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    inst = require_instance(db, user, instance_id, action="edit")
+    target = _resolve_move_target(db, user, inst, target_workspace_id)
+    try:
+        amount = numeric_input.parse_positive_decimal(valor)
+        result = instance_service.update_income(
+            inst.finance_db_path, item_id, nome=nome, valor=amount, recurrence=recurrence,
+            start_date=start_date, end_date=end_date, ended=bool(ended),
+        )
+    except ValueError as exc:
+        return _entry_redirect(instance_id, err=_err_code(exc))
+    return _finish_edit(db, user, inst, "income", item_id, result, target)
+
+
+@app.post("/instances/{instance_id}/expense/{item_id}/edit")
+def edit_expense(
+    instance_id: int,
+    item_id: int,
+    request: Request,
+    nome: str = Form(...),
+    valor: str = Form(...),
+    recurrence: str = Form("monthly"),
+    category: str = Form("Other"),
+    start_date: str = Form(""),
+    end_date: str = Form(""),
+    expense_type: str = Form(""),
+    ended: str = Form(""),
+    target_workspace_id: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    inst = require_instance(db, user, instance_id, action="edit")
+    target = _resolve_move_target(db, user, inst, target_workspace_id)
+    try:
+        amount = numeric_input.parse_positive_decimal(valor)
+        result = instance_service.update_expense(
+            inst.finance_db_path, item_id, nome=nome, valor=amount, recurrence=recurrence, category=category,
+            start_date=start_date, end_date=end_date, expense_type=expense_type, ended=bool(ended),
+        )
+    except ValueError as exc:
+        return _entry_redirect(instance_id, err=_err_code(exc))
+    return _finish_edit(db, user, inst, "expense", item_id, result, target)
+
+
+@app.post("/instances/{instance_id}/oneoff/{item_id}/edit")
+def edit_oneoff(
+    instance_id: int,
+    item_id: int,
+    request: Request,
+    data: str = Form(...),
+    nome: str = Form(...),
+    valor: str = Form(...),
+    txn_type: str = Form("expense"),
+    category: str | None = Form(None),
+    expense_type: str = Form(""),
+    target_workspace_id: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    inst = require_instance(db, user, instance_id, action="edit")
+    target = _resolve_move_target(db, user, inst, target_workspace_id)
+    try:
+        amount = numeric_input.parse_positive_decimal(valor)
+        result = instance_service.update_oneoff(
+            inst.finance_db_path, item_id, data=data, nome=nome, valor=amount, txn_type=txn_type,
+            category=category, expense_type=expense_type,
+        )
+    except ValueError as exc:
+        return _entry_redirect(instance_id, err=_err_code(exc))
+    return _finish_edit(db, user, inst, "oneoff", item_id, result, target)
 
 
 @app.post("/instances/{instance_id}/income/{item_id}/delete")
 def delete_income(instance_id: int, item_id: int, request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
-    inst = require_instance(db, user, instance_id)
+    inst = require_instance(db, user, instance_id, action="delete")
     deleted = instance_service.delete_income(inst.finance_db_path, item_id)
     if not deleted:
         return RedirectResponse(f"/instances/{instance_id}?msg=income_not_found", status_code=302)
@@ -1535,7 +1793,7 @@ def delete_income(instance_id: int, item_id: int, request: Request, db: Session 
 @app.post("/instances/{instance_id}/expense/{item_id}/delete")
 def delete_expense(instance_id: int, item_id: int, request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
-    inst = require_instance(db, user, instance_id)
+    inst = require_instance(db, user, instance_id, action="delete")
     deleted = instance_service.delete_expense(inst.finance_db_path, item_id)
     if not deleted:
         return RedirectResponse(f"/instances/{instance_id}?msg=expense_not_found", status_code=302)
@@ -1546,7 +1804,7 @@ def delete_expense(instance_id: int, item_id: int, request: Request, db: Session
 @app.post("/instances/{instance_id}/oneoff/{item_id}/delete")
 def delete_oneoff(instance_id: int, item_id: int, request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
-    inst = require_instance(db, user, instance_id)
+    inst = require_instance(db, user, instance_id, action="delete")
     run_job(db, user, inst, "delete_oneoff", lambda: {"deleted": instance_service.delete_oneoff(inst.finance_db_path, item_id)})
     return RedirectResponse(f"/instances/{instance_id}?msg=transaction_deleted", status_code=302)
 
@@ -1556,7 +1814,7 @@ def add_absence(instance_id: int, request: Request, data: str = Form(...), modul
     user = require_user(request, db)
     if not user.enable_iefp_mode:
         raise HTTPException(status_code=403)
-    inst = require_instance(db, user, instance_id)
+    inst = require_instance(db, user, instance_id, action="create")
     run_job(db, user, inst, "add_absence", lambda: instance_service.add_absence(inst.logic_db_path, data, modulo, horas, observacao))
     return RedirectResponse(f"/instances/{instance_id}", status_code=302)
 
@@ -1895,7 +2153,7 @@ def eom_summary_current_pdf(
     now = datetime.utcnow()
     summary = eom_summary_service.build_live_preview(db, inst, user)
     is_preview = bool(summary.get("is_preview"))
-    cur, rates, fx_at = pdf_currency_context(display_currency)
+    cur, rates, fx_at = pdf_currency_context(display_currency, ws_currency(inst))
     try:
         pdf_bytes = eom_summary_pdf.build_eom_summary_pdf(
             workspace_name=inst.name,
@@ -1910,12 +2168,8 @@ def eom_summary_current_pdf(
             status_code=503,
             detail="PDF export needs optional packages: pip install reportlab",
         ) from exc
-    fname = f"eom-preview-{now.strftime('%Y-%m')}.pdf"
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
-    )
+    fname = export_naming.workspace_filename(inst, "EOM-Preview", "pdf", month=now.strftime("%Y-%m"))
+    return download_response(pdf_bytes, "application/pdf", fname)
 
 
 @app.get("/eom-summary/{year}/{month}/pdf")
@@ -1943,7 +2197,7 @@ def eom_summary_month_pdf(
             db, inst, user, month_str=monthly_snapshot_service.parts_to_month_str(year, month)
         )
         is_preview = is_current or bool(preview)
-    cur, rates, fx_at = pdf_currency_context(display_currency)
+    cur, rates, fx_at = pdf_currency_context(display_currency, ws_currency(inst))
     try:
         pdf_bytes = eom_summary_pdf.build_eom_summary_pdf(
             workspace_name=inst.name,
@@ -1955,22 +2209,17 @@ def eom_summary_month_pdf(
         )
     except ImportError as exc:
         raise HTTPException(status_code=503, detail="PDF export needs optional packages: pip install reportlab") from exc
-    tag = "preview" if is_preview else "summary"
-    fname = f"eom-{tag}-{year:04d}-{month:02d}.pdf"
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
-    )
+    tag = "EOM-Preview" if is_preview else "EOM-Summary"
+    fname = export_naming.workspace_filename(inst, tag, "pdf", month=f"{year:04d}-{month:02d}")
+    return download_response(pdf_bytes, "application/pdf", fname)
 
 
 @app.get("/wishlist", response_class=HTMLResponse)
 def wishlist_page(request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
-    instances = workspace_service.list_user_workspaces(db, user)
-    primary = instances[0] if instances else None
+    instances, primary = workspace_service.resolve_active_workspace(db, user, request)
     now_m = datetime.utcnow().strftime("%Y-%m")
-    mt = _user_month_totals(user, instances, now_m)
+    mt = _user_month_totals(user, [primary] if primary else [], now_m)
     safe_default = dashboard_metrics.safe_to_spend_amount(mt.get("current_month_savings", 0), dashboard_metrics.SAFE_TO_SPEND_DEFAULT_PCT)
     items = wishlist_service.list_items(db, user.id)
     items_view = []
@@ -2025,7 +2274,8 @@ def api_expenses_panel(request: Request, db: Session = Depends(get_db)):
     user = current_user(request, db)
     if not user:
         return JSONResponse({"error": "auth_required"}, status_code=401)
-    instances = workspace_service.list_user_workspaces(db, user)
+    _all, active = workspace_service.resolve_active_workspace(db, user, request)
+    instances = [active] if active else []
     now_m = datetime.utcnow().strftime("%Y-%m")
     month_rows = [
         instance_service.month_summary(
@@ -2307,7 +2557,7 @@ async def savings_calculator_pdf(instance_id: int, request: Request, db: Session
     inst = require_instance(db, user, instance_id)
     body = await request.json()
     result = emergency_fund_service.compute(body or {})
-    cur, rates, fx_at = pdf_currency_context(body.get("display_currency"))
+    cur, rates, fx_at = pdf_currency_context(body.get("display_currency"), ws_currency(inst))
     try:
         pdf_bytes = savings_pdf.build_savings_calculator_pdf(
             workspace_name=inst.name,
@@ -2323,11 +2573,8 @@ async def savings_calculator_pdf(instance_id: int, request: Request, db: Session
     except Exception as exc:
         log.exception("savings pdf failed")
         raise HTTPException(status_code=500, detail="PDF generation failed") from exc
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="webable-emergency-fund-{instance_id}.pdf"'},
-    )
+    fname = export_naming.workspace_filename(inst, "Emergency-Fund", "pdf")
+    return download_response(pdf_bytes, "application/pdf", fname)
 
 
 @app.post("/instances/{instance_id}/bank-statements/upload")
@@ -2340,7 +2587,7 @@ async def bank_statement_upload(
     bank_name: str | None = Form(None),
 ):
     user = require_user(request, db)
-    inst = require_instance(db, user, instance_id)
+    inst = require_instance(db, user, instance_id, action="create")
     if not file.filename or not str(file.filename).lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF uploads are allowed.")
     content = await file.read()
@@ -2363,20 +2610,21 @@ async def bank_statement_upload(
 @app.get("/instances/{instance_id}/bank-statements/{statement_id}/file")
 def bank_statement_download(instance_id: int, statement_id: int, request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
-    require_instance(db, user, instance_id)
+    inst = require_instance(db, user, instance_id)
     row = bank_statement_service.get_owned(db, user.id, statement_id)
     if not row or row.instance_id != instance_id:
         raise HTTPException(status_code=404)
     path = ROOT / row.storage_rel_path
     if not path.is_file():
         raise HTTPException(status_code=404, detail="File missing")
-    return FileResponse(path, filename=row.original_filename, media_type="application/pdf")
+    fname = export_naming.workspace_filename(inst, "Bank-Statement", "pdf", month=row.statement_month)
+    return FileResponse(path, filename=fname, media_type="application/pdf")
 
 
 @app.delete("/instances/{instance_id}/bank-statements/{statement_id}")
 def bank_statement_delete(instance_id: int, statement_id: int, request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
-    require_instance(db, user, instance_id)
+    require_instance(db, user, instance_id, action="delete")
     row = bank_statement_service.get_owned(db, user.id, statement_id)
     if not row or row.instance_id != instance_id:
         raise HTTPException(status_code=404)
@@ -2413,19 +2661,19 @@ def export_transactions_csv(instance_id: int, request: Request, db: Session = De
     items = instance_service.list_finance_items(inst.finance_db_path)
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["type", "id", "date", "name", "amount", "category", "txn_type"])
+    cur = ws_currency(inst)
+    w.writerow(["type", "id", "date", "name", "amount", "category", "txn_type", "currency"])
     for i in items["incomes"]:
-        w.writerow(["recurring_income", i["id"], "", i["name"], i["amount"], "", "income"])
+        w.writerow(["recurring_income", i["id"], "", i["name"], i["amount"], "", "income", cur])
     for i in items["expenses"]:
-        w.writerow(["recurring_expense", i["id"], "", i["name"], i["amount"], "", "expense"])
+        w.writerow(["recurring_expense", i["id"], "", i["name"], i["amount"], "", "expense", cur])
     for t in items["oneoffs"]:
-        w.writerow(["oneoff", t["id"], t["date"], t["name"], t["amount"], t["category"], t["txn_type"]])
+        w.writerow(["oneoff", t["id"], t["date"], t["name"], t["amount"], t["category"], t["txn_type"], cur])
     data = buf.getvalue().encode("utf-8")
-    return Response(
-        content=data,
-        media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="webable-transactions-{instance_id}.csv"'},
-    )
+    dates = sorted(str(t["date"])[:10] for t in items["oneoffs"] if t.get("date"))
+    period = {"start": dates[0], "end": dates[-1]} if dates else {}
+    fname = export_naming.workspace_filename(inst, "Transactions", "csv", **period)
+    return download_response(data, "text/csv", fname)
 
 
 @app.get("/instances/{instance_id}/export/transactions.json")
@@ -2437,9 +2685,11 @@ def export_transactions_json(instance_id: int, request: Request, db: Session = D
         "exported_at": datetime.utcnow().isoformat() + "Z",
         "workspace": inst.name,
         "workspace_id": inst.id,
+        "currency": ws_currency(inst),
         "data": items,
     }
-    return JSONResponse(payload)
+    fname = export_naming.workspace_filename(inst, "Transactions", "json")
+    return download_response(json.dumps(payload, indent=2, default=str).encode("utf-8"), "application/json", fname)
 
 
 @app.get("/instances/{instance_id}/transactions/search")
@@ -2486,7 +2736,7 @@ def budget_upsert(
     monthly_limit_eur: str = Form(...),
 ):
     user = require_user(request, db)
-    inst = require_instance(db, user, instance_id)
+    inst = require_instance(db, user, instance_id, action="write")
     cat = (category or "").strip()
     if cat not in instance_service.ONEOFF_CATEGORIES:
         raise HTTPException(status_code=400, detail="Invalid category")
@@ -2533,21 +2783,21 @@ def edit_savings_deposit(
     data: str = Form(...),
     valor: str = Form(...),
     nome: str = Form(""),
+    target_workspace_id: str = Form(""),
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
-    inst = require_instance(db, user, instance_id, action="write")
+    inst = require_instance(db, user, instance_id, action="edit")
+    target = _resolve_move_target(db, user, inst, target_workspace_id)
     try:
         amount = numeric_input.parse_positive_decimal(valor)
-    except ValueError:
-        return RedirectResponse(f"/instances/{instance_id}?err=invalid_amount#workspace-data", status_code=302)
+        day = instance_service.parse_iso_date(data, required=True)
+    except ValueError as exc:
+        return _entry_redirect(instance_id, err=_err_code(exc))
     result = instance_service.update_savings_deposit(
-        inst.finance_db_path, item_id, data=data, valor=amount, nome=nome
+        inst.finance_db_path, item_id, data=day, valor=amount, nome=(nome or "").strip() or "Savings deposit"
     )
-    if not result:
-        return RedirectResponse(f"/instances/{instance_id}?msg=savings_not_found#workspace-data", status_code=302)
-    run_job(db, user, inst, "update_savings", lambda: result)
-    return RedirectResponse(f"/instances/{instance_id}?msg=savings_updated#workspace-data", status_code=302)
+    return _finish_edit(db, user, inst, "savings", item_id, result, target)
 
 
 @app.post("/workspaces/{workspace_id}/switch")
@@ -2568,15 +2818,15 @@ def workspace_members_page(workspace_id: int, request: Request, db: Session = De
         db.query(WorkspaceMember, User)
         .join(User, User.id == WorkspaceMember.user_id)
         .filter(WorkspaceMember.workspace_id == workspace_id)
+        .order_by(WorkspaceMember.created_at.asc())
         .all()
     )
-    pending_invites = (
+    pending_invites = workspace_service.pending_invites_for_workspace(db, workspace_id)
+    recent_invites = (
         db.query(WorkspaceInvite)
-        .filter(
-            WorkspaceInvite.workspace_id == workspace_id,
-            WorkspaceInvite.accepted_at.is_(None),
-        )
+        .filter(WorkspaceInvite.workspace_id == workspace_id, WorkspaceInvite.status != "pending")
         .order_by(WorkspaceInvite.created_at.desc())
+        .limit(10)
         .all()
     )
     instances = workspace_service.list_user_workspaces(db, user)
@@ -2589,41 +2839,140 @@ def workspace_members_page(workspace_id: int, request: Request, db: Session = De
             "instance": inst,
             "instances": instances,
             "workspace_for_nav": inst,
-            "nav_active": None,
+            "nav_active": "members",
             "show_back_to_dashboard": True,
             "members": [{"member": m, "user": u} for m, u in members],
             "pending_invites": pending_invites,
+            "recent_invites": recent_invites,
             "workspace_role": membership.role,
+            "is_owner": inst.owner_id == user.id,
             "can_invite": workspace_service.role_allows(membership.role, "invite"),
             "can_manage": workspace_service.role_allows(membership.role, "remove_member"),
+            "msg": request.query_params.get("msg", ""),
+            "err": request.query_params.get("err", ""),
         },
     )
+
+
+def _members_redirect(workspace_id: int, *, msg: str = "", err: str = "") -> RedirectResponse:
+    from urllib.parse import urlencode
+
+    q = urlencode({k: v for k, v in (("msg", msg), ("err", err)) if v})
+    return RedirectResponse(f"/workspaces/{workspace_id}/members" + (f"?{q}" if q else ""), status_code=302)
 
 
 @app.post("/workspaces/{workspace_id}/invite")
 def workspace_invite(
     workspace_id: int,
     request: Request,
-    email: str = Form(...),
+    username: str = Form(...),
     role: str = Form("member"),
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
-    workspace_service.require_workspace(db, user, workspace_id, "invite")
-    invite = workspace_service.create_invite(db, workspace_id, email, role, user.id)
+    workspace_service.require_workspace(db, user, workspace_id, "invite")  # 403/404 for unauthorized callers
+    try:
+        invite = workspace_service.create_username_invite(db, workspace_id, username, role, user)
+    except HTTPException as exc:
+        db.rollback()
+        return _members_redirect(workspace_id, err=str(exc.detail))
     db.commit()
-    db.refresh(invite)
-    return RedirectResponse(
-        f"/workspaces/{workspace_id}/members?msg=invite_created&token={invite.token}",
-        status_code=302,
-    )
+    return _members_redirect(workspace_id, msg=f"Invitation sent to {invite.email}.")
+
+
+@app.post("/workspaces/{workspace_id}/invites/{invite_id}/cancel")
+def workspace_invite_cancel(workspace_id: int, invite_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    workspace_service.require_workspace(db, user, workspace_id, "invite")
+    try:
+        workspace_service.cancel_invite(db, user, workspace_id, invite_id)
+    except HTTPException as exc:
+        db.rollback()
+        return _members_redirect(workspace_id, err=str(exc.detail))
+    db.commit()
+    return _members_redirect(workspace_id, msg="Invitation cancelled.")
 
 
 @app.post("/workspaces/{workspace_id}/members/{member_user_id}/remove")
 def workspace_remove_member(workspace_id: int, member_user_id: int, request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
-    workspace_service.remove_member(db, workspace_id, member_user_id, user)
-    return RedirectResponse(f"/workspaces/{workspace_id}/members?msg=member_removed", status_code=302)
+    workspace_service.require_workspace(db, user, workspace_id, "remove_member")
+    try:
+        workspace_service.remove_member(db, workspace_id, member_user_id, user)
+    except HTTPException as exc:
+        db.rollback()
+        return _members_redirect(workspace_id, err=str(exc.detail))
+    return _members_redirect(workspace_id, msg="Member removed.")
+
+
+@app.post("/workspaces/{workspace_id}/leave")
+def workspace_leave(workspace_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    try:
+        workspace_service.leave_workspace(db, user, workspace_id)
+    except HTTPException as exc:
+        db.rollback()
+        return _members_redirect(workspace_id, err=str(exc.detail))
+    resp = RedirectResponse("/dashboard", status_code=302)
+    resp.delete_cookie(workspace_service.ACTIVE_WORKSPACE_COOKIE)
+    return resp
+
+
+@app.get("/api/users/search")
+def api_users_search(request: Request, q: str = "", db: Session = Depends(get_db)):
+    user = current_user(request, db)
+    if not user:
+        return JSONResponse({"error": "auth_required"}, status_code=401)
+    return JSONResponse({"usernames": workspace_service.search_usernames(db, user, q)})
+
+
+@app.get("/api/notifications")
+def api_notifications(request: Request, db: Session = Depends(get_db)):
+    user = current_user(request, db)
+    if not user:
+        return JSONResponse({"error": "auth_required"}, status_code=401)
+    rows = notification_service.list_for_user(db, user)
+    return JSONResponse(
+        {
+            "unread": notification_service.unread_count(db, user),
+            "items": [notification_service.serialize(db, r) for r in rows],
+        }
+    )
+
+
+@app.post("/api/notifications/{notification_id}/read")
+def api_notification_read(notification_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    if not notification_service.mark_read(db, user, notification_id):
+        return JSONResponse({"ok": False}, status_code=404)
+    db.commit()
+    return JSONResponse({"ok": True, "unread": notification_service.unread_count(db, user)})
+
+
+@app.post("/api/notifications/read-all")
+def api_notifications_read_all(request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    notification_service.mark_all_read(db, user)
+    db.commit()
+    return JSONResponse({"ok": True, "unread": 0})
+
+
+@app.post("/api/invites/{invite_id}/{decision}")
+def api_invite_respond(invite_id: int, decision: str, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    if decision not in ("accept", "decline"):
+        raise HTTPException(status_code=404)
+    try:
+        inst = workspace_service.respond_to_invite(db, user, invite_id, accept=decision == "accept")
+    except HTTPException as exc:
+        db.commit()  # persist status changes such as expiry
+        return JSONResponse({"ok": False, "error": str(exc.detail)}, status_code=exc.status_code)
+    db.commit()
+    body = {"ok": True, "decision": decision, "unread": notification_service.unread_count(db, user)}
+    if decision == "accept":
+        body["workspace_id"] = inst.id
+        body["redirect"] = f"/instances/{inst.id}"
+    return JSONResponse(body)
 
 
 @app.get("/invite/{token}", response_class=HTMLResponse)
@@ -2691,13 +3040,8 @@ def export_workspace_zip(
     zip_bytes = workspace_export_service.build_export_zip(
         db, inst, include_deleted_records=include_deleted
     )
-    safe_name = slugify(inst.name) or "workspace"
-    fname = f"webable-{safe_name}-{datetime.utcnow().strftime('%Y%m%d')}.zip"
-    return Response(
-        content=zip_bytes,
-        media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
-    )
+    fname = export_naming.workspace_filename(inst, "Workspace-Backup", "zip")
+    return download_response(zip_bytes, "application/zip", fname)
 
 
 @app.post("/instances/{instance_id}/import/validate")

@@ -9,11 +9,18 @@ For each month index t = 0 .. horizon_months-1:
     positive); otherwise the latest earlier month with positive estimated savings
     (so the horizon still gets monthly contributions, not a hard stop at the chart length).
 
-Contribution timing (beginning of month)
-----------------------------------------
-Each month:
-    balance += contribution
-    balance *= (1 + monthly_rate)
+Contribution timing
+-------------------
+Beginning of month (default for the projection-linked view):
+    balance = (balance + contribution) * (1 + monthly_rate)
+End of month:
+    balance = balance * (1 + monthly_rate) + contribution
+
+Contributions vs. growth
+------------------------
+total_contributed = initial amount + every monthly deposit
+compound_growth   = balance - total_contributed      (may be negative for negative returns)
+Intermediate values are never rounded; rounding happens only for display/summary output.
 
 Monthly rate from stated annual return (percent, e.g. 8 for 8%)
 --------------------------------------------------------------
@@ -35,14 +42,77 @@ def add_calendar_months(ym: str, delta: int) -> str:
     return d.strftime("%Y-%m")
 
 
+MIN_ANNUAL_RATE_PCT = -50.0
+MAX_ANNUAL_RATE_PCT = 50.0
+
+
+def clamp_annual_rate(annual_rate_pct: float) -> float:
+    try:
+        v = float(annual_rate_pct)
+    except (TypeError, ValueError):
+        return 0.0
+    if v != v:
+        return 0.0
+    return max(MIN_ANNUAL_RATE_PCT, min(MAX_ANNUAL_RATE_PCT, v))
+
+
 def monthly_rate_from_annual_percent(annual_rate_pct: float) -> float:
-    """Effective monthly rate: (1 + APR)^(1/12) - 1, APR = annual_rate_pct/100."""
+    """Effective monthly rate: (1 + APR)^(1/12) - 1, APR = annual_rate_pct/100 (effective annual)."""
     apr = float(annual_rate_pct) / 100.0
     if apr <= -1.0:
-        return 0.0
+        return -1.0
     if apr == 0.0:
         return 0.0
     return (1.0 + apr) ** (1.0 / 12.0) - 1.0
+
+
+def normalize_timing(timing: str | None, default: str = "end") -> str:
+    t = (timing or default).lower().strip()
+    return t if t in ("beginning", "end") else default
+
+
+def compound_growth_series(
+    *,
+    initial_amount: float,
+    contributions: list[float],
+    monthly_rate: float,
+    timing: str = "end",
+) -> list[dict]:
+    """
+    Core month-by-month engine shared by every projection.
+
+    `contributions[k]` is the deposit for month k+1. Returns one row per month with
+    unrounded floats: contribution, total_contributed, balance, growth.
+    """
+    timing = normalize_timing(timing)
+    balance = float(initial_amount)
+    contributed = float(initial_amount)
+    growth_factor = 1.0 + float(monthly_rate)
+    rows: list[dict] = []
+    for k, c in enumerate(contributions):
+        c = float(c)
+        if timing == "beginning":
+            balance = (balance + c) * growth_factor
+        else:
+            balance = balance * growth_factor + c
+        contributed += c
+        rows.append(
+            {
+                "month_index": k + 1,
+                "contribution": c,
+                "total_contributed": contributed,
+                "balance": balance,
+                "growth": balance - contributed,
+            }
+        )
+    return rows
+
+
+def reconciled_summary(total_contributed: float, balance: float) -> dict:
+    """Display rounding that guarantees contributions + growth == final balance (to the cent)."""
+    contrib = round(float(total_contributed), 2)
+    final = round(float(balance), 2)
+    return {"total_contributions": contrib, "compound_growth": round(final - contrib, 2), "final_balance": final}
 
 
 def tail_positive_monthly_savings(projection_rows: list[dict]) -> float:
@@ -104,16 +174,18 @@ def compound_investment_monthly_beginning(
     Standalone reference engine: beginning-of-month add, then grow.
     Returns (end_balance, total_contributions, interest_profit).
     """
-    i_m = monthly_rate_from_annual_percent(annual_rate_pct)
-    balance = float(starting_balance)
-    cum = 0.0
-    c = round(float(monthly_contribution), 2)
-    for _ in range(max(0, int(total_months))):
-        balance += c
-        balance *= 1.0 + i_m
-        cum = round(cum + c, 2)
+    n = max(0, int(total_months))
+    rows = compound_growth_series(
+        initial_amount=float(starting_balance),
+        contributions=[float(monthly_contribution)] * n,
+        monthly_rate=monthly_rate_from_annual_percent(annual_rate_pct),
+        timing="beginning",
+    )
+    balance = rows[-1]["balance"] if rows else float(starting_balance)
+    cum = float(monthly_contribution) * n
     end = round(balance, 2)
-    return end, cum, round(end - cum, 2)
+    cum_r = round(cum, 2)
+    return end, cum_r, round(end - cum_r, 2)
 
 
 def run_monthly_simulation(
@@ -121,10 +193,14 @@ def run_monthly_simulation(
     invest_pct: float,
     annual_rate_pct: float,
     horizon_years: float,
+    *,
+    initial_amount: float = 0.0,
+    contribution_timing: str = "beginning",
 ) -> dict:
     """
     Returns JSON-serializable dict: months, series arrays, summary, meta.
-    Monetary values rounded to 2 decimals for UI/PDF parity.
+    Series values are unrounded; summary values are rounded for display and reconcile
+    (cumulative contributed + compounded profit == final balance).
     """
     if not projection_rows:
         return {
@@ -134,8 +210,11 @@ def run_monthly_simulation(
         }
 
     pct = max(0.0, min(100.0, float(invest_pct)))
+    rate = clamp_annual_rate(annual_rate_pct)
+    initial = max(0.0, float(initial_amount or 0))
+    timing = normalize_timing(contribution_timing, "beginning")
     horizon_months = max(1, int(round(float(horizon_years) * 12)))
-    i_m = monthly_rate_from_annual_percent(annual_rate_pct)
+    i_m = monthly_rate_from_annual_percent(rate)
     n_proj = len(projection_rows)
     last_month = projection_rows[-1]["month"]
     last_acc = float(projection_rows[-1]["accumulated"])
@@ -145,15 +224,8 @@ def run_monthly_simulation(
     tail_sav = last_row_sav if last_row_sav > 0 else tail_positive_monthly_savings(projection_rows)
 
     months: list[str] = []
-    wealth: list[float | None] = []
-    investment_balance: list[float] = []
-    cumulative_contributed: list[float] = []
-    compounded_profit: list[float] = []
+    wealth: list[float] = []
     contributions: list[float] = []
-
-    balance = 0.0
-    cum_c = 0.0
-
     for t in range(horizon_months):
         if t < n_proj:
             ym = projection_rows[t]["month"]
@@ -163,65 +235,70 @@ def run_monthly_simulation(
             ym = add_calendar_months(last_month, t - (n_proj - 1))
             acc = last_acc
             sav = tail_sav
-
-        c = round((pct / 100.0) * sav, 2)
-        cum_c = round(cum_c + c, 2)
-        balance += c
-        balance *= 1.0 + i_m
-
         months.append(ym)
-        wealth.append(round(acc, 2) if t < n_proj else round(last_acc, 2))
-        contributions.append(c)
-        investment_balance.append(round(balance, 2))
-        cumulative_contributed.append(cum_c)
-        compounded_profit.append(round(balance - cum_c, 2))
+        wealth.append(acc)
+        contributions.append((pct / 100.0) * sav)
 
-    summary = SimulationSummary(
-        final_investment_balance=investment_balance[-1],
-        final_cumulative_contributed=cumulative_contributed[-1],
-        final_compounded_profit=compounded_profit[-1],
-        final_accumulated_wealth=last_acc,
+    engine_rows = compound_growth_series(
+        initial_amount=initial, contributions=contributions, monthly_rate=i_m, timing=timing
     )
+    final = engine_rows[-1]
+    rec = reconciled_summary(final["total_contributed"], final["balance"])
 
     return {
         "meta": {
             "invest_pct": pct,
-            "annual_rate_pct": float(annual_rate_pct),
+            "annual_rate_pct": rate,
             "horizon_years": float(horizon_years),
             "horizon_months": horizon_months,
             "effective_monthly_rate": round(i_m, 8),
             "projection_months": n_proj,
             "extended_monthly_savings_base": round(tail_sav, 2),
+            "initial_amount": initial,
+            "contribution_timing": timing,
+            "rate_convention": "effective_annual",
         },
         "summary": {
-            "final_investment_balance": summary.final_investment_balance,
-            "final_cumulative_contributed": summary.final_cumulative_contributed,
-            "final_compounded_profit": summary.final_compounded_profit,
-            "final_accumulated_wealth": summary.final_accumulated_wealth,
+            "initial_amount": round(initial, 2),
+            "final_investment_balance": rec["final_balance"],
+            "final_cumulative_contributed": rec["total_contributions"],
+            "final_compounded_profit": rec["compound_growth"],
+            "final_accumulated_wealth": last_acc,
         },
         "rows": [
             {
                 "month": months[k],
+                "month_index": k + 1,
                 "accumulated_wealth": wealth[k],
-                "contribution": contributions[k],
-                "cumulative_contributed": cumulative_contributed[k],
-                "investment_balance": investment_balance[k],
-                "compounded_profit": compounded_profit[k],
+                "contribution": engine_rows[k]["contribution"],
+                "cumulative_contributed": engine_rows[k]["total_contributed"],
+                "investment_balance": engine_rows[k]["balance"],
+                "compounded_profit": engine_rows[k]["growth"],
             }
             for k in range(len(months))
         ],
     }
 
 
-def effective_monthly_rate_from_compounding(annual_rate_pct: float, compounding_per_year: int) -> float:
-    """Per-month rate so 12 steps match (1 + APR/n)^n over one year."""
+def effective_monthly_rate_from_compounding(annual_rate_pct: float, compounding_per_year: int | None) -> float:
+    """
+    Per-month rate.
+
+    compounding_per_year falsy/0 -> the stated rate is an *effective annual* return:
+        (1 + APR)^(1/12) - 1
+    compounding_per_year = n    -> nominal APR compounded n times a year:
+        (1 + APR/n)^(n/12) - 1
+    """
+    if not compounding_per_year:
+        return monthly_rate_from_annual_percent(annual_rate_pct)
     n = max(1, int(compounding_per_year))
     apr = float(annual_rate_pct) / 100.0
-    if apr <= -1.0:
-        return 0.0
     if apr == 0.0:
         return 0.0
-    return (1.0 + apr / n) ** (n / 12.0) - 1.0
+    base = 1.0 + apr / n
+    if base <= 0.0:
+        return -1.0
+    return base ** (n / 12.0) - 1.0
 
 
 def run_investment_calculator(
@@ -230,65 +307,50 @@ def run_investment_calculator(
     monthly_contribution: float,
     annual_rate_pct: float,
     years: float,
-    compounding_per_year: int = 12,
+    compounding_per_year: int | None = 12,
     contribution_timing: str = "beginning",
 ) -> dict:
     """
-    Month-by-month balance with configurable compounding frequency and contribution timing.
-    Total contributions = initial_balance + sum of monthly contributions (each month).
+    Long-term projection: initial amount + fixed monthly deposits, compounded monthly.
+    Total contributions = initial_balance + sum of monthly contributions.
+    Compound growth = balance - total contributions.
     """
     months = max(1, int(round(float(years) * 12)))
-    r_m = effective_monthly_rate_from_compounding(annual_rate_pct, compounding_per_year)
-    timing = (contribution_timing or "beginning").lower()
-    if timing not in ("beginning", "end"):
-        timing = "beginning"
+    rate = clamp_annual_rate(annual_rate_pct)
+    n = int(compounding_per_year or 0)
+    r_m = effective_monthly_rate_from_compounding(rate, n)
+    timing = normalize_timing(contribution_timing, "beginning")
+    initial = max(0.0, float(initial_balance or 0))
+    c = max(0.0, float(monthly_contribution or 0))
 
-    balance = round(float(initial_balance), 2)
-    cum_deposits = round(float(initial_balance), 2)
-    c = round(float(monthly_contribution), 2)
-    balances: list[float] = []
-    contributions_series: list[float] = []
-    cumulative_series: list[float] = []
-    interest_series: list[float] = []
-
-    for _ in range(months):
-        if timing == "beginning":
-            balance += c
-            cum_deposits = round(cum_deposits + c, 2)
-            balance *= 1.0 + r_m
-        else:
-            balance *= 1.0 + r_m
-            balance += c
-            cum_deposits = round(cum_deposits + c, 2)
-        balances.append(round(balance, 2))
-        contributions_series.append(c)
-        cumulative_series.append(round(cum_deposits, 2))
-        interest_series.append(round(balance - cum_deposits, 2))
-
-    final_b = balances[-1] if balances else round(balance, 2)
-    profit = round(final_b - cum_deposits, 2)
-    labels = [f"M{i+1}" for i in range(len(balances))]
+    rows = compound_growth_series(initial_amount=initial, contributions=[c] * months, monthly_rate=r_m, timing=timing)
+    final = rows[-1]
+    rec = reconciled_summary(final["total_contributed"], final["balance"])
 
     return {
         "meta": {
             "months": months,
-            "annual_rate_pct": float(annual_rate_pct),
-            "compounding_per_year": int(compounding_per_year),
+            "annual_rate_pct": rate,
+            "compounding_per_year": n,
+            "rate_convention": "effective_annual" if n == 0 else f"nominal_compounded_{n}x",
             "effective_monthly_rate": round(r_m, 8),
             "contribution_timing": timing,
         },
         "summary": {
-            "final_balance": final_b,
-            "total_contributions": cum_deposits,
-            "total_interest_profit": profit,
-            "monthly_contribution": c,
-            "initial_balance": round(float(initial_balance), 2),
+            "final_balance": rec["final_balance"],
+            "total_contributions": rec["total_contributions"],
+            "total_interest_profit": rec["compound_growth"],
+            "compound_growth": rec["compound_growth"],
+            "monthly_contribution": round(c, 2),
+            "initial_balance": round(initial, 2),
+            "months": months,
         },
         "series": {
-            "labels": labels,
-            "balance": balances,
-            "monthly_contribution": contributions_series,
-            "cumulative_contributed": cumulative_series,
-            "interest_earned": interest_series,
+            "labels": [f"Month {r['month_index']}" for r in rows],
+            "month_index": [r["month_index"] for r in rows],
+            "balance": [r["balance"] for r in rows],
+            "monthly_contribution": [r["contribution"] for r in rows],
+            "cumulative_contributed": [r["total_contributed"] for r in rows],
+            "interest_earned": [r["growth"] for r in rows],
         },
     }

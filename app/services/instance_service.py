@@ -1,3 +1,4 @@
+import math
 import sqlite3
 from pathlib import Path
 from datetime import datetime
@@ -85,6 +86,81 @@ def _ensure_savings_schema(conn):
     conn.commit()
 
 
+EXPENSE_TYPES = ("fixed", "variable")
+RECURRENCES = ("daily", "weekly", "monthly", "yearly")
+
+
+def _ensure_entry_metadata_schema(conn):
+    """Additive columns for editable recurring windows and fixed/variable classification."""
+    cur = conn.cursor()
+    for table in ("rendimentos", "gastos"):
+        cur.execute(f"PRAGMA table_info({table})")
+        cols = {row[1] for row in cur.fetchall()}
+        if "start_date" not in cols:
+            cur.execute(f"ALTER TABLE {table} ADD COLUMN start_date TEXT")
+        if "end_date" not in cols:
+            cur.execute(f"ALTER TABLE {table} ADD COLUMN end_date TEXT")
+    for table in ("gastos", "transacoes_unicas"):
+        cur.execute(f"PRAGMA table_info({table})")
+        cols = {row[1] for row in cur.fetchall()}
+        if "expense_type" not in cols:
+            # NULL = not classified yet; never guessed.
+            cur.execute(f"ALTER TABLE {table} ADD COLUMN expense_type TEXT")
+    conn.commit()
+
+
+def _ensure_all(conn):
+    _ensure_oneoff_schema(conn)
+    _ensure_recurring_recurrence(conn)
+    _ensure_savings_schema(conn)
+    _ensure_entry_metadata_schema(conn)
+
+
+def parse_iso_date(value: str | None, *, required: bool = False) -> str | None:
+    """Validate a YYYY-MM-DD string. Empty -> None unless required."""
+    raw = (value or "").strip()
+    if not raw:
+        if required:
+            raise ValueError("Date is required.")
+        return None
+    try:
+        return datetime.strptime(raw[:10], "%Y-%m-%d").strftime("%Y-%m-%d")
+    except ValueError as exc:
+        raise ValueError("Invalid date; expected YYYY-MM-DD.") from exc
+
+
+def normalize_recurrence(recurrence: str | None) -> str:
+    rec = (recurrence or "monthly").lower().strip()
+    return rec if rec in RECURRENCES else "monthly"
+
+
+def normalize_expense_type(value: str | None) -> str | None:
+    v = (value or "").strip().lower()
+    return v if v in EXPENSE_TYPES else None
+
+
+def validate_date_window(start_date: str | None, end_date: str | None) -> tuple[str | None, str | None]:
+    s = parse_iso_date(start_date)
+    e = parse_iso_date(end_date)
+    if s and e and e < s:
+        raise ValueError("End date must be on or after the start date.")
+    return s, e
+
+
+def recurring_active_in_month(item: dict, month: str) -> bool:
+    """A recurring entry counts in YYYY-MM unless ended or outside its start/end window."""
+    if item.get("ended"):
+        return False
+    m = str(month)[:7]
+    start = item.get("start_date")
+    end = item.get("end_date")
+    if start and str(start)[:7] > m:
+        return False
+    if end and str(end)[:7] < m:
+        return False
+    return True
+
+
 def _savings_active_clause(include_deleted: bool = False) -> str:
     return "" if include_deleted else " AND deleted_at IS NULL"
 
@@ -104,9 +180,7 @@ def init_finance_db(path: str):
             txn_type TEXT NOT NULL DEFAULT 'expense'
         )"""
     )
-    _ensure_oneoff_schema(conn)
-    _ensure_recurring_recurrence(conn)
-    _ensure_savings_schema(conn)
+    _ensure_all(conn)
     conn.commit()
     conn.close()
 
@@ -128,36 +202,198 @@ def instance_paths(root: Path, user_id: int, instance_id: int, slug: str):
     return str(finance), str(logic)
 
 
-def add_income(finance_db: str, nome: str, valor: float, recurrence: str = "monthly"):
-    rec = (recurrence or "monthly").lower().strip()
-    if rec not in ("daily", "weekly", "monthly", "yearly"):
-        rec = "monthly"
+def add_income(
+    finance_db: str,
+    nome: str,
+    valor: float,
+    recurrence: str = "monthly",
+    start_date: str | None = None,
+    end_date: str | None = None,
+):
+    rec = normalize_recurrence(recurrence)
+    start, end = validate_date_window(start_date, end_date)
     conn = _conn(finance_db)
-    _ensure_recurring_recurrence(conn)
-    cur = conn.cursor()
-    cur.execute("INSERT INTO rendimentos (nome, valor, ativo, recurrence, ended) VALUES (?, ?, 1, ?, 0)", (nome, valor, rec))
-    conn.commit()
-    row_id = cur.lastrowid
-    conn.close()
-    return {"id": row_id, "entry": nome, "amount": valor, "recurrence": rec}
-
-
-def add_expense(finance_db: str, nome: str, valor: float, recurrence: str = "monthly", category: str | None = None):
-    rec = (recurrence or "monthly").lower().strip()
-    if rec not in ("daily", "weekly", "monthly", "yearly"):
-        rec = "monthly"
-    cat = normalize_oneoff_category(category)
-    conn = _conn(finance_db)
-    _ensure_recurring_recurrence(conn)
+    _ensure_all(conn)
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO gastos (nome, valor, ativo, recurrence, ended, category) VALUES (?, ?, 1, ?, 0, ?)",
-        (nome, valor, rec, cat),
+        "INSERT INTO rendimentos (nome, valor, ativo, recurrence, ended, start_date, end_date) VALUES (?, ?, 1, ?, 0, ?, ?)",
+        (nome, valor, rec, start, end),
     )
     conn.commit()
     row_id = cur.lastrowid
     conn.close()
-    return {"id": row_id, "entry": nome, "amount": valor, "recurrence": rec, "category": cat}
+    return {"id": row_id, "entry": nome, "amount": valor, "recurrence": rec, "start_date": start, "end_date": end}
+
+
+def add_expense(
+    finance_db: str,
+    nome: str,
+    valor: float,
+    recurrence: str = "monthly",
+    category: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    expense_type: str | None = None,
+):
+    rec = normalize_recurrence(recurrence)
+    cat = normalize_oneoff_category(category)
+    start, end = validate_date_window(start_date, end_date)
+    etype = normalize_expense_type(expense_type)
+    conn = _conn(finance_db)
+    _ensure_all(conn)
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO gastos (nome, valor, ativo, recurrence, ended, category, start_date, end_date, expense_type) "
+        "VALUES (?, ?, 1, ?, 0, ?, ?, ?, ?)",
+        (nome, valor, rec, cat, start, end, etype),
+    )
+    conn.commit()
+    row_id = cur.lastrowid
+    conn.close()
+    return {
+        "id": row_id,
+        "entry": nome,
+        "amount": valor,
+        "recurrence": rec,
+        "category": cat,
+        "start_date": start,
+        "end_date": end,
+        "expense_type": etype,
+    }
+
+
+def _require_name(nome: str | None) -> str:
+    n = (nome or "").strip()
+    if not n:
+        raise ValueError("Name is required.")
+    return n[:200]
+
+
+def _require_amount(valor: float) -> float:
+    v = float(valor)
+    if not math.isfinite(v) or v <= 0:
+        raise ValueError("Amount must be greater than zero.")
+    return v
+
+
+def update_income(
+    finance_db: str,
+    item_id: int,
+    *,
+    nome: str,
+    valor: float,
+    recurrence: str = "monthly",
+    start_date: str | None = None,
+    end_date: str | None = None,
+    ended: bool = False,
+):
+    """Edit a recurring income in place (same row id). Returns None if missing."""
+    name = _require_name(nome)
+    amount = _require_amount(valor)
+    rec = normalize_recurrence(recurrence)
+    start, end = validate_date_window(start_date, end_date)
+    conn = _conn(finance_db)
+    _ensure_all(conn)
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM rendimentos WHERE id = ? AND ativo = 1", (item_id,))
+    if not cur.fetchone():
+        conn.close()
+        return None
+    cur.execute(
+        "UPDATE rendimentos SET nome = ?, valor = ?, recurrence = ?, start_date = ?, end_date = ?, ended = ? WHERE id = ?",
+        (name, amount, rec, start, end, 1 if ended else 0, item_id),
+    )
+    conn.commit()
+    conn.close()
+    return {"id": item_id, "entry": name, "amount": amount, "recurrence": rec, "start_date": start, "end_date": end, "ended": bool(ended)}
+
+
+def update_expense(
+    finance_db: str,
+    item_id: int,
+    *,
+    nome: str,
+    valor: float,
+    recurrence: str = "monthly",
+    category: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    expense_type: str | None = None,
+    ended: bool = False,
+):
+    """Edit a recurring expense in place (same row id). Returns None if missing."""
+    name = _require_name(nome)
+    amount = _require_amount(valor)
+    rec = normalize_recurrence(recurrence)
+    cat = normalize_oneoff_category(category)
+    start, end = validate_date_window(start_date, end_date)
+    etype = normalize_expense_type(expense_type)
+    conn = _conn(finance_db)
+    _ensure_all(conn)
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM gastos WHERE id = ? AND ativo = 1", (item_id,))
+    if not cur.fetchone():
+        conn.close()
+        return None
+    cur.execute(
+        "UPDATE gastos SET nome = ?, valor = ?, recurrence = ?, category = ?, start_date = ?, end_date = ?, "
+        "expense_type = ?, ended = ? WHERE id = ?",
+        (name, amount, rec, cat, start, end, etype, 1 if ended else 0, item_id),
+    )
+    conn.commit()
+    conn.close()
+    return {
+        "id": item_id,
+        "entry": name,
+        "amount": amount,
+        "recurrence": rec,
+        "category": cat,
+        "start_date": start,
+        "end_date": end,
+        "expense_type": etype,
+        "ended": bool(ended),
+    }
+
+
+def update_oneoff(
+    finance_db: str,
+    item_id: int,
+    *,
+    data: str,
+    nome: str,
+    valor: float,
+    txn_type: str = "expense",
+    category: str | None = None,
+    expense_type: str | None = None,
+):
+    """Edit a one-time transaction in place. Same category rules as add_oneoff."""
+    name = _require_name(nome)
+    amount = _require_amount(valor)
+    day = parse_iso_date(data, required=True)
+    tt = "income" if str(txn_type).lower() == "income" else "expense"
+    if tt == "expense":
+        c = (category or "").strip()
+        if c not in ONEOFF_CATEGORIES:
+            raise ValueError("Expense transactions require a valid category from the list.")
+        cat = c
+        etype = normalize_expense_type(expense_type)
+    else:
+        cat = normalize_oneoff_category(category)
+        etype = None
+    conn = _conn(finance_db)
+    _ensure_all(conn)
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM transacoes_unicas WHERE id = ?", (item_id,))
+    if not cur.fetchone():
+        conn.close()
+        return None
+    cur.execute(
+        "UPDATE transacoes_unicas SET data = ?, nome = ?, valor = ?, category = ?, txn_type = ?, expense_type = ? WHERE id = ?",
+        (day, name, amount, cat, tt, etype, item_id),
+    )
+    conn.commit()
+    conn.close()
+    return {"id": item_id, "date": day, "entry": name, "amount": amount, "category": cat, "txn_type": tt, "expense_type": etype}
 
 
 def add_savings_deposit(finance_db: str, data: str, valor: float, nome: str = ""):
@@ -260,10 +496,19 @@ def normalize_oneoff_category(category: str | None) -> str:
     return "Other"
 
 
-def add_oneoff(finance_db: str, data: str, nome: str, valor: float, txn_type: str = "expense", category: str | None = None):
+def add_oneoff(
+    finance_db: str,
+    data: str,
+    nome: str,
+    valor: float,
+    txn_type: str = "expense",
+    category: str | None = None,
+    expense_type: str | None = None,
+):
     tt = "income" if str(txn_type).lower() == "income" else "expense"
+    etype = normalize_expense_type(expense_type) if tt == "expense" else None
     conn = _conn(finance_db)
-    _ensure_oneoff_schema(conn)
+    _ensure_all(conn)
     cur = conn.cursor()
     if tt == "expense":
         c = (category or "").strip()
@@ -273,13 +518,13 @@ def add_oneoff(finance_db: str, data: str, nome: str, valor: float, txn_type: st
     else:
         cat = normalize_oneoff_category(category)
     cur.execute(
-        "INSERT INTO transacoes_unicas (data, nome, valor, category, txn_type) VALUES (?, ?, ?, ?, ?)",
-        (data, nome, float(valor), cat, tt),
+        "INSERT INTO transacoes_unicas (data, nome, valor, category, txn_type, expense_type) VALUES (?, ?, ?, ?, ?, ?)",
+        (data, nome, float(valor), cat, tt, etype),
     )
     conn.commit()
     row_id = cur.lastrowid
     conn.close()
-    return {"id": row_id, "date": data, "entry": nome, "amount": valor, "category": cat, "txn_type": tt}
+    return {"id": row_id, "date": data, "entry": nome, "amount": valor, "category": cat, "txn_type": tt, "expense_type": etype}
 
 
 def delete_income(finance_db: str, item_id: int):
@@ -313,6 +558,51 @@ def delete_oneoff(finance_db: str, item_id: int):
     conn.commit()
     conn.close()
     return row
+
+
+ENTRY_KINDS = ("income", "expense", "oneoff", "savings")
+
+
+def get_entry(finance_db: str, kind: str, item_id: int) -> dict | None:
+    items = list_finance_items(finance_db)
+    key = {"income": "incomes", "expense": "expenses", "oneoff": "oneoffs", "savings": "savings"}.get(kind)
+    if not key:
+        return None
+    return next((row for row in items[key] if int(row["id"]) == int(item_id)), None)
+
+
+def move_entry(src_db: str, dst_db: str, kind: str, item_id: int, *, deleted_by: int | None = None) -> dict | None:
+    """
+    Move one entry to another workspace file: insert the same fields in the target, then remove
+    it from the source. The record exists in exactly one workspace afterwards (no duplicates).
+    """
+    row = get_entry(src_db, kind, item_id)
+    if row is None:
+        return None
+    if kind == "income":
+        created = add_income(
+            dst_db, row["name"], row["amount"], recurrence=row.get("recurrence"),
+            start_date=row.get("start_date"), end_date=row.get("end_date"),
+        )
+        delete_income(src_db, item_id)
+    elif kind == "expense":
+        created = add_expense(
+            dst_db, row["name"], row["amount"], recurrence=row.get("recurrence"), category=row.get("category"),
+            start_date=row.get("start_date"), end_date=row.get("end_date"), expense_type=row.get("expense_type"),
+        )
+        delete_expense(src_db, item_id)
+    elif kind == "oneoff":
+        created = add_oneoff(
+            dst_db, row["date"], row["name"], row["amount"], txn_type=row.get("txn_type", "expense"),
+            category=row.get("category"), expense_type=row.get("expense_type"),
+        )
+        delete_oneoff(src_db, item_id)
+    elif kind == "savings":
+        created = add_savings_deposit(dst_db, row["date"], row["amount"], nome=row.get("name") or "")
+        delete_savings_deposit(src_db, item_id, deleted_by=deleted_by)
+    else:
+        return None
+    return {"moved_from_id": item_id, "kind": kind, "new": created}
 
 
 def add_absence(logic_db: str, data: str, modulo: str, horas: float, observacao: str = ""):
@@ -376,11 +666,11 @@ def oneoff_month_totals(finance_db: str, month: str) -> tuple[float, float]:
 
 def list_finance_items(finance_db: str, *, include_deleted_savings: bool = False):
     conn = _conn(finance_db)
-    _ensure_oneoff_schema(conn)
-    _ensure_recurring_recurrence(conn)
+    _ensure_all(conn)
     cur = conn.cursor()
     cur.execute(
-        "SELECT id, nome, valor, recurrence, COALESCE(ended,0), next_due FROM rendimentos WHERE ativo = 1 ORDER BY id"
+        "SELECT id, nome, valor, recurrence, COALESCE(ended,0), next_due, start_date, end_date "
+        "FROM rendimentos WHERE ativo = 1 ORDER BY id"
     )
     incomes = []
     for r in cur.fetchall():
@@ -389,34 +679,40 @@ def list_finance_items(finance_db: str, *, include_deleted_savings: bool = False
                 "id": r[0],
                 "name": r[1],
                 "amount": float(r[2]),
-                "recurrence": r[3] if len(r) > 3 and r[3] else "monthly",
-                "ended": bool(r[4]) if len(r) > 4 else False,
-                "next_due": r[5] if len(r) > 5 else None,
+                "recurrence": r[3] or "monthly",
+                "ended": bool(r[4]),
+                "next_due": r[5],
+                "start_date": r[6],
+                "end_date": r[7],
             }
         )
     cur.execute(
-        "SELECT id, nome, valor, recurrence, COALESCE(ended,0), next_due, category FROM gastos WHERE ativo = 1 ORDER BY id"
+        "SELECT id, nome, valor, recurrence, COALESCE(ended,0), next_due, category, start_date, end_date, expense_type "
+        "FROM gastos WHERE ativo = 1 ORDER BY id"
     )
     expenses = []
     for r in cur.fetchall():
-        cat = r[6] if len(r) > 6 and r[6] is not None else "Other"
+        cat = r[6] if r[6] is not None else "Other"
         expenses.append(
             {
                 "id": r[0],
                 "name": r[1],
                 "amount": float(r[2]),
-                "recurrence": r[3] if len(r) > 3 and r[3] else "monthly",
-                "ended": bool(r[4]) if len(r) > 4 else False,
-                "next_due": r[5] if len(r) > 5 else None,
+                "recurrence": r[3] or "monthly",
+                "ended": bool(r[4]),
+                "next_due": r[5],
                 "category": normalize_oneoff_category(cat),
+                "start_date": r[7],
+                "end_date": r[8],
+                "expense_type": normalize_expense_type(r[9]),
             }
         )
-    cur.execute("SELECT id, data, nome, valor, category, txn_type FROM transacoes_unicas ORDER BY data, id")
+    cur.execute("SELECT id, data, nome, valor, category, txn_type, expense_type FROM transacoes_unicas ORDER BY data, id")
     oneoffs = []
     for r in cur.fetchall():
         oid, d, nome, valor = r[0], r[1], r[2], float(r[3])
-        cat = r[4] if len(r) > 4 and r[4] is not None else "Other"
-        tt = r[5] if len(r) > 5 and r[5] is not None else "expense"
+        cat = r[4] if r[4] is not None else "Other"
+        tt = r[5] if r[5] is not None else "expense"
         cat = normalize_oneoff_category(cat)
         oneoffs.append(
             {
@@ -426,6 +722,7 @@ def list_finance_items(finance_db: str, *, include_deleted_savings: bool = False
                 "amount": valor,
                 "category": cat,
                 "txn_type": tt,
+                "expense_type": normalize_expense_type(r[6]),
             }
         )
     _ensure_savings_schema(conn)
@@ -471,8 +768,8 @@ def _calc_iefp(logic_db: str, month: str):
 def month_summary(finance_db: str, logic_db: str, month: str, include_iefp: bool = False):
     items = list_finance_items(finance_db)
     iefp = _calc_iefp(logic_db, month) if include_iefp else 0.0
-    extras = sum(i["amount"] for i in items["incomes"] if not i.get("ended"))
-    gastos = sum(i["amount"] for i in items["expenses"] if not i.get("ended"))
+    extras = sum(i["amount"] for i in items["incomes"] if recurring_active_in_month(i, month))
+    gastos = sum(i["amount"] for i in items["expenses"] if recurring_active_in_month(i, month))
     oneoff_inc, oneoff_exp = oneoff_month_totals(finance_db, month)
     oneoff_net = round(oneoff_inc - oneoff_exp, 2)
     unicas = oneoff_net

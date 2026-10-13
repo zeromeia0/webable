@@ -22,9 +22,31 @@
       <form method="post" action="/logout"><button type="submit" class="px-4 py-2 rounded-lg bg-slate-800 border border-slate-700 text-sm hover:bg-slate-700">Logout</button></form>
     </header>
 
+    {% set _warn_msgs = ['oneoff_category_required', 'income_not_found', 'expense_not_found', 'oneoff_not_found', 'savings_not_found'] %}
     {% if msg %}
-    <div class="{% if msg == 'oneoff_category_required' %}bg-amber-500/10 border border-amber-500/40 text-amber-100{% else %}bg-emerald-500/10 border border-emerald-500/30 text-emerald-200{% endif %} rounded-xl p-3 text-sm">
-      {% if msg == 'oneoff_category_required' %}Expense transactions require a category. Please choose one from the list.{% elif msg == 'expense_deleted' %}Expense deleted successfully. Your monthly summary has been updated.{% elif msg == 'income_deleted' %}Income deleted successfully. Your monthly summary has been updated.{% elif msg == 'income_not_found' %}Income entry was already removed.{% elif msg == 'expense_not_found' %}Expense entry was already removed.{% else %}Transaction deleted successfully. Your monthly summary has been updated.{% endif %}
+    <div role="status" class="{% if msg in _warn_msgs %}bg-amber-500/10 border border-amber-500/40 text-amber-100{% else %}bg-emerald-500/10 border border-emerald-500/30 text-emerald-200{% endif %} rounded-xl p-3 text-sm">
+      {% if msg == 'oneoff_category_required' %}Expense transactions require a category. Please choose one from the list.
+      {% elif msg == 'expense_deleted' %}Expense deleted successfully. Your monthly summary has been updated.
+      {% elif msg == 'income_deleted' %}Income deleted successfully. Your monthly summary has been updated.
+      {% elif msg == 'income_not_found' %}Income entry was already removed.
+      {% elif msg == 'expense_not_found' %}Expense entry was already removed.
+      {% elif msg == 'oneoff_not_found' %}That one-time transaction no longer exists.
+      {% elif msg == 'savings_not_found' %}That savings deposit no longer exists.
+      {% elif msg == 'entry_updated' %}Entry updated. Totals, projections and category breakdowns now use the new values.
+      {% elif msg == 'entry_moved' %}Entry updated and moved to the selected workspace.
+      {% elif msg == 'savings_updated' %}Savings deposit updated.
+      {% elif msg == 'savings_deleted' %}Savings deposit removed. Balances were recalculated.
+      {% else %}Transaction deleted successfully. Your monthly summary has been updated.{% endif %}
+    </div>
+    {% endif %}
+    {% if err %}
+    <div role="alert" class="bg-rose-500/10 border border-rose-500/40 text-rose-100 rounded-xl p-3 text-sm">
+      {% if err == 'invalid_amount' %}The amount must be a number greater than zero. Nothing was saved.
+      {% elif err == 'invalid_date' %}That date is not valid (expected YYYY-MM-DD). Nothing was saved.
+      {% elif err == 'invalid_date_range' %}The end date must be on or after the start date. Nothing was saved.
+      {% elif err == 'invalid_category' %}Expense transactions require a category from the list. Nothing was saved.
+      {% elif err == 'invalid_name' %}A name is required. Nothing was saved.
+      {% else %}The entry could not be saved. Please check the values.{% endif %}
     </div>
     {% endif %}
 
@@ -45,7 +67,7 @@
             <option value="{{ c }}">{{ c }}</option>
             {% endfor %}
           </select>
-          <input name="monthly_limit_eur" type="number" step="0.01" min="0" placeholder="Monthly limit (EUR base)" required class="w-full px-3 py-2 rounded bg-slate-800 border border-slate-700" />
+          <input name="monthly_limit_eur" type="number" step="0.01" min="0" placeholder="Monthly limit ({{ workspace_currency }})" required class="w-full px-3 py-2 rounded bg-slate-800 border border-slate-700" />
           <button type="submit" class="px-3 py-2 rounded bg-emerald-600 text-sm font-medium">Save budget</button>
         </form>
         <div class="space-y-3 text-sm">
@@ -91,11 +113,14 @@
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-4"><p class="text-xs text-slate-400">Last Updated</p><p class="font-semibold">{{ state_summary.updated }}</p></div>
     </div>
 
-    <section id="workspace-data" class="grid grid-cols-1 md:grid-cols-2 gap-4 scroll-mt-24 min-w-0">
+    {% if not can_write %}
+    <p class="rounded-xl border border-slate-700 bg-slate-900/60 p-3 text-sm text-slate-400">You have read-only access to this workspace.</p>
+    {% endif %}
+    <section id="workspace-data" class="{% if not can_write %}hidden {% endif %}grid grid-cols-1 md:grid-cols-2 gap-4 scroll-mt-24 min-w-0">
       <form method="post" action="/instances/{{ instance.id }}/income" class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2 min-w-0">
         <h3 class="font-semibold">Add income</h3>
         <input name="nome" placeholder="Name" required class="w-full px-3 py-2 rounded bg-slate-800" />
-        <input name="valor" placeholder="Amount (EUR / month)" type="number" step="0.01" required class="w-full px-3 py-2 rounded bg-slate-800" />
+        <input name="valor" placeholder="Amount ({{ workspace_currency }} / month)" type="number" step="0.01" min="0.01" required class="w-full px-3 py-2 rounded bg-slate-800" />
         <label class="text-xs text-slate-400 block">Recurrence
           <select name="recurrence" class="w-full mt-0.5 px-3 py-2 rounded bg-slate-800 border border-slate-700">
             <option value="monthly" selected>Monthly</option>
@@ -104,12 +129,18 @@
             <option value="yearly">Yearly</option>
           </select>
         </label>
+        <div class="grid grid-cols-2 gap-2">
+          <label class="text-xs text-slate-400 block">Start date <span class="text-slate-500">(optional)</span>
+            <input name="start_date" type="date" class="w-full mt-0.5 px-3 py-2 rounded bg-slate-800 border border-slate-700" /></label>
+          <label class="text-xs text-slate-400 block">End date <span class="text-slate-500">(optional)</span>
+            <input name="end_date" type="date" class="w-full mt-0.5 px-3 py-2 rounded bg-slate-800 border border-slate-700" /></label>
+        </div>
         <button class="px-3 py-2 rounded bg-indigo-500">Save</button>
       </form>
       <form method="post" action="/instances/{{ instance.id }}/expense" class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2 min-w-0">
         <h3 class="font-semibold">Add expense</h3>
         <input name="nome" placeholder="Name" required class="w-full min-w-0 px-3 py-2 rounded bg-slate-800 border border-slate-700" />
-        <input name="valor" placeholder="Amount (EUR / month)" type="number" step="0.01" required class="w-full min-w-0 px-3 py-2 rounded bg-slate-800 border border-slate-700" />
+        <input name="valor" placeholder="Amount ({{ workspace_currency }} / month)" type="number" step="0.01" min="0.01" required class="w-full min-w-0 px-3 py-2 rounded bg-slate-800 border border-slate-700" />
         <label class="text-xs text-slate-400 block">Category
           <select name="category" required class="w-full min-w-0 mt-0.5 px-3 py-2 rounded bg-slate-800 border border-slate-700">
             {% for c in oneoff_categories %}
@@ -125,6 +156,19 @@
             <option value="yearly">Yearly</option>
           </select>
         </label>
+        <label class="text-xs text-slate-400 block">Spending type
+          <select name="expense_type" class="w-full min-w-0 mt-0.5 px-3 py-2 rounded bg-slate-800 border border-slate-700">
+            <option value="">Not classified</option>
+            <option value="fixed">Fixed (rent, insurance…)</option>
+            <option value="variable">Variable (groceries, leisure…)</option>
+          </select>
+        </label>
+        <div class="grid grid-cols-2 gap-2">
+          <label class="text-xs text-slate-400 block">Start date <span class="text-slate-500">(optional)</span>
+            <input name="start_date" type="date" class="w-full min-w-0 mt-0.5 px-3 py-2 rounded bg-slate-800 border border-slate-700" /></label>
+          <label class="text-xs text-slate-400 block">End date <span class="text-slate-500">(optional)</span>
+            <input name="end_date" type="date" class="w-full min-w-0 mt-0.5 px-3 py-2 rounded bg-slate-800 border border-slate-700" /></label>
+        </div>
         <button type="submit" class="w-full sm:w-auto px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm font-medium">Save</button>
       </form>
       <form method="post" action="/instances/{{ instance.id }}/oneoff" id="oneoffForm" class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3 min-w-0">
@@ -144,6 +188,13 @@
             <option value="{{ c }}">{{ c }}</option>
             {% endfor %}
           </select>
+          <label class="text-xs text-slate-400 block">Spending type
+            <select name="expense_type" class="w-full mt-0.5 px-3 py-2 rounded bg-slate-800 border border-slate-700">
+              <option value="">Not classified</option>
+              <option value="fixed">Fixed</option>
+              <option value="variable">Variable</option>
+            </select>
+          </label>
         </div>
         <button type="submit" class="w-full sm:w-auto px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm font-medium">Save</button>
       </form>
@@ -152,7 +203,7 @@
         <p class="text-xs text-slate-500">Recorded separately from income and expenses.</p>
         <input name="data" type="date" required class="w-full min-w-0 px-3 py-2 rounded bg-slate-800 border border-slate-700" />
         <input name="nome" placeholder="Description (optional)" class="w-full min-w-0 px-3 py-2 rounded bg-slate-800 border border-slate-700" />
-        <input name="valor" placeholder="Amount (EUR)" type="number" step="0.01" min="0.01" required class="w-full min-w-0 px-3 py-2 rounded bg-slate-800 border border-slate-700" />
+        <input name="valor" placeholder="Amount ({{ workspace_currency }})" type="number" step="0.01" min="0.01" required class="w-full min-w-0 px-3 py-2 rounded bg-slate-800 border border-slate-700" />
         <button type="submit" class="w-full sm:w-auto px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm font-medium">Save savings</button>
       </form>
       <script>
@@ -344,8 +395,8 @@
       </div>
 
       <div class="border border-slate-800 rounded-xl p-4 space-y-4">
-        <h3 class="font-semibold text-lg">Compound growth</h3>
-        <p class="text-xs text-slate-400">Monthly rate = (1 + APR)<sup>1/12</sup> − 1. Each month: add contribution at the <strong class="text-slate-300">beginning</strong>, then apply growth. After the stored projection ends, contributions use the extended savings base (see investment calculator docs).</p>
+        <h3 class="font-semibold text-lg">Contributions vs. compound growth</h3>
+        <p class="text-xs text-slate-400">The violet area is money you deposit (initial amount + monthly contributions); the band above it is growth from compounding (red if returns are negative). The line on top of both is the projected balance. Hover a month to see each value.</p>
         <div class="relative w-full min-h-[260px] max-h-[380px] sm:max-h-[420px]">
           <canvas id="investmentGrowthChart"></canvas>
         </div>
@@ -354,14 +405,25 @@
       <div class="border border-amber-500/25 bg-amber-500/5 rounded-xl p-4 md:p-5 space-y-4">
         <h3 class="font-semibold text-lg text-amber-100">Investment assumptions</h3>
         <p class="text-xs text-slate-400">Contribution = your % of each month’s projected savings during the projection; after it ends, the same monthly amount continues using the <strong class="text-slate-300">last projected month’s savings</strong> (if positive) or the <strong class="text-slate-300">latest earlier positive</strong> month × your %. Chart, totals, and PDF use the same engine.</p>
-        <div class="grid sm:grid-cols-3 gap-4">
+        <div class="grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          <label class="block space-y-1.5">
+            <span class="text-xs text-slate-300">Initial amount ({{ workspace_currency }})</span>
+            <input type="number" id="invInitial" min="0" step="0.01" value="0" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-100" />
+          </label>
+          <label class="block space-y-1.5">
+            <span class="text-xs text-slate-300">Contribution timing</span>
+            <select id="invTiming" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-100">
+              <option value="beginning" selected>Beginning of month</option>
+              <option value="end">End of month</option>
+            </select>
+          </label>
           <label class="block space-y-1.5">
             <span class="text-xs text-slate-300">Invest % of monthly projected savings</span>
             <input type="number" id="invPct" min="0" max="100" step="1" value="15" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-100" />
           </label>
           <label class="block space-y-1.5">
             <span class="text-xs text-slate-300">Expected annual return (%)</span>
-            <input type="number" id="invAnnual" min="0" max="30" step="0.1" value="5" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-100" />
+            <input type="number" id="invAnnual" min="-50" max="50" step="0.1" value="5" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-100" />
           </label>
           <label class="block space-y-1.5">
             <span class="text-xs text-slate-300">Investment horizon (years)</span>
@@ -372,10 +434,12 @@
           <p class="text-xs text-emerald-200/90 uppercase tracking-wide">Final projected investment balance</p>
           <p id="invFinalAmount" class="text-2xl md:text-3xl font-bold text-emerald-300 mt-1 tabular-nums">—</p>
           <div id="invBreakdown" class="text-sm text-slate-300 space-y-1 mt-3 pt-3 border-t border-emerald-500/20">
-            <p><span class="text-slate-400">Total invested (contributions):</span> <span id="invTotalInvested" class="text-slate-100 font-medium">—</span></p>
-            <p><span class="text-slate-400">Compounded profit:</span> <span id="invProfit" class="text-slate-100 font-medium">—</span></p>
+            <p><span class="text-slate-400">Initial investment:</span> <span id="invInitialOut" class="text-slate-100 font-medium">—</span></p>
+            <p><span class="text-slate-400">Total contributions (incl. initial):</span> <span id="invTotalInvested" class="text-slate-100 font-medium">—</span></p>
+            <p><span class="text-slate-400">Compound growth:</span> <span id="invProfit" class="text-slate-100 font-medium">—</span></p>
           </div>
         </div>
+        <p id="invAssumptions" class="text-xs text-slate-500"></p>
       </div>
     </section>
     <script src="/static/js/webable-charts.js"></script>
@@ -390,20 +454,22 @@
         const invPct = document.getElementById('invPct');
         const invAnnual = document.getElementById('invAnnual');
         const invHorizon = document.getElementById('invHorizon');
+        const invInitial = document.getElementById('invInitial');
+        const invTiming = document.getElementById('invTiming');
         const invTotalInvested = document.getElementById('invTotalInvested');
         const invProfit = document.getElementById('invProfit');
+        const invInitialOut = document.getElementById('invInitialOut');
+        const invAssumptions = document.getElementById('invAssumptions');
         let chart;
         let debTimer;
         let abortCtl;
         let projectionTooltipRows = [];
-
         let lastInvPayload = null;
 
         function fmtMoney(n) {
           if (window.WebableCurrency && window.WebableCurrency.format) return window.WebableCurrency.format(n);
           return window.WebableCharts.fmtEUR(n);
         }
-
         function invYAxisTitle() {
           return (window.WebableCurrency && window.WebableCurrency.getCode) ? window.WebableCurrency.getCode() : 'EUR';
         }
@@ -414,23 +480,27 @@
           plugins: Object.assign({}, baseOpts.plugins, {
             legend: { labels: { color: '#cbd5e1', boxWidth: 12, padding: 10 } },
             tooltip: Object.assign({}, baseOpts.plugins.tooltip, {
+              filter: function (item) { return item.datasetIndex === 0; },
               callbacks: {
-                label: function (ctx) {
-                  const v = ctx.parsed.y;
-                  if (v == null || Number.isNaN(v)) return ctx.dataset.label + ': —';
-                  return ctx.dataset.label + ': ' + fmtMoney(v);
-                },
-                afterBody: function (items) {
+                title: function (items) {
                   const i = items[0] && items[0].dataIndex;
+                  const c = lastInvPayload && lastInvPayload.chart;
+                  if (!c) return '';
+                  return 'Month ' + (i + 1) + ' (' + c.months[i] + ')';
+                },
+                label: function (ctx) {
+                  const i = ctx.dataIndex;
+                  const c = lastInvPayload && lastInvPayload.chart;
+                  if (!c) return [];
+                  const lines = [
+                    'Total contributed: ' + fmtMoney(c.cumulative_contributed[i]),
+                    'Compound growth: ' + fmtMoney(c.compounded_profit[i]),
+                    'Projected balance: ' + fmtMoney(c.investment_balance[i]),
+                    'Total projected wealth: ' + fmtMoney(c.accumulated_wealth[i])
+                  ];
                   const pt = projectionTooltipRows[i];
-                  if (!pt) return [];
-                  if (pt.note) return [pt.note];
-                  const lines = [];
-                  if (pt.month) lines.push('Period: ' + pt.month);
-                  if (pt.projected_income != null) lines.push('Projected income (total in): ' + fmtMoney(pt.projected_income));
-                  if (pt.projected_expenses != null) lines.push('Projected expenses: ' + fmtMoney(pt.projected_expenses));
-                  if (pt.projected_savings != null) lines.push('Projected savings: ' + fmtMoney(pt.projected_savings));
-                  if (pt.net_result != null) lines.push('Net (savings): ' + fmtMoney(pt.net_result));
+                  if (pt && pt.note) lines.push(pt.note);
+                  else if (pt && pt.projected_savings != null) lines.push('Projected savings this month: ' + fmtMoney(pt.projected_savings));
                   return lines;
                 }
               }
@@ -445,19 +515,24 @@
           }
         });
 
-        function applySummary(sum) {
+        function applySummary(sum, meta) {
           if (!sum) return;
           finalEl.textContent = fmtMoney(sum.final_investment_balance || 0);
+          invInitialOut.textContent = fmtMoney(sum.initial_amount || 0);
           invTotalInvested.textContent = fmtMoney(sum.final_cumulative_contributed || 0);
           invProfit.textContent = fmtMoney(sum.final_compounded_profit || 0);
+          if (meta) {
+            invAssumptions.textContent = 'Assumptions: ' + meta.annual_rate_pct + '% effective annual return → monthly rate (1 + r)^(1/12) − 1 = ' +
+              (meta.effective_monthly_rate * 100).toFixed(4) + '%; contributions at the ' + meta.contribution_timing + ' of each month; ' +
+              meta.horizon_months + ' months. Estimates only — not guaranteed returns.';
+          }
         }
 
         function drawFromPayload(payload) {
           lastInvPayload = payload;
           projectionTooltipRows = payload.projection_tooltip || [];
           const c = payload.chart;
-          const sum = payload.summary;
-          applySummary(sum);
+          applySummary(payload.summary, payload.meta);
           if (chart) chart.destroy();
           chart = new Chart(canvas, {
             type: 'line',
@@ -465,47 +540,34 @@
               labels: c.months,
               datasets: [
                 {
-                  label: 'Total projected wealth',
-                  data: c.accumulated_wealth,
-                  borderColor: '#60a5fa',
-                  backgroundColor: 'rgba(96,165,250,0.08)',
-                  borderWidth: 2.2,
-                  tension: 0.35,
-                  cubicInterpolationMode: 'monotone',
-                  spanGaps: false,
-                  pointRadius: 0,
-                  pointHoverRadius: 5
-                },
-                {
-                  label: 'Investment balance (compounded)',
-                  data: c.investment_balance,
-                  borderColor: '#fbbf24',
-                  backgroundColor: 'rgba(251,191,36,0.08)',
-                  borderWidth: 2.4,
-                  tension: 0.35,
-                  cubicInterpolationMode: 'monotone',
-                  pointRadius: 0,
-                  pointHoverRadius: 5
-                },
-                {
-                  label: 'Cumulative invested',
+                  label: 'Total contributed',
                   data: c.cumulative_contributed,
                   borderColor: '#a78bfa',
-                  borderDash: [6, 4],
-                  borderWidth: 2,
-                  tension: 0.35,
-                  cubicInterpolationMode: 'monotone',
+                  backgroundColor: 'rgba(167,139,250,0.30)',
+                  fill: 'origin',
+                  borderWidth: 1.5,
+                  tension: 0.25,
                   pointRadius: 0,
                   pointHoverRadius: 4
                 },
                 {
-                  label: 'Compounded profit',
-                  data: c.compounded_profit,
+                  label: 'Projected balance (contributions + growth)',
+                  data: c.investment_balance,
                   borderColor: '#34d399',
-                  backgroundColor: 'rgba(52,211,153,0.06)',
-                  borderWidth: 2,
-                  tension: 0.35,
-                  cubicInterpolationMode: 'monotone',
+                  fill: { target: '-1', above: 'rgba(52,211,153,0.35)', below: 'rgba(248,113,113,0.35)' },
+                  borderWidth: 2.4,
+                  tension: 0.25,
+                  pointRadius: 0,
+                  pointHoverRadius: 5
+                },
+                {
+                  label: 'Total projected wealth',
+                  data: c.accumulated_wealth,
+                  borderColor: '#60a5fa',
+                  borderDash: [6, 4],
+                  fill: false,
+                  borderWidth: 1.6,
+                  tension: 0.25,
                   pointRadius: 0,
                   pointHoverRadius: 4
                 }
@@ -513,9 +575,6 @@
             },
             options: chartOpts
           });
-          if (chart.options.scales && chart.options.scales.y && chart.options.scales.y.title) {
-            chart.options.scales.y.title.text = invYAxisTitle();
-          }
           window.webableRefreshCharts = function () {
             if (!chart || !chart.options || !chart.options.scales || !chart.options.scales.y) return;
             chart.options.scales.y.ticks.callback = function (v) { return fmtMoney(v); };
@@ -531,7 +590,9 @@
             job_id: String(JOB_ID),
             invest_pct: String(invPct.value || 0),
             annual_rate: String(invAnnual.value || 0),
-            horizon_years: String(invHorizon.value || 1)
+            horizon_years: String(invHorizon.value || 1),
+            initial_amount: String(invInitial.value || 0),
+            contribution_timing: invTiming.value
           });
           try {
             const res = await fetch('/instances/' + INSTANCE_ID + '/investment-simulation?' + q.toString(), {
@@ -558,11 +619,13 @@
           invPct.addEventListener(ev, scheduleRefresh);
           invAnnual.addEventListener(ev, scheduleRefresh);
           invHorizon.addEventListener(ev, scheduleRefresh);
+          invInitial.addEventListener(ev, scheduleRefresh);
+          invTiming.addEventListener(ev, scheduleRefresh);
         });
         refreshChart();
 
         document.addEventListener('webable:currency', function () {
-          if (lastInvPayload && lastInvPayload.summary) applySummary(lastInvPayload.summary);
+          if (lastInvPayload && lastInvPayload.summary) applySummary(lastInvPayload.summary, lastInvPayload.meta);
           if (typeof window.webableRefreshCharts === 'function') window.webableRefreshCharts();
           if (window.WebableCurrency && window.WebableCurrency.scanMoney) window.WebableCurrency.scanMoney(document);
         });
@@ -575,6 +638,8 @@
             fd.append('invest_pct', String(invPct.value || 0));
             fd.append('annual_rate', String(invAnnual.value || 0));
             fd.append('horizon_years', String(invHorizon.value || 1));
+            fd.append('initial_amount', String(invInitial.value || 0));
+            fd.append('contribution_timing', invTiming.value);
             if (window.WebableCurrency && typeof window.WebableCurrency.getCode === 'function') {
               fd.append('display_currency', window.WebableCurrency.getCode());
             }
@@ -585,13 +650,7 @@
                 credentials: 'same-origin'
               });
               if (!res.ok) throw new Error('pdf failed');
-              const blob = await res.blob();
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = 'webable-projection-' + INSTANCE_ID + '.pdf';
-              a.click();
-              URL.revokeObjectURL(url);
+              await window.WebableDownload.save(res, 'Webable_Long-Term-Projection.pdf');
             } catch (e) {
               alert('Could not generate PDF. Check that you are logged in and dependencies are installed on the server.');
             }
@@ -605,19 +664,33 @@
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
         <h3 class="font-semibold mb-2">Income Entries</h3>
         {% for row in finance_items.incomes %}
-        <div class="flex items-center justify-between text-sm py-1 border-b border-slate-800">
-          <span>🟢 {{ row.name }} — <span data-eur="{{ row.amount }}">{{ row.amount }}</span>{% if row.recurrence %} <span class="text-[10px] text-slate-500">({{ row.recurrence }})</span>{% endif %}</span>
-          <button type="button" class="text-red-400 open-delete-modal" data-action="/instances/{{ instance.id }}/income/{{ row.id }}/delete" data-title="Delete {{ row.name }} - {{ row.amount }}?" data-text="This will remove it from your monthly income.">Delete</button>
+        <div class="flex flex-wrap items-center justify-between gap-2 text-sm py-1 border-b border-slate-800">
+          <span class="min-w-0">🟢 {{ row.name }} — <span data-eur="{{ row.amount }}">{{ row.amount }}</span>{% if row.recurrence %} <span class="text-[10px] text-slate-500">({{ row.recurrence }})</span>{% endif %}{% if row.start_date or row.end_date %} <span class="text-[10px] text-slate-500">{{ row.start_date or '…' }} → {{ row.end_date or '…' }}</span>{% endif %}{% if row.ended %} <span class="text-[10px] text-amber-400">ended</span>{% endif %}</span>
+          {% if can_write %}
+          <span class="flex gap-2 shrink-0">
+            <button type="button" class="text-sky-400 open-edit-entry" data-kind="income" data-entry='{{ row | tojson | forceescape }}'>Edit</button>
+            <button type="button" class="text-red-400 open-delete-modal" data-action="/instances/{{ instance.id }}/income/{{ row.id }}/delete" data-title="Delete {{ row.name }} - {{ row.amount }}?" data-text="This will remove it from your monthly income.">Delete</button>
+          </span>
+          {% endif %}
         </div>
+        {% else %}
+        <p class="text-slate-500 text-sm">No income entries yet.</p>
         {% endfor %}
       </div>
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
         <h3 class="font-semibold mb-2">Expense Entries</h3>
         {% for row in finance_items.expenses %}
         <div class="flex flex-wrap items-center justify-between gap-2 text-sm py-1 border-b border-slate-800">
-          <span class="min-w-0">🔴 {{ row.name }} — <span data-eur="{{ row.amount }}">{{ row.amount }}</span>{% if row.category %} <span class="text-[10px] text-slate-500">({{ row.category }})</span>{% endif %}{% if row.recurrence %} <span class="text-[10px] text-slate-500">({{ row.recurrence }})</span>{% endif %}</span>
-          <button type="button" class="text-red-400 open-delete-modal" data-action="/instances/{{ instance.id }}/expense/{{ row.id }}/delete" data-title="Delete {{ row.name }} - {{ row.amount }}?" data-text="This will remove it from your monthly expenses.">Delete</button>
+          <span class="min-w-0">🔴 {{ row.name }} — <span data-eur="{{ row.amount }}">{{ row.amount }}</span>{% if row.category %} <span class="text-[10px] text-slate-500">({{ row.category }})</span>{% endif %}{% if row.recurrence %} <span class="text-[10px] text-slate-500">({{ row.recurrence }})</span>{% endif %}{% if row.expense_type %} <span class="text-[10px] text-slate-400">· {{ row.expense_type }}</span>{% endif %}{% if row.start_date or row.end_date %} <span class="text-[10px] text-slate-500">{{ row.start_date or '…' }} → {{ row.end_date or '…' }}</span>{% endif %}{% if row.ended %} <span class="text-[10px] text-amber-400">ended</span>{% endif %}</span>
+          {% if can_write %}
+          <span class="flex gap-2 shrink-0">
+            <button type="button" class="text-sky-400 open-edit-entry" data-kind="expense" data-entry='{{ row | tojson | forceescape }}'>Edit</button>
+            <button type="button" class="text-red-400 open-delete-modal" data-action="/instances/{{ instance.id }}/expense/{{ row.id }}/delete" data-title="Delete {{ row.name }} - {{ row.amount }}?" data-text="This will remove it from your monthly expenses.">Delete</button>
+          </span>
+          {% endif %}
         </div>
+        {% else %}
+        <p class="text-slate-500 text-sm">No expense entries yet.</p>
         {% endfor %}
       </div>
       <div class="bg-slate-900 border border-emerald-900/40 rounded-xl p-4 min-w-0">
@@ -625,9 +698,9 @@
         {% for row in finance_items.savings | default([]) %}
         <div class="flex flex-wrap items-center justify-between gap-2 text-sm py-1 border-b border-slate-800">
           <span class="min-w-0">💰 {{ row.date }} — {{ row.name }} — <span data-eur="{{ row.amount }}">{{ row.amount }}</span></span>
-          {% if can_write | default(true) %}
+          {% if can_write %}
           <span class="flex gap-2 shrink-0">
-            <button type="button" class="text-sky-400 open-edit-savings" data-id="{{ row.id }}" data-date="{{ row.date }}" data-name="{{ row.name }}" data-amount="{{ row.amount }}">Edit</button>
+            <button type="button" class="text-sky-400 open-edit-entry" data-kind="savings" data-entry='{{ row | tojson | forceescape }}'>Edit</button>
             <button type="button" class="text-red-400 open-delete-modal" data-action="/instances/{{ instance.id }}/savings/{{ row.id }}/delete" data-title="Delete savings deposit?" data-text="Delete this savings deposit? This will restore the amount to available funds and recalculate all balances.">Delete</button>
           </span>
           {% endif %}
@@ -639,10 +712,17 @@
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 min-w-0 md:col-span-2 lg:col-span-1">
         <h3 class="font-semibold mb-2">One-Time Transactions</h3>
         {% for row in finance_items.oneoffs %}
-        <div class="flex items-center justify-between text-sm py-1 border-b border-slate-800">
-          <span>📅 {{ row.date }} — {{ row.name }} — <span class="text-slate-400">{{ row.txn_type|default('expense') }}</span> / {{ row.category|default('Other') }} — <span data-eur="{{ row.amount }}">{{ row.amount }}</span></span>
-          <button type="button" class="text-red-400 open-delete-modal" data-action="/instances/{{ instance.id }}/oneoff/{{ row.id }}/delete" data-title="Delete {{ row.name }} - {{ row.amount }}?" data-text="This will remove it from one-time transactions.">Delete</button>
+        <div class="flex flex-wrap items-center justify-between gap-2 text-sm py-1 border-b border-slate-800">
+          <span class="min-w-0">📅 {{ row.date }} — {{ row.name }} — <span class="text-slate-400">{{ row.txn_type|default('expense') }}</span> / {{ row.category|default('Other') }}{% if row.expense_type %} · {{ row.expense_type }}{% endif %} — <span data-eur="{{ row.amount }}">{{ row.amount }}</span></span>
+          {% if can_write %}
+          <span class="flex gap-2 shrink-0">
+            <button type="button" class="text-sky-400 open-edit-entry" data-kind="oneoff" data-entry='{{ row | tojson | forceescape }}'>Edit</button>
+            <button type="button" class="text-red-400 open-delete-modal" data-action="/instances/{{ instance.id }}/oneoff/{{ row.id }}/delete" data-title="Delete {{ row.name }} - {{ row.amount }}?" data-text="This will remove it from one-time transactions.">Delete</button>
+          </span>
+          {% endif %}
         </div>
+        {% else %}
+        <p class="text-slate-500 text-sm">No one-time transactions yet.</p>
         {% endfor %}
       </div>
     </section>
@@ -673,16 +753,56 @@
     </div>
   </div>
 
-  <div id="editSavingsModal" class="hidden fixed inset-0 bg-black/60 items-center justify-center p-4 z-50">
-    <div class="bg-slate-900 border border-slate-700 rounded-xl p-5 max-w-md w-full space-y-3">
-      <h3 class="text-lg font-semibold">Edit savings deposit</h3>
-      <form id="editSavingsForm" method="post" class="space-y-3">
-        <label class="block text-sm"><span class="text-slate-400">Date</span><input type="date" name="data" id="editSavingsDate" required class="mt-1 w-full px-3 py-2 rounded bg-slate-800 border border-slate-700" /></label>
-        <label class="block text-sm"><span class="text-slate-400">Name</span><input type="text" name="nome" id="editSavingsName" class="mt-1 w-full px-3 py-2 rounded bg-slate-800 border border-slate-700" /></label>
-        <label class="block text-sm"><span class="text-slate-400">Amount</span><input type="number" step="0.01" min="0.01" name="valor" id="editSavingsAmount" required class="mt-1 w-full px-3 py-2 rounded bg-slate-800 border border-slate-700" /></label>
-        <div class="flex justify-end gap-2">
-          <button type="button" onclick="closeEditSavingsModal()" class="px-3 py-2 rounded bg-slate-700">Cancel</button>
-          <button type="submit" class="px-3 py-2 rounded bg-emerald-600">Save</button>
+  <div id="editEntryModal" class="hidden fixed inset-0 bg-black/60 items-center justify-center p-4 z-50" role="dialog" aria-modal="true" aria-labelledby="editEntryTitle">
+    <div class="bg-slate-900 border border-slate-700 rounded-xl p-5 max-w-lg w-full space-y-3 max-h-[90vh] overflow-y-auto">
+      <h3 id="editEntryTitle" class="text-lg font-semibold">Edit entry</h3>
+      <form id="editEntryForm" method="post" class="space-y-3 text-sm">
+        <div data-f="txn_type" class="flex flex-wrap gap-4">
+          <label class="inline-flex items-center gap-2"><input type="radio" name="txn_type" value="expense" class="accent-rose-500" /> Expense</label>
+          <label class="inline-flex items-center gap-2"><input type="radio" name="txn_type" value="income" class="accent-emerald-500" /> Income</label>
+        </div>
+        <label data-f="data" class="block"><span class="text-slate-400">Date</span>
+          <input type="date" name="data" class="mt-1 w-full px-3 py-2 rounded bg-slate-800 border border-slate-700" /></label>
+        <label data-f="nome" class="block"><span class="text-slate-400">Name / description</span>
+          <input type="text" name="nome" maxlength="200" class="mt-1 w-full px-3 py-2 rounded bg-slate-800 border border-slate-700" /></label>
+        <label data-f="valor" class="block"><span class="text-slate-400">Amount ({{ workspace_currency }})</span>
+          <input type="number" step="0.01" min="0.01" name="valor" required class="mt-1 w-full px-3 py-2 rounded bg-slate-800 border border-slate-700" /></label>
+        <label data-f="category" class="block"><span class="text-slate-400">Category</span>
+          <select name="category" class="mt-1 w-full px-3 py-2 rounded bg-slate-800 border border-slate-700">
+            {% for c in oneoff_categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+          </select></label>
+        <label data-f="expense_type" class="block"><span class="text-slate-400">Spending type</span>
+          <select name="expense_type" class="mt-1 w-full px-3 py-2 rounded bg-slate-800 border border-slate-700">
+            <option value="">Not classified</option>
+            <option value="fixed">Fixed</option>
+            <option value="variable">Variable</option>
+          </select></label>
+        <label data-f="recurrence" class="block"><span class="text-slate-400">Frequency</span>
+          <select name="recurrence" class="mt-1 w-full px-3 py-2 rounded bg-slate-800 border border-slate-700">
+            <option value="monthly">Monthly</option>
+            <option value="weekly">Weekly</option>
+            <option value="daily">Daily</option>
+            <option value="yearly">Yearly</option>
+          </select></label>
+        <div data-f="window" class="grid grid-cols-2 gap-2">
+          <label class="block"><span class="text-slate-400">Start date</span>
+            <input type="date" name="start_date" class="mt-1 w-full px-3 py-2 rounded bg-slate-800 border border-slate-700" /></label>
+          <label class="block"><span class="text-slate-400">End date</span>
+            <input type="date" name="end_date" class="mt-1 w-full px-3 py-2 rounded bg-slate-800 border border-slate-700" /></label>
+        </div>
+        <label data-f="ended" class="inline-flex items-center gap-2"><input type="checkbox" name="ended" value="1" /> <span class="text-slate-300">Ended (excluded from current and future months)</span></label>
+        {% if move_targets %}
+        <label class="block"><span class="text-slate-400">Workspace</span>
+          <select name="target_workspace_id" class="mt-1 w-full px-3 py-2 rounded bg-slate-800 border border-slate-700">
+            <option value="">{{ instance.name }} (current)</option>
+            {% for w in move_targets %}<option value="{{ w.id }}">Move to {{ w.name }}</option>{% endfor %}
+          </select>
+          <span class="text-[11px] text-slate-500">Only workspaces with the same currency ({{ workspace_currency }}) are listed.</span></label>
+        {% endif %}
+        <p id="editEntryError" class="hidden text-rose-300 text-xs"></p>
+        <div class="flex justify-end gap-2 pt-1">
+          <button type="button" onclick="closeEditEntryModal()" class="px-3 py-2 rounded bg-slate-700">Cancel</button>
+          <button type="submit" class="px-3 py-2 rounded bg-indigo-600 hover:bg-indigo-500 font-medium">Save changes</button>
         </div>
       </form>
     </div>
@@ -709,24 +829,80 @@
       if (!trigger) return;
       openDeleteModal(trigger.dataset.action || '', trigger.dataset.title || 'Confirm deletion', trigger.dataset.text || 'This action cannot be undone.');
     });
-    function openEditSavingsModal(id, date, name, amount) {
-      document.getElementById('editSavingsForm').action = '/instances/{{ instance.id }}/savings/' + id + '/edit';
-      document.getElementById('editSavingsDate').value = date;
-      document.getElementById('editSavingsName').value = name;
-      document.getElementById('editSavingsAmount').value = amount;
-      var modal = document.getElementById('editSavingsModal');
+    var EDIT_FIELDS = {
+      income: ['nome', 'valor', 'recurrence', 'window', 'ended'],
+      expense: ['nome', 'valor', 'category', 'expense_type', 'recurrence', 'window', 'ended'],
+      oneoff: ['txn_type', 'data', 'nome', 'valor', 'category', 'expense_type'],
+      savings: ['data', 'nome', 'valor']
+    };
+    var EDIT_TITLES = { income: 'Edit income', expense: 'Edit expense', oneoff: 'Edit one-time transaction', savings: 'Edit savings deposit' };
+    function openEditEntryModal(kind, entry) {
+      var form = document.getElementById('editEntryForm');
+      var shown = EDIT_FIELDS[kind] || [];
+      form.reset();
+      form.action = '/instances/{{ instance.id }}/' + kind + '/' + entry.id + '/edit';
+      document.getElementById('editEntryTitle').textContent = EDIT_TITLES[kind] || 'Edit entry';
+      document.getElementById('editEntryError').classList.add('hidden');
+      form.querySelectorAll('[data-f]').forEach(function (el) {
+        var on = shown.indexOf(el.getAttribute('data-f')) >= 0;
+        el.classList.toggle('hidden', !on);
+        el.querySelectorAll('input,select').forEach(function (inp) { inp.disabled = !on; });
+      });
+      form.elements.nome.value = entry.name || '';
+      form.elements.valor.value = entry.amount != null ? entry.amount : '';
+      if (form.elements.data) form.elements.data.value = (entry.date || '').slice(0, 10);
+      form.elements.category.value = entry.category || 'Other';
+      form.elements.expense_type.value = entry.expense_type || '';
+      form.elements.recurrence.value = entry.recurrence || 'monthly';
+      form.elements.start_date.value = entry.start_date || '';
+      form.elements.end_date.value = entry.end_date || '';
+      form.elements.ended.checked = !!entry.ended;
+      form.querySelectorAll('input[name=txn_type]').forEach(function (r) { r.checked = r.value === (entry.txn_type || 'expense'); });
+      form.elements.data.required = shown.indexOf('data') >= 0;
+      form.elements.nome.required = kind !== 'savings';
+      syncEditTxnType();
+      var modal = document.getElementById('editEntryModal');
       modal.classList.remove('hidden');
       modal.classList.add('flex');
+      form.elements.nome.focus();
     }
-    function closeEditSavingsModal() {
-      var modal = document.getElementById('editSavingsModal');
+    function syncEditTxnType() {
+      var form = document.getElementById('editEntryForm');
+      var radio = form.querySelector('input[name=txn_type]:checked');
+      var txnVisible = !form.querySelector('[data-f=txn_type]').classList.contains('hidden');
+      if (!txnVisible || !radio) return;
+      var isIncome = radio.value === 'income';
+      ['category', 'expense_type'].forEach(function (f) {
+        var el = form.querySelector('[data-f=' + f + ']');
+        el.classList.toggle('opacity-50', isIncome);
+        el.querySelectorAll('select').forEach(function (s) { s.disabled = isIncome; });
+      });
+    }
+    function closeEditEntryModal() {
+      var modal = document.getElementById('editEntryModal');
       modal.classList.add('hidden');
       modal.classList.remove('flex');
     }
+    document.getElementById('editEntryForm').addEventListener('change', function (e) {
+      if (e.target && e.target.name === 'txn_type') syncEditTxnType();
+    });
+    document.getElementById('editEntryForm').addEventListener('submit', function (e) {
+      var form = e.currentTarget;
+      var err = document.getElementById('editEntryError');
+      var amt = parseFloat(form.elements.valor.value);
+      var msg = '';
+      if (!(amt > 0)) msg = 'Amount must be greater than zero.';
+      var s = form.elements.start_date, en = form.elements.end_date;
+      if (!msg && !s.disabled && s.value && en.value && en.value < s.value) msg = 'End date must be on or after the start date.';
+      if (msg) { e.preventDefault(); err.textContent = msg; err.classList.remove('hidden'); }
+    });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { closeEditEntryModal(); closeDeleteModal(); } });
     document.addEventListener('click', function (event) {
-      var trigger = event.target.closest('.open-edit-savings');
+      var trigger = event.target.closest('.open-edit-entry');
       if (!trigger) return;
-      openEditSavingsModal(trigger.dataset.id, trigger.dataset.date, trigger.dataset.name, trigger.dataset.amount);
+      var entry = {};
+      try { entry = JSON.parse(trigger.dataset.entry || '{}'); } catch (e) { return; }
+      openEditEntryModal(trigger.dataset.kind, entry);
     });
 
     (function () {
@@ -788,13 +964,7 @@
             credentials: 'same-origin'
           });
           if (!res.ok) throw new Error('pdf failed');
-          var blob = await res.blob();
-          var url = URL.createObjectURL(blob);
-          var a = document.createElement('a');
-          a.href = url;
-          a.download = 'webable-results-' + instanceId + '.pdf';
-          a.click();
-          URL.revokeObjectURL(url);
+          await window.WebableDownload.save(res, 'Webable_Results-Summary.pdf');
         } catch (e) {
           alert('Could not generate results PDF. Check that you are logged in and server dependencies are installed.');
         }

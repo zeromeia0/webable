@@ -1,4 +1,4 @@
-.PHONY: install run run-local ai ai-run ai-down ai-logs up down logs restart update ps config backup migrate safe-update up-image up-image-ai up-watchtower
+.PHONY: setup install run run-local ai ai-run ai-down ai-logs up down logs restart update ps config backup migrate safe-update up-image up-image-ai up-watchtower
 
 # --- Compose file sets (core vs optional AI) ---
 COMPOSE ?= docker compose
@@ -10,6 +10,10 @@ COMPOSE_IMAGE_AI := $(COMPOSE) -f docker-compose.image.yml -f docker-compose.ai.
 WEBABLE_VERSION ?= $(shell tr -d '\n\r' < VERSION 2>/dev/null || echo latest)
 
 # --- Default workflow (no AI downloads) ---
+
+# Linux: install Docker if needed, start Webable, wait until it's up
+setup:
+	bash scripts/webable-linux-setup.sh
 
 install:
 	bash scripts/webable-install.sh

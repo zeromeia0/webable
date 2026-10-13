@@ -15,6 +15,10 @@ from urllib.request import urlopen
 FRANKFURTER_URL = "https://api.frankfurter.app/latest?from=EUR&to=USD,GBP,BRL"
 REFRESH_INTERVAL_SEC = 8 * 3600
 SUPPORTED = ("EUR", "USD", "GBP", "BRL")
+CURRENCY_NAMES = {"EUR": "Euro", "USD": "US dollar", "GBP": "British pound", "BRL": "Brazilian real"}
+SYMBOLS = {"EUR": "€", "USD": "$", "GBP": "£", "BRL": "R$"}
+# Passed as fx "updated at" when a workspace's amounts are shown in their own (non-EUR) currency.
+NO_CONVERSION_MARKER = "workspace-currency"
 
 _lock = threading.Lock()
 _state: dict[str, Any] = {
@@ -156,13 +160,23 @@ def convert_from_eur(amount_eur: float, currency: str, rates: dict[str, float] |
 
 def format_money(amount_eur: float, currency: str, rates: dict[str, float] | None = None) -> str:
     c = normalize_currency(currency)
-    symbols = {"EUR": "€", "USD": "$", "GBP": "£", "BRL": "R$"}
-    sym = symbols.get(c, c + " ")
+    sym = SYMBOLS.get(c, c + " ")
     converted = convert_from_eur(amount_eur, c, rates)
     return f"{sym}{converted:,.2f}"
 
 
+def workspace_currency(code: str | None) -> str:
+    """Validated ISO 4217 base currency for a workspace (defaults to EUR)."""
+    return normalize_currency(code)
+
+
+def currency_options() -> list[dict[str, str]]:
+    return [{"code": c, "name": CURRENCY_NAMES[c], "symbol": SYMBOLS[c]} for c in SUPPORTED]
+
+
 def format_meta_line(currency: str, rates_updated_iso: str | None) -> str:
+    if rates_updated_iso == NO_CONVERSION_MARKER:
+        return f"Amounts in workspace currency: {normalize_currency(currency)} (no conversion applied)."
     when = rates_updated_iso or "—"
     return f"Display currency: {normalize_currency(currency)} (converted from EUR). FX rates as of: {when} UTC."
 

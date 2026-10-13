@@ -1,27 +1,39 @@
 /**
- * Global display currency (amounts stored as EUR). Rates from /api/currency/rates.
+ * Display currency. Amounts are stored in the active workspace's base currency
+ * (window.WEBABLE_BASE_CURRENCY, set by the top bar). EUR workspaces may optionally be
+ * displayed converted (rates from /api/currency/rates); other workspaces always display in
+ * their own currency — amounts are never converted or mixed across workspace currencies.
  */
 (function (global) {
   var STORAGE_KEY = 'webable_display_currency';
   var SYMBOLS = { EUR: '€', USD: '$', GBP: '£', BRL: 'R$' };
+
+  function baseCode() {
+    var b = String(global.WEBABLE_BASE_CURRENCY || 'EUR').toUpperCase();
+    return SYMBOLS[b] ? b : 'EUR';
+  }
   var ratesFromEur = { USD: 0, GBP: 0, BRL: 0 };
   var updatedAt = null;
   var usingFallback = false;
   var fetchError = null;
 
   function getCode() {
-    var c = (localStorage.getItem(STORAGE_KEY) || 'EUR').toUpperCase();
+    if (baseCode() !== 'EUR') return baseCode();
+    var c = 'EUR';
+    try { c = (localStorage.getItem(STORAGE_KEY) || 'EUR').toUpperCase(); } catch (e) { c = 'EUR'; }
     if (c !== 'EUR' && c !== 'USD' && c !== 'GBP' && c !== 'BRL') return 'EUR';
     return c;
   }
 
   function setCode(code) {
-    localStorage.setItem(STORAGE_KEY, (code || 'EUR').toUpperCase());
+    if (baseCode() !== 'EUR') return;
+    try { localStorage.setItem(STORAGE_KEY, (code || 'EUR').toUpperCase()); } catch (e) { /* ignore */ }
     document.dispatchEvent(new CustomEvent('webable:currency'));
   }
 
   function convertFromEur(eur, code) {
     var c = code || getCode();
+    if (c === baseCode()) return Number(eur);
     if (c === 'EUR') return Number(eur);
     var r = ratesFromEur[c];
     if (!r || r <= 0) return Number(eur);
@@ -86,6 +98,12 @@
   function initCurrencySelect() {
     var sel = document.getElementById('wbCurrencySelect');
     if (!sel) return;
+    if (baseCode() !== 'EUR') {
+      sel.value = baseCode();
+      sel.disabled = true;
+      sel.title = 'This workspace uses ' + baseCode() + '. Amounts are shown in the workspace currency.';
+      return;
+    }
     sel.value = getCode();
     sel.addEventListener('change', function () {
       setCode(sel.value);
@@ -118,6 +136,7 @@
 
   global.WebableCurrency = {
     getCode: getCode,
+    baseCode: baseCode,
     setCode: setCode,
     format: format,
     convertFromEur: convertFromEur,

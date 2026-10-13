@@ -17,7 +17,7 @@ from uuid import uuid4
 from sqlalchemy.orm import Session
 
 from app.models import CategoryBudget, DatabaseInstance, MonthlySnapshot, User
-from app.services import instance_service
+from app.services import currency_service, instance_service
 
 log = logging.getLogger(__name__)
 
@@ -124,6 +124,7 @@ def build_export_zip(
         "exported_at": datetime.utcnow().isoformat() + "Z",
         "workspace_id": inst.id,
         "workspace_name": inst.name,
+        "currency": getattr(inst, "currency", None) or "EUR",
         "mode": inst.mode,
         "tables": {
             "rendimentos": len(finance["rendimentos"]),
@@ -140,6 +141,7 @@ def build_export_zip(
 
     workspace_meta = {
         "name": inst.name,
+        "currency": getattr(inst, "currency", None) or "EUR",
         "mode": inst.mode,
         "original_workspace_id": inst.id,
     }
@@ -226,6 +228,7 @@ def validate_import_zip(data: bytes) -> dict[str, Any]:
             "workspace": workspace,
             "preview": {
                 "workspace_name": workspace.get("name") or manifest.get("workspace_name") or "Imported workspace",
+                "currency": currency_service.workspace_currency(workspace.get("currency") or manifest.get("currency")),
                 "accounts": 0,
                 "transactions": len(tables.get("transacoes_unicas") or []),
                 "categories": len(tables.get("category_budgets") or []),
@@ -285,6 +288,7 @@ def import_as_new_workspace(
             owner_id=user.id,
             name=str(ws_name).strip()[:120],
             mode=str(validated["workspace"].get("mode") or "general"),
+            currency=currency_service.workspace_currency(validated["preview"].get("currency")),
             finance_db_path=finance_path,
             logic_db_path=logic_path,
             last_sync_status="Imported successfully",
@@ -344,13 +348,12 @@ def import_as_new_workspace(
 def _insert_finance_rows(finance_path: str, tables: dict[str, list]) -> None:
     conn = sqlite3.connect(finance_path)
     cur = conn.cursor()
-    instance_service._ensure_oneoff_schema(conn)
-    instance_service._ensure_recurring_recurrence(conn)
-    instance_service._ensure_savings_schema(conn)
+    instance_service._ensure_all(conn)
 
     for row in tables.get("rendimentos") or []:
         cur.execute(
-            "INSERT INTO rendimentos (nome, valor, ativo, recurrence, ended, next_due) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO rendimentos (nome, valor, ativo, recurrence, ended, next_due, start_date, end_date) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 row.get("nome"),
                 float(row.get("valor") or 0),
@@ -358,12 +361,15 @@ def _insert_finance_rows(finance_path: str, tables: dict[str, list]) -> None:
                 row.get("recurrence") or "monthly",
                 row.get("ended", 0),
                 row.get("next_due"),
+                row.get("start_date"),
+                row.get("end_date"),
             ),
         )
 
     for row in tables.get("gastos") or []:
         cur.execute(
-            "INSERT INTO gastos (nome, valor, ativo, recurrence, ended, next_due, category) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO gastos (nome, valor, ativo, recurrence, ended, next_due, category, start_date, end_date, expense_type) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 row.get("nome"),
                 float(row.get("valor") or 0),
@@ -372,18 +378,22 @@ def _insert_finance_rows(finance_path: str, tables: dict[str, list]) -> None:
                 row.get("ended", 0),
                 row.get("next_due"),
                 row.get("category") or "Other",
+                row.get("start_date"),
+                row.get("end_date"),
+                instance_service.normalize_expense_type(row.get("expense_type")),
             ),
         )
 
     for row in tables.get("transacoes_unicas") or []:
         cur.execute(
-            "INSERT INTO transacoes_unicas (data, nome, valor, category, txn_type) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO transacoes_unicas (data, nome, valor, category, txn_type, expense_type) VALUES (?, ?, ?, ?, ?, ?)",
             (
                 row.get("data"),
                 row.get("nome"),
                 float(row.get("valor") or 0),
                 row.get("category") or "Other",
                 row.get("txn_type") or "expense",
+                instance_service.normalize_expense_type(row.get("expense_type")),
             ),
         )
 

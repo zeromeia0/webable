@@ -109,6 +109,28 @@ def migrate_app_schema(engine: "Engine") -> None:
             )
         if "last_activity_at" not in existing:
             conn.execute(text("ALTER TABLE database_instances ADD COLUMN last_activity_at DATETIME"))
+        if "currency" not in existing:
+            # Every workspace created before multi-currency support stored EUR amounts.
+            conn.execute(text("ALTER TABLE database_instances ADD COLUMN currency TEXT NOT NULL DEFAULT 'EUR'"))
+
+        if _table_exists(conn, "workspace_invites"):
+            invite_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(workspace_invites)")).fetchall()}
+            if "invitee_user_id" not in invite_cols:
+                conn.execute(text("ALTER TABLE workspace_invites ADD COLUMN invitee_user_id INTEGER REFERENCES users(id)"))
+            if "status" not in invite_cols:
+                conn.execute(text("ALTER TABLE workspace_invites ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'"))
+                conn.execute(text("UPDATE workspace_invites SET status = 'accepted' WHERE accepted_at IS NOT NULL"))
+            if "responded_at" not in invite_cols:
+                conn.execute(text("ALTER TABLE workspace_invites ADD COLUMN responded_at DATETIME"))
+                conn.execute(text("UPDATE workspace_invites SET responded_at = accepted_at WHERE accepted_at IS NOT NULL"))
+            # Legacy email invites: link to the account whose username matches the invited address.
+            conn.execute(
+                text(
+                    "UPDATE workspace_invites SET invitee_user_id = "
+                    "(SELECT u.id FROM users u WHERE lower(u.username) = lower(workspace_invites.email)) "
+                    "WHERE invitee_user_id IS NULL"
+                )
+            )
 
         job_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(job_runs)")).fetchall()}
         if "friendly_message" not in job_cols:
@@ -172,6 +194,7 @@ def migrate_workspace_sqlite(path: str | Path) -> None:
             instance_service._ensure_oneoff_schema(conn)
             instance_service._ensure_recurring_recurrence(conn)
             instance_service._ensure_savings_schema(conn)
+            instance_service._ensure_entry_metadata_schema(conn)
         conn.commit()
     finally:
         conn.close()
