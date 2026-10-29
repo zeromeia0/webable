@@ -9,7 +9,7 @@
 ; Read version from repo VERSION file at compile time via /DAppVersion= on command line,
 ; or default here:
 #ifndef AppVersion
-  #define AppVersion "1.0.0"
+  #define AppVersion "1.1.0"
 #endif
 
 [Setup]

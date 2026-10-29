@@ -2,18 +2,30 @@
 
 Welcome to Webable. Release notes for each version are listed here before every push to **main**.
 
-## Current release
+## Current release (1.1)
 
-- **Edit any entry:** income, expenses, savings deposits and one-time transactions now have an **Edit** button next to Delete. You can change the name, amount, category, date, frequency, start/end dates, fixed/variable type, or move the entry to another workspace. Totals, projections and charts update right away.
-- **Members by username:** invite other users by their **username** (no more e-mail links). They get an in-app notification and can **Accept** or **Decline**. All members work on the **same** workspace data. Owners can remove members, cancel pending invites and delete the workspace; members can view and edit data but cannot delete the workspace or remove the owner.
-- **Notification bell** in the top bar with an unread badge: invitations received, accepted or declined, and removal from a workspace. Notifications are kept after logout or refresh.
-- **Workspaces per currency:** pick a base currency (EUR, USD, GBP, BRL) when you create a workspace. Data, charts, reports and exports stay separate per workspace and are never converted or mixed. Existing workspaces keep EUR.
-- **Long-term projections:** charts now show **what you contribute** and **what compounding adds** as separate layers, with a per-month tooltip (total contributed, compound growth, projected balance) and a summary (initial investment, monthly contribution, total contributions, compound growth, final balance). Supports an initial amount, contributions at the start or end of the month, and 0% or negative returns. The rate rule is shown on screen.
-- **Dashboard spending breakdown:** expenses by category with amount, share and number of entries. Time ranges: this month, last month, 3 / 6 / 12 months, or all time. Click a category to see its entries. Also shows fixed vs variable spending (you mark expenses as fixed or variable yourself).
-- **Clearer download names:** every export is now named `Webable_<Workspace>-<Currency>_<Report>_<Period>.<ext>`, for example `Webable_Personal-EUR_Spending-Report_2026-07-12_to_2026-10-12.pdf`.
+- **Net worth:** new page to list what you own and what you owe, with your net worth, a breakdown of your assets and a history chart. Your **emergency fund** and **invested** amount count automatically.
+- **Savings reserved** on the dashboard now shows your emergency fund (edit it right on the card), with how many months of expenses it covers. The budget vs spend card was removed.
+- **Taxes:** create your taxes (a % and/or a fixed monthly amount) on the new Taxes page, then tick them on each income when you add or edit it. The database calculation shows income and savings **before and after tax**. Taxes can also be applied to investment gains.
+- **Reports:** the time range box now has a live chart that updates as you pick dates or drag the range. Recurring income and expenses are counted month by month, and the date range covers your whole history.
+- **Bank statements:** the month is read from the period printed in the PDF, so a statement issued in October is filed under September.
+- **Market Watch** rebuilt around **VWCE** (Vanguard FTSE All-World) instead of the S&P 500, plus Bitcoin and Ethereum: one large chart, ranges from 24h to all time, range high/low, 52-week range and a compare mode. Prices refresh every 15 minutes.
+- **Projection trend** in the database calculation shows the running total and the compounded value of your savings.
+- The sidebar is always a single column, and the compound savings chart was removed from Analysis.
+- Windows app: fixed market prices and exchange rates not loading on some PCs.
+
+## Previous release (1.0)
+
+- Edit any entry
+- Members by username
+- Notification bell
+- Workspaces per currency
+- Long-term projections
+- Dashboard spending breakdown
+- Clearer download names
 - Fixes: read-only (viewer) members can no longer add or delete entries through the server. Dashboard insights no longer add up workspaces that use different currencies.
 
-## Previous release
+## Older
 
 - Added import / export option
 - Added multi-user workspace sharing
