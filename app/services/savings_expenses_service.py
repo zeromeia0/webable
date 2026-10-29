@@ -88,10 +88,11 @@ def should_exclude_recurring_expense(name: str | None) -> bool:
     return map_recurring_expense_name(name) == ""
 
 
-def summarize_saved_expenses(finance_db: str, month: str | None = None) -> dict[str, Any]:
+def summarize_saved_expenses(finance_db: str, month: str | None = None, *, skip_linked: bool = False) -> dict[str, Any]:
     """
     Build monthly essential expense snapshot from workspace finance DB (EUR).
     Includes active recurring expenses (normalized to monthly) and expense one-offs in `month`.
+    ``skip_linked`` ignores rows a shared workspace mirrors from members' workspaces.
     """
     from datetime import datetime
 
@@ -102,7 +103,7 @@ def summarize_saved_expenses(finance_db: str, month: str | None = None) -> dict[
 
     items = list_finance_items(finance_db)
     for exp in items.get("expenses") or []:
-        if exp.get("ended"):
+        if exp.get("ended") or (skip_linked and exp.get("linked_source")):
             continue
         name = str(exp.get("name") or "")
         if should_exclude_recurring_expense(name):

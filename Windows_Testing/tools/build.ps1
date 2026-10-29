@@ -48,6 +48,7 @@ Write-Host "==> Installing dependencies..."
 
 Write-Host "==> Generating icon..."
 & $py assets\generate_icon.py
+if ($LASTEXITCODE -ne 0) { throw "Icon generation failed" }
 
 $version = Get-AppVersion
 Write-Host "==> Version: $version"

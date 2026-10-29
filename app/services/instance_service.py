@@ -100,6 +100,9 @@ def _ensure_entry_metadata_schema(conn):
             cur.execute(f"ALTER TABLE {table} ADD COLUMN start_date TEXT")
         if "end_date" not in cols:
             cur.execute(f"ALTER TABLE {table} ADD COLUMN end_date TEXT")
+        if "linked_source" not in cols:
+            # Set on rows a shared workspace mirrors from a member's own workspace; NULL = entered here.
+            cur.execute(f"ALTER TABLE {table} ADD COLUMN linked_source TEXT")
     for table in ("gastos", "transacoes_unicas"):
         cur.execute(f"PRAGMA table_info({table})")
         cols = {row[1] for row in cur.fetchall()}
@@ -295,7 +298,7 @@ def update_income(
     conn = _conn(finance_db)
     _ensure_all(conn)
     cur = conn.cursor()
-    cur.execute("SELECT id FROM rendimentos WHERE id = ? AND ativo = 1", (item_id,))
+    cur.execute("SELECT id FROM rendimentos WHERE id = ? AND ativo = 1 AND linked_source IS NULL", (item_id,))
     if not cur.fetchone():
         conn.close()
         return None
@@ -331,7 +334,7 @@ def update_expense(
     conn = _conn(finance_db)
     _ensure_all(conn)
     cur = conn.cursor()
-    cur.execute("SELECT id FROM gastos WHERE id = ? AND ativo = 1", (item_id,))
+    cur.execute("SELECT id FROM gastos WHERE id = ? AND ativo = 1 AND linked_source IS NULL", (item_id,))
     if not cur.fetchone():
         conn.close()
         return None
@@ -528,10 +531,15 @@ def add_oneoff(
 
 
 def delete_income(finance_db: str, item_id: int):
+    """Linked rows (mirrored from a member's workspace) cannot be deleted here; returns None."""
     conn = _conn(finance_db)
+    _ensure_all(conn)
     cur = conn.cursor()
-    cur.execute("SELECT nome, valor FROM rendimentos WHERE id = ?", (item_id,))
+    cur.execute("SELECT nome, valor FROM rendimentos WHERE id = ? AND linked_source IS NULL", (item_id,))
     row = cur.fetchone()
+    if row is None:
+        conn.close()
+        return None
     cur.execute("DELETE FROM rendimentos WHERE id = ?", (item_id,))
     conn.commit()
     conn.close()
@@ -539,10 +547,15 @@ def delete_income(finance_db: str, item_id: int):
 
 
 def delete_expense(finance_db: str, item_id: int):
+    """Linked rows (mirrored from a member's workspace) cannot be deleted here; returns None."""
     conn = _conn(finance_db)
+    _ensure_all(conn)
     cur = conn.cursor()
-    cur.execute("SELECT nome, valor FROM gastos WHERE id = ?", (item_id,))
+    cur.execute("SELECT nome, valor FROM gastos WHERE id = ? AND linked_source IS NULL", (item_id,))
     row = cur.fetchone()
+    if row is None:
+        conn.close()
+        return None
     cur.execute("DELETE FROM gastos WHERE id = ?", (item_id,))
     conn.commit()
     conn.close()
@@ -577,7 +590,7 @@ def move_entry(src_db: str, dst_db: str, kind: str, item_id: int, *, deleted_by:
     it from the source. The record exists in exactly one workspace afterwards (no duplicates).
     """
     row = get_entry(src_db, kind, item_id)
-    if row is None:
+    if row is None or row.get("linked_source"):
         return None
     if kind == "income":
         created = add_income(
@@ -669,7 +682,7 @@ def list_finance_items(finance_db: str, *, include_deleted_savings: bool = False
     _ensure_all(conn)
     cur = conn.cursor()
     cur.execute(
-        "SELECT id, nome, valor, recurrence, COALESCE(ended,0), next_due, start_date, end_date "
+        "SELECT id, nome, valor, recurrence, COALESCE(ended,0), next_due, start_date, end_date, linked_source "
         "FROM rendimentos WHERE ativo = 1 ORDER BY id"
     )
     incomes = []
@@ -684,11 +697,12 @@ def list_finance_items(finance_db: str, *, include_deleted_savings: bool = False
                 "next_due": r[5],
                 "start_date": r[6],
                 "end_date": r[7],
+                "linked_source": r[8],
             }
         )
     cur.execute(
-        "SELECT id, nome, valor, recurrence, COALESCE(ended,0), next_due, category, start_date, end_date, expense_type "
-        "FROM gastos WHERE ativo = 1 ORDER BY id"
+        "SELECT id, nome, valor, recurrence, COALESCE(ended,0), next_due, category, start_date, end_date, expense_type, "
+        "linked_source FROM gastos WHERE ativo = 1 ORDER BY id"
     )
     expenses = []
     for r in cur.fetchall():
@@ -705,6 +719,7 @@ def list_finance_items(finance_db: str, *, include_deleted_savings: bool = False
                 "start_date": r[7],
                 "end_date": r[8],
                 "expense_type": normalize_expense_type(r[9]),
+                "linked_source": r[10],
             }
         )
     cur.execute("SELECT id, data, nome, valor, category, txn_type, expense_type FROM transacoes_unicas ORDER BY data, id")
@@ -779,7 +794,7 @@ def month_summary(finance_db: str, logic_db: str, month: str, include_iefp: bool
     savings_total = total_savings_deposits(finance_db)
     available_balance = round(poupanca - savings_month, 2)
     oneoffs = list_oneoffs_for_month(finance_db, month)
-    return {
+    summary = {
         "month": month,
         "iefp": round(iefp, 2),
         "extras": round(extras, 2),
@@ -797,6 +812,10 @@ def month_summary(finance_db: str, logic_db: str, month: str, include_iefp: bool
         "income_items": items["incomes"],
         "expense_items": items["expenses"],
     }
+    # Amounts are entered gross; user-defined taxes turn savings into after-tax figures.
+    from app.services import tax_service
+
+    return tax_service.apply_to_month(finance_db, summary)
 
 
 def long_range(finance_db: str, logic_db: str, start_month: str, months: int, include_iefp: bool = False):

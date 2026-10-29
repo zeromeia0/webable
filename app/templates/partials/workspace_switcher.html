@@ -3,6 +3,10 @@
 <div class="flex items-center gap-2">
   <label class="text-[11px] text-slate-400 hidden sm:inline">Workspace</label>
   <select id="wbWorkspaceSelect" class="text-sm rounded-lg bg-slate-800 border border-slate-600 px-2 py-1.5 text-slate-100 max-w-[200px]">
+    {% set nav_ws = active_workspace or workspace_for_nav %}
+    {% if nav_ws and nav_ws.kind == 'shared' %}
+    <option value="{{ nav_ws.id }}" selected>👥 {{ nav_ws.name }} · {{ nav_ws.currency or 'EUR' }}</option>
+    {% endif %}
     {% for ws in instances %}
     <option value="{{ ws.id }}" {% if (active_workspace or workspace_for_nav) and ws.id == (active_workspace or workspace_for_nav).id %}selected{% endif %}>{{ ws.name }} · {{ ws.currency or 'EUR' }}</option>
     {% endfor %}

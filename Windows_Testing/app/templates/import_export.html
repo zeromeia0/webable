@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Import / Export - {{ instance.name }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+  <div class="flex flex-col md:flex-row min-h-screen">
+    {% include "partials/app_sidebar.html" %}
+    <div class="flex-1 min-w-0 flex flex-col">
+      {% include "partials/app_topbar.html" %}
+      <main class="flex-1 max-w-3xl w-full mx-auto p-6 md:p-8 space-y-8">
+        <header>
+          <h1 class="text-3xl font-bold">Import / Export</h1>
+          <p class="text-slate-400 mt-1">Workspace: <strong class="text-slate-200">{{ instance.name }}</strong></p>
+        </header>
+
+        {% if request.query_params.get('msg') == 'import_success' %}
+        <div class="rounded-xl border border-emerald-700/50 bg-emerald-950/40 p-4 text-emerald-200 text-sm">
+          Import completed. A new workspace was created{% if request.query_params.get('new_id') %} (ID {{ request.query_params.get('new_id') }}){% endif %}.
+        </div>
+        {% endif %}
+        {% if request.query_params.get('err') %}
+        <div class="rounded-xl border border-rose-700/50 bg-rose-950/40 p-4 text-rose-200 text-sm">
+          Import failed: {{ request.query_params.get('err') }}
+        </div>
+        {% endif %}
+
+        <section class="rounded-2xl border border-slate-800 bg-slate-900/80 p-6 space-y-4">
+          <h2 class="text-xl font-semibold">Export workspace</h2>
+          <p class="text-sm text-slate-400">Download a full backup of this workspace as a ZIP file.</p>
+          {% if can_export %}
+          <form method="get" action="/instances/{{ instance.id }}/export/workspace.zip" class="space-y-3">
+            <label class="flex items-center gap-2 text-sm text-slate-300">
+              <input type="checkbox" name="include_deleted" value="true" class="rounded bg-slate-800 border-slate-600" />
+              Include deleted savings records
+            </label>
+            <button type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm font-medium">Download ZIP export</button>
+          </form>
+          {% else %}
+          <p class="text-sm text-amber-300">Your role ({{ workspace_role }}) cannot export this workspace.</p>
+          {% endif %}
+        </section>
+
+        <section class="rounded-2xl border border-slate-800 bg-slate-900/80 p-6 space-y-4">
+          <h2 class="text-xl font-semibold">Import as new workspace</h2>
+          <p class="text-sm text-slate-400">Upload a previously exported ZIP. This creates a new workspace and does not overwrite existing data.</p>
+          {% if can_import %}
+          <div class="space-y-4">
+            <input id="importFile" type="file" accept=".zip,application/zip" class="block w-full text-sm text-slate-300 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-slate-700 file:text-slate-100" />
+            <button type="button" id="validateBtn" class="px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm font-medium">Validate file</button>
+            <div id="importPreview" class="hidden rounded-xl border border-slate-700 bg-slate-950/60 p-4 text-sm space-y-2"></div>
+            <form id="confirmForm" method="post" action="/instances/{{ instance.id }}/import/confirm" class="hidden">
+              <input type="hidden" name="staging_token" id="stagingToken" value="" />
+              <button type="submit" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm font-medium">Confirm import</button>
+            </form>
+            <p id="importError" class="hidden text-sm text-rose-300"></p>
+          </div>
+          {% else %}
+          <p class="text-sm text-amber-300">Your role ({{ workspace_role }}) cannot import. Members can export only; admins and owners can import.</p>
+          {% endif %}
+        </section>
+      </main>
+    </div>
+  </div>
+  {% if can_import %}
+  <script>
+    document.getElementById('validateBtn').addEventListener('click', async function () {
+      var fileInput = document.getElementById('importFile');
+      var preview = document.getElementById('importPreview');
+      var confirmForm = document.getElementById('confirmForm');
+      var errEl = document.getElementById('importError');
+      errEl.classList.add('hidden');
+      preview.classList.add('hidden');
+      confirmForm.classList.add('hidden');
+      if (!fileInput.files || !fileInput.files[0]) {
+        errEl.textContent = 'Choose a ZIP file first.';
+        errEl.classList.remove('hidden');
+        return;
+      }
+      var fd = new FormData();
+      fd.append('file', fileInput.files[0]);
+      var res = await fetch('/instances/{{ instance.id }}/import/validate', { method: 'POST', body: fd, credentials: 'same-origin' });
+      var data = await res.json();
+      if (!data.ok) {
+        errEl.textContent = data.error || 'Validation failed.';
+        errEl.classList.remove('hidden');
+        return;
+      }
+      var p = data.preview;
+      preview.innerHTML = '<p class="font-semibold text-slate-200">' + (p.workspace_name || 'Imported workspace') + '</p>'
+        + '<ul class="list-disc list-inside text-slate-400 space-y-1 mt-2">'
+        + '<li>Transactions: ' + (p.transactions || 0) + '</li>'
+        + '<li>Income entries: ' + (p.income_entries || 0) + '</li>'
+        + '<li>Expense entries: ' + (p.expense_entries || 0) + '</li>'
+        + '<li>Category budgets: ' + (p.categories || 0) + '</li>'
+        + '<li>Savings records: ' + (p.savings_records || 0) + '</li>'
+        + (p.date_range ? '<li>Date range: ' + p.date_range.min + ' — ' + p.date_range.max + '</li>' : '')
+        + '</ul>';
+      preview.classList.remove('hidden');
+      document.getElementById('stagingToken').value = data.staging_token;
+      confirmForm.classList.remove('hidden');
+    });
+  </script>
+  {% endif %}
+</body>
+</html>

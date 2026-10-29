@@ -18,8 +18,10 @@ log = logging.getLogger("webable.market")
 
 USER_AGENT = "WebableFinanceBot/1.0 (+https://localhost)"
 
-VALID_SYMBOLS = frozenset({"SP500", "BTC", "ETH"})
-VALID_RANGES = frozenset({"24h", "7d", "1m", "6m", "1y", "max"})
+SYMBOLS = ("VWCE", "BTC", "ETH")
+VALID_SYMBOLS = frozenset(SYMBOLS)
+VALID_RANGES = frozenset({"24h", "7d", "1m", "6m", "ytd", "1y", "5y", "max"})
+YAHOO_TICKERS = {"VWCE": "VWCE.DE"}
 
 _COINGECKO_ID = {"BTC": "bitcoin", "ETH": "ethereum"}
 
@@ -29,7 +31,9 @@ _RANGE_CG_DAYS: dict[str, int | str] = {
     "7d": 7,
     "1m": 30,
     "6m": 180,
+    "ytd": 366,  # trimmed to Jan 1 after fetching
     "1y": 365,
+    "5y": 1825,
     "max": "max",
 }
 
@@ -39,7 +43,9 @@ _RANGE_YAHOO: dict[str, tuple[str, str]] = {
     "7d": ("5d", "15m"),
     "1m": ("1mo", "1d"),
     "6m": ("6mo", "1d"),
+    "ytd": ("ytd", "1d"),
     "1y": ("1y", "1d"),
+    "5y": ("5y", "1wk"),
     "max": ("max", "1wk"),
 }
 
@@ -50,7 +56,9 @@ def _ttl_seconds(range_key: str) -> int:
         "7d": 1800,
         "1m": 3600,
         "6m": 21600,
+        "ytd": 21600,
         "1y": 21600,
+        "5y": 86400,
         "max": 86400,
     }.get(range_key, 3600)
 
@@ -86,7 +94,14 @@ def _parse_coingecko_prices(payload: dict[str, Any] | None) -> list[dict[str, An
     return out or None
 
 
-def _parse_yahoo_closes_usd(payload: dict[str, Any] | None) -> list[dict[str, Any]] | None:
+def _yahoo_currency(payload: dict[str, Any] | None) -> str:
+    try:
+        return str(payload["chart"]["result"][0]["meta"].get("currency") or "EUR").upper()
+    except (KeyError, IndexError, TypeError):
+        return "EUR"
+
+
+def _parse_yahoo_closes(payload: dict[str, Any] | None) -> list[dict[str, Any]] | None:
     if not payload:
         return None
     try:
@@ -124,17 +139,21 @@ def fetch_live_series(root, symbol: str, range_key: str) -> tuple[list[dict[str,
         pts = _parse_coingecko_prices(raw)
         if not pts:
             return None, "CoinGecko chart unavailable"
+        if range_key == "ytd":
+            jan1 = f"{datetime.now(timezone.utc).year}-01-01"
+            pts = [p for p in pts if p["t"] >= jan1] or pts
         return pts, None
 
-    # SP500 proxy via SPY (USD) → EUR
+    # Exchange-traded (VWCE trades in EUR on Xetra; convert only if a listing is in USD)
     y_range, y_interval = _RANGE_YAHOO[range_key]
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/SPY?range={y_range}&interval={y_interval}"
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{YAHOO_TICKERS[symbol]}?range={y_range}&interval={y_interval}"
     raw = _http_json(url)
-    usd_pts = _parse_yahoo_closes_usd(raw)
-    if not usd_pts:
+    pts = _parse_yahoo_closes(raw)
+    if not pts:
         return None, "Yahoo chart unavailable"
-    rate = currency_service.eur_per_usd(root)
-    pts = [{"t": p["t"], "v": round(float(p["v"]) * rate, 6)} for p in usd_pts]
+    if _yahoo_currency(raw) == "USD":
+        rate = currency_service.eur_per_usd(root)
+        pts = [{"t": p["t"], "v": round(float(p["v"]) * rate, 6)} for p in pts]
     return pts, None
 
 
@@ -211,6 +230,6 @@ def get_bundle(db: Session, root, range_key: str) -> dict[str, Any]:
     if range_key not in VALID_RANGES:
         range_key = "1m"
     series: dict[str, Any] = {}
-    for sym in ("SP500", "BTC", "ETH"):
+    for sym in SYMBOLS:
         series[sym] = get_series(db, root, sym, range_key)
     return {"range": range_key, "series": series}

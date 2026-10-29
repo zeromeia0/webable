@@ -38,6 +38,25 @@ def default_data_dir() -> Path:
     return Path(base) / "Webable"
 
 
+def _configure_ca_bundle() -> None:
+    """
+    Trust Mozilla's CA bundle (certifi) in addition to the Windows store.
+
+    The Windows root store is filled on demand, so on a fresh install Python can't verify
+    common sites (market data, exchange rates) from the store alone. ssl.create_default_context()
+    loads the Windows store and then SSL_CERT_FILE, so both are trusted.
+    """
+    if os.environ.get("SSL_CERT_FILE"):
+        return
+    try:
+        import certifi
+
+        os.environ["SSL_CERT_FILE"] = certifi.where()
+        log.info("SSL_CERT_FILE=%s", os.environ["SSL_CERT_FILE"])
+    except Exception as exc:  # noqa: BLE001
+        log.warning("certifi unavailable, using the Windows certificate store only: %s", exc)
+
+
 def configure_environment(*, port: int = DEFAULT_PORT) -> Path:
     """Apply env vars and working directory for Windows desktop runs."""
     data = Path(os.environ.get("WEBABLE_DATA_DIR", "") or default_data_dir())
@@ -49,6 +68,7 @@ def configure_environment(*, port: int = DEFAULT_PORT) -> Path:
     os.environ.setdefault("WEBABLE_APP_VERSION", _read_version_file())
     os.environ.setdefault("APP_ENV", "production")
     os.environ.setdefault("WEBABLE_AI_ENABLED", "0")
+    _configure_ca_bundle()
 
     root = bundle_root()
     if is_frozen():

@@ -33,7 +33,8 @@
       <h2 class="text-lg font-semibold">Inputs</h2>
       <div class="grid sm:grid-cols-2 gap-4">
         <label class="block space-y-1 text-sm"><span class="text-slate-400">Initial amount ({{ instance.currency or 'EUR' }})</span>
-          <input id="icInitial" type="number" min="0" step="0.01" value="1000" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" /></label>
+          <input id="icInitial" type="number" min="0" step="0.01" value="{{ '%.2f' | format(balances.invested) if balances and balances.invested > 0 else '1000' }}" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" />
+          {% if balances and balances.invested > 0 %}<span class="block text-[11px] text-teal-300/80">Prefilled with what you have invested — <a href="/instances/{{ instance.id }}/net-worth" class="underline">edit</a>.</span>{% endif %}</label>
         <label class="block space-y-1 text-sm"><span class="text-slate-400">Monthly contribution ({{ instance.currency or 'EUR' }})</span>
           <input id="icMonthly" type="number" min="0" step="0.01" value="250" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" /></label>
         <label class="block space-y-1 text-sm"><span class="text-slate-400">Expected annual return (%) — may be 0 or negative</span>
@@ -87,6 +88,7 @@
         <div class="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 col-span-2 lg:col-span-1">
           <p class="text-[11px] text-emerald-200/80 uppercase">Projected final balance</p>
           <p id="icFinal" class="text-xl font-bold text-emerald-300 mt-1 tabular-nums">—</p>
+          <p id="icTaxBox" class="hidden text-[11px] text-amber-200/90 mt-1"><span id="icTaxText"></span> <a href="/instances/{{ instance.id }}/taxes" class="underline">Taxes</a></p>
         </div>
       </div>
       <div class="h-80"><canvas id="icChart" aria-label="Projected balance split into contributions and compound growth" role="img"></canvas></div>
@@ -104,7 +106,7 @@
       {% if latest_projection_job_id %}
       <div class="grid sm:grid-cols-2 md:grid-cols-5 gap-3">
         <label class="text-sm"><span class="text-slate-400 block">Initial amount</span>
-          <input id="lrInitial" type="number" value="0" min="0" step="0.01" class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700" /></label>
+          <input id="lrInitial" type="number" value="{{ '%.2f' | format(balances.invested) if balances else '0' }}" min="0" step="0.01" class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700" /></label>
         <label class="text-sm"><span class="text-slate-400 block">Contribution timing</span>
           <select id="lrTiming" class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700">
             <option value="beginning">Beginning of month</option>
@@ -210,6 +212,15 @@
       document.getElementById('icFinal').textContent = fmt(s.final_balance);
       document.getElementById('icContrib').textContent = fmt(s.total_contributions);
       paintProfitEl(document.getElementById('icProfit'), s.compound_growth);
+      const tx = data.tax || {};
+      const taxBox = document.getElementById('icTaxBox');
+      if (tx.rate_pct > 0) {
+        taxBox.classList.remove('hidden');
+        document.getElementById('icTaxText').textContent = 'After ' + tx.rate_pct + '% investment tax on gains: ' + fmt(tx.final_after_tax) +
+          ' (tax ' + fmt(tx.tax) + ', gains ' + fmt(tx.gains_pre_tax) + ' → ' + fmt(tx.gains_after_tax) + ').';
+      } else {
+        taxBox.classList.add('hidden');
+      }
       const conv = m.compounding_per_year ? ('nominal rate compounded ' + m.compounding_per_year + '×/year') : 'effective annual rate, monthly rate = (1 + r)^(1/12) − 1';
       document.getElementById('icAssumptions').textContent = 'Assumptions: ' + m.annual_rate_pct + '% per year (' + conv + ' = ' +
         (m.effective_monthly_rate * 100).toFixed(4) + '%/month), contributions at the ' + m.contribution_timing + ' of each month, ' +

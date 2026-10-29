@@ -49,7 +49,8 @@
         <label class="space-y-1"><span class="text-slate-400">Other essentials</span><input id="f_other" type="number" step="0.01" min="0" value="0" class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2" /></label>
         <label id="wrapAdditional" class="space-y-1 hidden"><span class="text-slate-400">Additional monthly expenses</span><input id="f_additional" type="number" step="0.01" min="0" value="0" class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2" /></label>
         <label class="space-y-1"><span class="text-slate-400">Safety buffer %</span><input id="f_buffer" type="number" step="0.5" min="0" max="50" value="0" class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2" /></label>
-        <label class="space-y-1"><span class="text-slate-400">Current savings</span><input id="f_savings" type="number" step="0.01" min="0" value="0" class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2" /></label>
+        <label class="space-y-1"><span class="text-slate-400">Current savings (emergency fund)</span><input id="f_savings" type="number" step="0.01" min="0" value="{{ '%.2f' | format(balances.emergency_fund) if balances else '0' }}" class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2" />
+          <span class="block text-[11px] text-slate-500">From your saved emergency fund — <a href="/instances/{{ instance.id }}/net-worth" class="text-teal-300 underline">update it</a> to keep every page in sync.</span></label>
         <label class="space-y-1 sm:col-span-2"><span class="text-slate-400">Amount willing to save per month</span><input id="f_monthly_save" type="number" step="0.01" min="0" value="0" placeholder="e.g. 200" class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2" /></label>
       </div>
       <div class="flex flex-wrap gap-3">
@@ -154,8 +155,14 @@
           status.textContent = 'No saved expenses found for ' + (data.month || 'this month') + '. Enter amounts manually or add expenses in your workspace.';
           return;
         }
+        var who = '';
+        if (data.shared && data.members && data.members.length) {
+          who = ' Combined from: ' + data.members.map(function (m) {
+            return m.username + ' ' + fmt(m.monthly_total);
+          }).join(', ') + '.';
+        }
         status.textContent = 'Loaded recurring + one-time expenses for ' + (data.month || '') +
-          ' (total ' + fmt(data.monthly_total) + '). You can edit values or add extra below.';
+          ' (total ' + fmt(data.monthly_total) + ').' + who + ' You can edit values, add extra below, or switch to manual entry.';
         scheduleCalc();
       } catch (e) {
         status.textContent = 'Could not load saved expenses. You can still enter amounts manually.';
@@ -256,13 +263,7 @@
         body: JSON.stringify(body)
       });
       if (!res.ok) { alert('PDF export failed'); return; }
-      var blob = await res.blob();
-      var url = URL.createObjectURL(blob);
-      var a = document.createElement('a');
-      a.href = url;
-      a.download = 'webable-emergency-fund-' + INSTANCE_ID + '.pdf';
-      a.click();
-      URL.revokeObjectURL(url);
+      await window.WebableDownload.save(res, 'Webable_Emergency-Fund.pdf');
     });
     document.addEventListener('webable:currency', function () { if (!document.getElementById('results').classList.contains('hidden')) runCalc(); });
   </script>

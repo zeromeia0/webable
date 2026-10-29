@@ -155,6 +155,10 @@ class TestInvitations(_DbCase):
     def setUp(self):
         super().setUp()
         self.ws = self._workspace(self.alice, "Household Finances")
+        # Invites to personal workspaces go to a shared copy (see test_shared_workspace.py);
+        # these tests cover membership on the shared workspace itself.
+        self.ws.kind = "shared"
+        self.db.commit()
 
     def test_invite_accept_creates_shared_membership(self):
         inv = workspace_service.create_username_invite(self.db, self.ws.id, "bob", "member", self.alice)
@@ -166,7 +170,7 @@ class TestInvitations(_DbCase):
         self.assertEqual(inst.id, self.ws.id)
         self.assertEqual(workspace_service.get_membership(self.db, self.bob.id, self.ws.id).role, "member")
         # Same workspace record -> same finance file: one source of truth.
-        visible = workspace_service.list_user_workspaces(self.db, self.bob)
+        visible = workspace_service.list_shared_workspaces(self.db, self.bob)
         self.assertEqual([w.finance_db_path for w in visible], [self.ws.finance_db_path])
         kinds = [n.kind for n in notification_service.list_for_user(self.db, self.alice)]
         self.assertIn(notification_service.KIND_INVITE_ACCEPTED, kinds)

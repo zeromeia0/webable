@@ -24,7 +24,7 @@
     </header>
 
     {% if primary_instance %}
-    <section class="grid md:grid-cols-2 gap-4">
+    <section>
       <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4">
         <h3 class="text-sm font-semibold text-slate-300 mb-2">Latest bank statement</h3>
         {% if latest_bank_statement %}
@@ -34,21 +34,13 @@
         <p class="text-sm text-slate-500">No statements yet. Upload from <a href="/instances/{{ primary_instance.id }}/reports" class="text-indigo-400 underline hover:text-indigo-300">Reports → Bank statements</a>.</p>
         {% endif %}
       </div>
-      <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4">
-        <h3 class="text-sm font-semibold text-slate-300 mb-2">Budget vs spend ({{ current_month }})</h3>
-        {% if budget_alerts|length %}
-        <ul class="text-sm space-y-2">
-          {% for a in budget_alerts %}
-          <li class="{% if a.tone == 'over' %}text-rose-300{% elif a.tone == 'warn' %}text-amber-200{% else %}text-slate-300{% endif %}">
-            {{ a.category }}: <span class="wb-money" data-eur="{{ a.spent }}">{{ a.spent }}</span> / <span class="wb-money" data-eur="{{ a.limit }}">{{ a.limit }}</span> ({{ a.pct }}%)
-          </li>
-          {% endfor %}
-        </ul>
-        {% else %}
-        <p class="text-sm text-slate-500">No category budgets yet. Set them on your <a href="/instances/{{ primary_instance.id }}" class="text-indigo-400 underline">workspace</a>.</p>
-        {% endif %}
-      </div>
     </section>
+    {% endif %}
+
+    {% if request.query_params.get('err') in ('workspace_name', 'workspace_currency') %}
+    <div role="alert" class="rounded-xl border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-100">
+      {% if request.query_params.get('err') == 'workspace_name' %}Please enter a workspace name.{% else %}Please choose a supported currency.{% endif %}
+    </div>
     {% endif %}
 
     {% if not primary_instance %}
@@ -57,10 +49,25 @@
     </section>
     {% endif %}
 
-    <section class="grid md:grid-cols-4 gap-4">
+    <section class="grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
       <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4"><p class="text-xs text-slate-400">Total income</p><p class="text-2xl font-bold text-emerald-300"><span class="wb-money" data-eur="{{ chart_data.income_total }}">{{ chart_data.income_total }}</span></p></div>
       <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4"><p class="text-xs text-slate-400">Total expenses</p><p class="text-2xl font-bold text-red-300"><span class="wb-money" data-eur="{{ chart_data.expense_total }}">{{ chart_data.expense_total }}</span></p></div>
-      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4"><p class="text-xs text-slate-400">Savings estimate</p><p class="text-2xl font-bold {% if chart_data.savings_total >= 0 %}text-emerald-300{% else %}text-red-300{% endif %}"><span class="wb-money" data-eur="{{ chart_data.savings_total }}">{{ chart_data.savings_total }}</span></p></div>
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4"><p class="text-xs text-slate-400">Net savings (month)</p><p class="text-2xl font-bold {% if chart_data.savings_total >= 0 %}text-emerald-300{% else %}text-red-300{% endif %}"><span class="wb-money" data-eur="{{ chart_data.savings_total }}">{{ chart_data.savings_total }}</span></p></div>
+      <div id="wbSavingsReservedCard" class="bg-slate-900 border border-emerald-900/40 rounded-2xl p-4" {% if primary_instance %}data-instance-id="{{ primary_instance.id }}"{% endif %}>
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-xs text-slate-400" title="Your emergency fund — the money you keep set aside">Savings reserved</p>
+          {% if primary_instance and savings_reserved_can_edit %}
+          <button type="button" id="wbSavingsReservedEdit" class="text-[11px] text-emerald-300/80 hover:text-emerald-200 underline underline-offset-2">Edit</button>
+          {% endif %}
+        </div>
+        <p id="wbSavingsReservedView" class="text-2xl font-bold text-emerald-200"><span class="wb-money" data-eur="{{ savings_reserved }}">{{ savings_reserved }}</span></p>
+        <form id="wbSavingsReservedForm" class="hidden mt-1 flex items-center gap-1">
+          <input name="emergency_fund" inputmode="decimal" value="{{ '%.2f' | format(savings_reserved) }}" aria-label="Emergency fund amount" class="w-full min-w-0 rounded-md bg-slate-800 border border-slate-600 px-2 py-1 text-sm tabular-nums" />
+          <button type="submit" class="shrink-0 px-2 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-xs font-medium">Save</button>
+        </form>
+        <p id="wbSavingsReservedMsg" class="text-[11px] text-slate-500 mt-1">Emergency fund{% if savings_reserved_months is not none %} · {{ savings_reserved_months }} mo of expenses{% endif %}</p>
+      </div>
+      <div class="bg-slate-900 border border-sky-900/40 rounded-2xl p-4"><p class="text-xs text-slate-400">Available balance</p><p class="text-2xl font-bold text-sky-300"><span class="wb-money" data-eur="{{ chart_data.available_balance }}">{{ chart_data.available_balance }}</span></p></div>
       <div id="wbSafeToSpendCard" class="bg-slate-900 border border-slate-800 rounded-2xl p-4" data-month-savings="{{ chart_data.current_month_savings }}">
         <div class="flex items-center justify-between gap-2">
           <p class="text-xs text-slate-400">Safe to spend</p>
@@ -90,6 +97,53 @@
         <div class="relative h-64"><canvas id="savingsTrendChart"></canvas></div>
       </div>
     </section>
+
+
+    {% if category_breakdown %}
+    <section id="categoryBreakdown" class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5 scroll-mt-24" aria-labelledby="cbHeading">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 id="cbHeading" class="text-xl font-semibold">Spending by category</h2>
+          <p class="text-sm text-slate-400 mt-1">{{ primary_instance.name }} · <span id="cbRangeText">{{ category_breakdown.start }} → {{ category_breakdown.end }}</span>. Recurring expenses count once per active month; one-time expenses on their date.</p>
+        </div>
+        <label class="text-xs text-slate-400 flex items-center gap-2">Period
+          <select id="cbRange" class="text-sm rounded-lg bg-slate-800 border border-slate-600 px-2 py-1.5 text-slate-100">
+            {% for r in category_breakdown.ranges %}
+            <option value="{{ r.key }}" {% if r.key == category_breakdown.range %}selected{% endif %}>{{ r.label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+      <div id="cbBody" class="grid lg:grid-cols-5 gap-6">
+        <div class="lg:col-span-3 space-y-3">
+          <div class="relative" id="cbChartWrap" style="height: 260px"><canvas id="cbChart" role="img" aria-label="Expenses by category"></canvas></div>
+          <p id="cbEmpty" class="hidden rounded-lg border border-dashed border-slate-700 p-6 text-center text-sm text-slate-500">No expenses in this period. Add expenses in your workspace to see the breakdown.</p>
+        </div>
+        <div class="lg:col-span-2 space-y-4">
+          <div class="overflow-x-auto rounded-lg border border-slate-800">
+            <table class="w-full text-sm">
+              <thead class="bg-slate-800 text-slate-400 text-xs uppercase"><tr><th class="p-2 text-left">Category</th><th class="p-2 text-right">Expenses</th><th class="p-2 text-right">Share</th><th class="p-2 text-right">Entries</th></tr></thead>
+              <tbody id="cbTable"></tbody>
+              <tfoot class="border-t border-slate-700 text-slate-300"><tr><td class="p-2 font-semibold">Total</td><td class="p-2 text-right font-semibold" id="cbTotal">—</td><td class="p-2 text-right">100%</td><td></td></tr></tfoot>
+            </table>
+          </div>
+          <div>
+            <h3 class="text-sm font-semibold text-slate-300 mb-2">Fixed vs variable</h3>
+            <div id="cbFixed" class="space-y-2 text-sm"></div>
+            <p id="cbUnclassifiedHint" class="hidden text-xs text-slate-500 mt-2">Some expenses are not classified. Use <strong class="text-slate-400">Edit</strong> on an expense in the <a href="/instances/{{ primary_instance.id }}#workspace-data" class="text-indigo-300 underline">workspace</a> to mark it fixed or variable.</p>
+          </div>
+        </div>
+      </div>
+      <div id="cbDetail" class="hidden rounded-xl border border-slate-700 bg-slate-950/40 p-4">
+        <div class="flex items-center justify-between gap-2 mb-2">
+          <h3 class="font-semibold" id="cbDetailTitle"></h3>
+          <button type="button" id="cbDetailClose" class="text-xs text-slate-400 hover:text-slate-200">Close</button>
+        </div>
+        <ul id="cbDetailList" class="text-sm divide-y divide-slate-800"></ul>
+        <a href="/instances/{{ primary_instance.id }}#workspace-data" class="inline-block mt-3 text-xs text-indigo-300 hover:text-indigo-200">Edit these entries in the workspace →</a>
+      </div>
+    </section>
+    {% endif %}
 
     <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
       <h2 class="text-xl font-semibold">Mother insights output</h2>
@@ -155,8 +209,14 @@
 
     <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
       <h2 class="text-xl font-semibold mb-3">Create workspace</h2>
-      <form method="post" action="/instances/create" class="grid md:grid-cols-2 gap-3">
-        <input name="name" placeholder="Workspace name" required class="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" />
+      <p class="text-xs text-slate-500 mb-3">Each workspace keeps its own income, expenses, savings, budgets and reports in one base currency. The currency cannot be changed later, and amounts are never mixed or converted between workspaces.</p>
+      <form method="post" action="/instances/create" class="grid md:grid-cols-3 gap-3">
+        <input name="name" placeholder="Workspace name (e.g. Portugal)" required maxlength="120" class="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" />
+        <select name="currency" required class="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" aria-label="Base currency">
+          {% for c in currency_options %}
+          <option value="{{ c.code }}" {% if c.code == 'EUR' %}selected{% endif %}>{{ c.code }} — {{ c.name }} ({{ c.symbol }})</option>
+          {% endfor %}
+        </select>
         <button type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 font-medium">Create</button>
       </form>
     </section>
@@ -166,13 +226,20 @@
       <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
         <div class="flex justify-between items-start">
           <div>
-            <h3 class="text-lg font-semibold">{{ ins.name }}</h3>
-            <p class="text-xs text-slate-400">{{ ins.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+            <h3 class="text-lg font-semibold">{{ ins.name }} <span class="ml-1 align-middle text-[11px] px-2 py-0.5 rounded-md border border-slate-600 text-slate-300">{{ ins.currency or 'EUR' }}</span>{% if active_workspace and ins.id == active_workspace.id %} <span class="ml-1 align-middle text-[11px] px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-200">active</span>{% endif %}</h3>
+            <p class="text-xs text-slate-400">{{ ins.created_at.strftime('%Y-%m-%d %H:%M') }} · {{ workspace_roles.get(ins.id, 'member') }}</p>
           </div>
-          <form method="post" action="/instances/{{ ins.id }}/delete"><button type="submit" class="text-red-400 text-sm">Delete</button></form>
+          {% if workspace_roles.get(ins.id) == 'owner' %}
+          <form method="post" action="/instances/{{ ins.id }}/delete" onsubmit="return confirm('Delete workspace {{ ins.name }} and all its data for every member?');"><button type="submit" class="text-red-400 text-sm">Delete</button></form>
+          {% endif %}
         </div>
         <p class="text-sm text-slate-300">{{ ins.last_sync_status }}</p>
-        <a href="/instances/{{ ins.id }}" class="inline-block px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm font-medium">Open workspace</a>
+        <div class="flex flex-wrap gap-2">
+          <a href="/instances/{{ ins.id }}" class="inline-block px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm font-medium">Open workspace</a>
+          {% if not (active_workspace and ins.id == active_workspace.id) %}
+          <form method="post" action="/workspaces/{{ ins.id }}/switch"><input type="hidden" name="next_url" value="/dashboard" /><button type="submit" class="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 hover:border-indigo-500/50 text-sm">Make active</button></form>
+          {% endif %}
+        </div>
       </div>
       {% endfor %}
     </section>
@@ -195,6 +262,60 @@
     </div>
   </div>
 
+  <script>
+    (function () {
+      var card = document.getElementById('wbSavingsReservedCard');
+      var editBtn = document.getElementById('wbSavingsReservedEdit');
+      if (!card || !editBtn) return;
+      var form = document.getElementById('wbSavingsReservedForm');
+      var view = document.getElementById('wbSavingsReservedView');
+      var msg = document.getElementById('wbSavingsReservedMsg');
+      var defaultMsg = msg.textContent;
+      function toggle(editing) {
+        form.classList.toggle('hidden', !editing);
+        view.classList.toggle('hidden', editing);
+        editBtn.textContent = editing ? 'Cancel' : 'Edit';
+        msg.className = 'text-[11px] text-slate-500 mt-1';
+        msg.textContent = defaultMsg;
+        if (editing) { form.elements.emergency_fund.focus(); form.elements.emergency_fund.select(); }
+      }
+      editBtn.addEventListener('click', function () { toggle(form.classList.contains('hidden')); });
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var raw = String(form.elements.emergency_fund.value || '').trim().replace(/\s/g, '');
+        if (raw.indexOf(',') >= 0 && raw.indexOf('.') >= 0) raw = raw.lastIndexOf('.') > raw.lastIndexOf(',') ? raw.replace(/,/g, '') : raw.replace(/\./g, '').replace(',', '.');
+        else raw = raw.replace(',', '.');
+        var v = Number(raw);
+        if (!raw || !Number.isFinite(v) || v < 0) {
+          msg.className = 'text-[11px] text-rose-300 mt-1';
+          msg.textContent = 'Enter a positive amount.';
+          return;
+        }
+        fetch('/instances/' + card.getAttribute('data-instance-id') + '/api/balances', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ emergency_fund: v })
+        }).then(function (r) {
+          return r.json().catch(function () { return {}; }).then(function (d) {
+            if (!r.ok) throw new Error(d.detail || 'Save failed');
+            return d;
+          });
+        }).then(function (d) {
+          var amt = d.balances.emergency_fund;
+          var span = view.querySelector('[data-eur]');
+          span.setAttribute('data-eur', String(amt));
+          span.textContent = window.WebableCurrency ? window.WebableCurrency.format(amt) : amt.toFixed(2);
+          var em = d.emergency || {};
+          defaultMsg = 'Emergency fund' + (em.months_covered != null ? ' · ' + em.months_covered + ' mo of expenses' : '');
+          toggle(false);
+        }).catch(function (err) {
+          msg.className = 'text-[11px] text-rose-300 mt-1';
+          msg.textContent = err.message;
+        });
+      });
+    })();
+  </script>
   {% include "partials/global_fab_stack.html" %}
   <link rel="stylesheet" href="/static/css/webable-dashboard.css" />
   <script src="/static/js/webable-safe-to-spend.js"></script>
@@ -288,6 +409,108 @@
         savChart.update();
       }
     };
+
+
+    (function () {
+      const root = document.getElementById('categoryBreakdown');
+      if (!root) return;
+      const WS_ID = {{ primary_instance.id if primary_instance else 'null' }};
+      let data = {{ category_breakdown | tojson }};
+      let cbChart = null;
+      const PALETTE = ['#818cf8', '#34d399', '#f59e0b', '#f472b6', '#60a5fa', '#a78bfa', '#fb7185', '#2dd4bf', '#facc15', '#94a3b8', '#c084fc'];
+      const fmt = function (n) { return window.WebableCurrency ? window.WebableCurrency.format(n) : Number(n).toFixed(2); };
+      const pct = function (n) { return (Math.round(n * 10) / 10).toFixed(1) + '%'; };
+      function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+
+      function showDetail(i) {
+        const c = data.categories[i];
+        if (!c) return;
+        document.getElementById('cbDetailTitle').textContent = c.category + ' — ' + fmt(c.total) + ' (' + pct(c.share_pct) + ')';
+        document.getElementById('cbDetailList').innerHTML = c.entries.map(function (e) {
+          const meta = e.kind === 'expense'
+            ? ('recurring · ' + fmt(e.unit_amount) + ' × ' + e.months + ' month' + (e.months === 1 ? '' : 's'))
+            : ('one-time · ' + esc(e.date));
+          return '<li class="flex justify-between gap-3 py-1.5"><span class="min-w-0">' + esc(e.name) +
+            ' <span class="text-xs text-slate-500">' + meta + (e.expense_type ? ' · ' + e.expense_type : '') + '</span></span>' +
+            '<span class="shrink-0 text-rose-300">' + fmt(e.amount) + '</span></li>';
+        }).join('');
+        document.getElementById('cbDetail').classList.remove('hidden');
+      }
+
+      function render() {
+        const cats = data.categories || [];
+        document.getElementById('cbRangeText').textContent = data.start + ' → ' + data.end;
+        document.getElementById('cbTotal').textContent = fmt(data.total || 0);
+        document.getElementById('cbEmpty').classList.toggle('hidden', cats.length > 0);
+        document.getElementById('cbChartWrap').classList.toggle('hidden', cats.length === 0);
+        document.getElementById('cbDetail').classList.add('hidden');
+        document.getElementById('cbTable').innerHTML = cats.length ? cats.map(function (c, i) {
+          return '<tr class="border-t border-slate-800 hover:bg-slate-800/50 cursor-pointer" data-cat="' + i + '" tabindex="0">' +
+            '<td class="p-2"><span class="inline-block w-2.5 h-2.5 rounded-sm mr-2 align-middle" style="background:' + PALETTE[i % PALETTE.length] + '"></span>' + esc(c.category) + '</td>' +
+            '<td class="p-2 text-right text-rose-200">' + fmt(c.total) + '</td>' +
+            '<td class="p-2 text-right">' + pct(c.share_pct) + '</td>' +
+            '<td class="p-2 text-right text-slate-400">' + c.count + '</td></tr>';
+        }).join('') : '<tr><td colspan="4" class="p-3 text-center text-slate-500">No expenses in this period.</td></tr>';
+        document.getElementById('cbFixed').innerHTML = (data.fixed_variable || []).map(function (t) {
+          const color = t.type === 'fixed' ? 'bg-sky-400' : (t.type === 'variable' ? 'bg-amber-400' : 'bg-slate-500');
+          return '<div><div class="flex justify-between text-xs mb-1"><span>' + t.label + '</span><span>' + fmt(t.total) + ' · ' + pct(t.share_pct) + '</span></div>' +
+            '<div class="w-full h-2 rounded bg-slate-800"><div class="h-2 rounded ' + color + '" style="width:' + Math.max(0, Math.min(100, t.share_pct)) + '%"></div></div></div>';
+        }).join('');
+        document.getElementById('cbUnclassifiedHint').classList.toggle('hidden', !data.has_unclassified);
+
+        document.getElementById('cbChartWrap').style.height = Math.max(160, 44 * cats.length + 40) + 'px';
+        if (cbChart) cbChart.destroy();
+        if (!cats.length) return;
+        const base = window.WebableCharts.darkChartOptions();
+        cbChart = new Chart(document.getElementById('cbChart'), {
+          type: 'bar',
+          data: {
+            labels: cats.map(function (c) { return c.category; }),
+            datasets: [{ label: 'Expenses', data: cats.map(function (c) { return c.total; }), backgroundColor: cats.map(function (_, i) { return PALETTE[i % PALETTE.length]; }), borderRadius: 4 }]
+          },
+          options: Object.assign({}, base, {
+            indexAxis: 'y',
+            onClick: function (_e, els) { if (els && els.length) showDetail(els[0].index); },
+            plugins: Object.assign({}, base.plugins, {
+              legend: { display: false },
+              tooltip: Object.assign({}, base.plugins.tooltip, {
+                callbacks: {
+                  label: function (ctx) {
+                    const c = cats[ctx.dataIndex];
+                    return [fmt(c.total) + ' · ' + pct(c.share_pct) + ' of expenses', c.count + ' entr' + (c.count === 1 ? 'y' : 'ies') + ' — click for details'];
+                  }
+                }
+              })
+            }),
+            scales: {
+              x: Object.assign({}, base.scales.x, { ticks: Object.assign({}, base.scales.x.ticks, { callback: function (v) { return fmt(v); } }) }),
+              y: Object.assign({}, base.scales.y)
+            }
+          })
+        });
+      }
+
+      document.getElementById('cbTable').addEventListener('click', function (e) {
+        const tr = e.target.closest('[data-cat]');
+        if (tr) showDetail(Number(tr.getAttribute('data-cat')));
+      });
+      document.getElementById('cbTable').addEventListener('keydown', function (e) {
+        const tr = e.target.closest('[data-cat]');
+        if (tr && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); showDetail(Number(tr.getAttribute('data-cat'))); }
+      });
+      document.getElementById('cbDetailClose').addEventListener('click', function () { document.getElementById('cbDetail').classList.add('hidden'); });
+      document.getElementById('cbRange').addEventListener('change', function (e) {
+        const sel = e.target;
+        sel.disabled = true;
+        fetch('/instances/' + WS_ID + '/category-breakdown?range=' + encodeURIComponent(sel.value), { credentials: 'same-origin' })
+          .then(function (r) { if (!r.ok) throw new Error('load'); return r.json(); })
+          .then(function (d) { data = d; render(); })
+          .catch(function () { alert('Could not load the category breakdown.'); })
+          .finally(function () { sel.disabled = false; });
+      });
+      document.addEventListener('webable:currency', render);
+      render();
+    })();
 
     fetch('/api/build-info', { credentials: 'same-origin' })
       .then(function (r) { return r.json(); })

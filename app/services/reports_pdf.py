@@ -68,6 +68,12 @@ def build_reports_pdf(
         ["Expense transactions", str(t.get("transaction_count_expenses", 0))],
         ["Income transactions", str(t.get("transaction_count_income", 0))],
     ]
+    if "total_expenses" in t:
+        summ += [
+            ["Total income in range (incl. recurring)", m(float(t.get("total_income", 0)))],
+            ["Total expenses in range (incl. recurring)", m(float(t.get("total_expenses", 0)))],
+            ["Net in range", m(float(t.get("net", 0)))],
+        ]
     tb = Table(summ, colWidths=[2.8 * inch, 3.2 * inch])
     tb.setStyle(
         TableStyle(

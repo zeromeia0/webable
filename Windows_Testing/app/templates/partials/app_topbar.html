@@ -1,5 +1,8 @@
 {# Expects: show_back_to_dashboard (bool) #}
+{% set _tb_ws = instance | default(active_workspace | default(workspace_for_nav | default(none), true), true) %}
 <link rel="stylesheet" href="/static/css/webable-responsive.css" />
+<script>window.WEBABLE_BASE_CURRENCY = {{ ((_tb_ws.currency if _tb_ws and _tb_ws.currency else 'EUR')) | tojson }};</script>
+<script src="/static/js/webable-download.js"></script>
 <div class="sticky top-0 z-20 border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-md">
   <div class="max-w-7xl mx-auto px-3 sm:px-4 py-2 flex flex-wrap items-center justify-between gap-3">
     <div class="min-w-0 flex-1 flex flex-wrap items-center gap-2">
@@ -9,8 +12,17 @@
       <span class="text-xs text-slate-600">Webable</span>
       {% endif %}
       <span id="wbDeployBadge" class="hidden ml-2 align-middle text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded border border-slate-700 text-slate-400" title="Deployment mode"></span>
+      {% if user is defined and user and restart_button_available | default(true) %}
+      <button type="button" id="wbRestartServerBtn" class="ml-1 align-middle text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded border border-amber-600/60 text-amber-300 hover:bg-amber-500/10 hover:text-amber-200 disabled:opacity-60 disabled:cursor-wait" title="Rebuild the Docker image from the current code and restart the server">↻ Restart server</button>
+      <span id="wbRestartServerMsg" class="hidden text-[11px] text-slate-400 max-w-[22rem] truncate" role="status" aria-live="polite"></span>
+      <script defer src="/static/js/webable-restart.js"></script>
+      {% endif %}
     </div>
-    <div class="flex items-center gap-2 sm:gap-3 shrink-0">
+    <div class="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0">
+      {% include "partials/workspace_switcher.html" %}
+      {% if _tb_ws and _tb_ws.currency and _tb_ws.currency != 'EUR' %}
+      <span class="text-[11px] px-2 py-1 rounded-md border border-slate-600 text-slate-300" title="Workspace base currency">{{ _tb_ws.currency }}</span>
+      {% endif %}
       <span id="fxStatus" class="hidden text-[11px] text-amber-400/90 max-w-[160px] sm:max-w-[220px] truncate" title=""></span>
       <span id="fxUpdated" class="hidden text-[10px] text-slate-500 max-w-[150px] truncate sm:inline"></span>
       <label class="text-[11px] text-slate-400 flex items-center gap-1.5">
@@ -22,6 +34,7 @@
           <option value="BRL">BRL (R$)</option>
         </select>
       </label>
+      {% include "partials/notification_bell.html" %}
     </div>
   </div>
   <div id="wbReleaseBanner" class="hidden w-full border-t border-emerald-500/25 bg-emerald-950/45 text-emerald-50 text-xs sm:text-sm px-3 sm:px-4 py-2">

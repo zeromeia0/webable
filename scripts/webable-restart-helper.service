@@ -1,0 +1,15 @@
+# Template for `make install-restart-helper` (@REPO_DIR@ is replaced with this repository's path).
+[Unit]
+Description=Webable restart helper (rebuilds the Docker deployment when the app asks)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/env bash @REPO_DIR@/scripts/webable-restart-watcher.sh
+WorkingDirectory=@REPO_DIR@
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

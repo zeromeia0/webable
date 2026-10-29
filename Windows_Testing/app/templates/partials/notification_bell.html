@@ -1,0 +1,124 @@
+{# In-app notifications (persisted). Data comes from /api/notifications; works on every page with the top bar. #}
+{% if user %}
+<div class="relative" id="wbNotifRoot">
+  <button type="button" id="wbNotifBtn" class="relative inline-flex items-center justify-center w-9 h-9 rounded-lg bg-slate-800 border border-slate-600 hover:border-indigo-500/60 text-slate-200" aria-haspopup="true" aria-expanded="false" aria-controls="wbNotifPanel" title="Notifications">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-5 h-5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0"/></svg>
+    <span id="wbNotifDot" class="hidden absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold leading-[18px] text-center"></span>
+    <span class="sr-only">Notifications</span>
+  </button>
+  <div id="wbNotifPanel" class="hidden absolute right-0 mt-2 w-[min(22rem,calc(100vw-2rem))] max-h-[70vh] overflow-y-auto rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50" role="dialog" aria-label="Notifications">
+    <div class="flex items-center justify-between gap-2 px-4 py-3 border-b border-slate-800 sticky top-0 bg-slate-900">
+      <p class="text-sm font-semibold text-slate-100">Notifications</p>
+      <button type="button" id="wbNotifReadAll" class="text-xs text-indigo-300 hover:text-indigo-200">Mark all as read</button>
+    </div>
+    <div id="wbNotifList" class="divide-y divide-slate-800 text-sm">
+      <p class="px-4 py-6 text-slate-500 text-center">Loading…</p>
+    </div>
+  </div>
+</div>
+<script>
+  (function () {
+    var btn = document.getElementById('wbNotifBtn');
+    var panel = document.getElementById('wbNotifPanel');
+    var list = document.getElementById('wbNotifList');
+    var dot = document.getElementById('wbNotifDot');
+    if (!btn || !panel || !list) return;
+
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+    function ago(iso) {
+      if (!iso) return '';
+      var s = Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 1000));
+      if (s < 60) return 'just now';
+      if (s < 3600) return Math.floor(s / 60) + 'm ago';
+      if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+      return Math.floor(s / 86400) + 'd ago';
+    }
+    function setUnread(n) {
+      if (n > 0) {
+        dot.textContent = n > 9 ? '9+' : String(n);
+        dot.classList.remove('hidden');
+        btn.setAttribute('title', n + ' unread notification' + (n === 1 ? '' : 's'));
+      } else {
+        dot.classList.add('hidden');
+        btn.setAttribute('title', 'Notifications');
+      }
+    }
+    var STATUS = { accepted: 'Accepted', declined: 'Declined', cancelled: 'Cancelled', expired: 'Expired' };
+    function render(items) {
+      if (!items.length) {
+        list.innerHTML = '<p class="px-4 py-6 text-slate-500 text-center">No notifications yet.</p>';
+        return;
+      }
+      list.innerHTML = items.map(function (n) {
+        var actions = '';
+        if (n.actionable) {
+          actions = '<div class="flex gap-2 mt-2">' +
+            '<button type="button" data-invite="' + n.invite_id + '" data-decision="accept" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium">Accept</button>' +
+            '<button type="button" data-invite="' + n.invite_id + '" data-decision="decline" class="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100 text-xs font-medium">Decline</button>' +
+            '</div>';
+        } else if (n.kind === 'workspace_invite' && n.invite_status && STATUS[n.invite_status]) {
+          actions = '<p class="mt-1 text-xs text-slate-500">' + STATUS[n.invite_status] + '</p>';
+        }
+        var markBtn = n.is_read ? '' : '<button type="button" data-read="' + n.id + '" class="shrink-0 text-[11px] text-indigo-300 hover:text-indigo-200">Mark read</button>';
+        return '<div class="px-4 py-3 ' + (n.is_read ? 'opacity-70' : 'bg-indigo-500/5') + '">' +
+          '<div class="flex items-start justify-between gap-2">' +
+          '<div class="min-w-0"><p class="font-medium text-slate-100">' + (n.is_read ? '' : '<span class="inline-block w-2 h-2 rounded-full bg-indigo-400 mr-1.5 align-middle"></span>') + esc(n.title) + '</p>' +
+          '<p class="text-slate-300 mt-0.5 break-words">' + esc(n.body) + '</p>' +
+          '<p class="text-[11px] text-slate-500 mt-1">' + esc(ago(n.created_at)) + '</p></div>' + markBtn + '</div>' +
+          actions + '</div>';
+      }).join('');
+    }
+    function load() {
+      return fetch('/api/notifications', { credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) {
+          if (!d) return;
+          setUnread(d.unread || 0);
+          render(d.items || []);
+        })
+        .catch(function () { list.innerHTML = '<p class="px-4 py-6 text-rose-300 text-center">Could not load notifications.</p>'; });
+    }
+    function post(url) {
+      return fetch(url, { method: 'POST', credentials: 'same-origin' }).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (d) { d._ok = r.ok; return d; });
+      });
+    }
+
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var open = panel.classList.toggle('hidden') === false;
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (open) load();
+    });
+    document.addEventListener('click', function (e) {
+      if (!panel.classList.contains('hidden') && !document.getElementById('wbNotifRoot').contains(e.target)) {
+        panel.classList.add('hidden');
+        btn.setAttribute('aria-expanded', 'false');
+      }
+    });
+    document.getElementById('wbNotifReadAll').addEventListener('click', function () {
+      post('/api/notifications/read-all').then(load);
+    });
+    list.addEventListener('click', function (e) {
+      var r = e.target.closest('[data-read]');
+      if (r) { post('/api/notifications/' + r.getAttribute('data-read') + '/read').then(load); return; }
+      var inv = e.target.closest('[data-invite]');
+      if (!inv) return;
+      inv.disabled = true;
+      var decision = inv.getAttribute('data-decision');
+      post('/api/invites/' + inv.getAttribute('data-invite') + '/' + decision).then(function (d) {
+        if (!d._ok) { alert(d.error || 'Could not update the invitation.'); load(); return; }
+        if (decision === 'accept' && d.redirect) { window.location.href = d.redirect; return; }
+        load();
+      });
+    });
+
+    load();
+    setInterval(function () { if (document.visibilityState === 'visible') load(); }, 60000);
+  })();
+</script>
+{% endif %}

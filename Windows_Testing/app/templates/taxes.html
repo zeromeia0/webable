@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Taxes — {{ instance.name }} — Webable</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/static/js/webable-currency.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+  <div class="flex flex-col md:flex-row min-h-screen">
+    {% include "partials/app_sidebar.html" %}
+    <div class="flex-1 min-w-0 flex flex-col">
+    {% include "partials/app_topbar.html" %}
+  <main class="flex-1 max-w-6xl w-full mx-auto p-6 md:p-10 space-y-8 pb-20">
+    <header class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Taxes</h1>
+        <p class="text-slate-400 mt-2 text-sm md:text-base max-w-3xl">{{ instance.name }} — create the taxes you pay, then tick them on each income when you <a href="/instances/{{ instance.id }}#workspace-data" class="text-indigo-300 underline">add or edit an income</a>. Incomes are entered <strong class="text-slate-300">before tax</strong>; the database calculation, dashboard and analysis use what's left after tax.</p>
+      </div>
+      {% if instances|length > 1 %}
+      <label class="text-sm text-slate-400 shrink-0">Workspace
+        <select class="mt-1 block w-full lg:w-56 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" onchange="location.href='/instances/'+this.value+'/taxes'">
+          {% for ins in instances %}
+          <option value="{{ ins.id }}" {% if ins.id == instance.id %}selected{% endif %}>{{ ins.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% endif %}
+    </header>
+
+    <section class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-5">
+        <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Income this month · before tax</p>
+        <p id="txPre" class="text-2xl font-semibold mt-2 tabular-nums text-sky-200">—</p>
+      </div>
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-5">
+        <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Taxes this month</p>
+        <p id="txTax" class="text-2xl font-semibold mt-2 tabular-nums text-rose-300">—</p>
+        <p id="txRate" class="text-xs text-slate-500 mt-1"></p>
+      </div>
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-5">
+        <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Income this month · after tax</p>
+        <p id="txPost" class="text-2xl font-semibold mt-2 tabular-nums text-emerald-300">—</p>
+      </div>
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-5">
+        <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Net savings · before → after tax</p>
+        <p id="txSav" class="text-lg font-semibold mt-2 tabular-nums">—</p>
+      </div>
+    </section>
+
+    {% if can_edit %}
+    <section class="rounded-2xl border border-slate-800 bg-slate-900/80 p-5 md:p-6">
+      <h2 class="text-lg font-semibold mb-1">Create a tax</h2>
+      <p class="text-xs text-slate-500 mb-4">e.g. "IRS" 13%, "Social security" 11%, or a fixed monthly amount. A tax only counts on the incomes you assign it to.</p>
+      <form id="txAddForm" class="space-y-3">
+        <div class="grid sm:grid-cols-2 lg:grid-cols-[1fr_8rem_10rem_auto] gap-3 items-end">
+          <label class="text-xs text-slate-400">Name
+            <input name="name" required maxlength="120" placeholder="e.g. IRS" class="mt-1 block w-full rounded-lg bg-slate-800 border border-slate-600 px-3 py-2 text-sm" />
+          </label>
+          <label class="text-xs text-slate-400">Rate (%)
+            <input name="rate_pct" inputmode="decimal" placeholder="0" class="mt-1 block w-full rounded-lg bg-slate-800 border border-slate-600 px-3 py-2 text-sm tabular-nums" />
+          </label>
+          <label class="text-xs text-slate-400">Fixed / month ({{ instance.currency or 'EUR' }})
+            <input name="fixed_monthly" inputmode="decimal" placeholder="0" class="mt-1 block w-full rounded-lg bg-slate-800 border border-slate-600 px-3 py-2 text-sm tabular-nums" />
+          </label>
+          <button type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-sm font-medium text-white disabled:opacity-50">Create tax</button>
+        </div>
+        <div id="txAddIncomes" class="rounded-lg border border-slate-700/80 px-3 py-2">
+          <p class="text-xs text-slate-400 mb-1">Assign to these incomes now <span class="text-slate-500">(optional — you can also do it when editing an income)</span></p>
+          <div class="flex flex-wrap gap-x-4 gap-y-1" data-income-list></div>
+        </div>
+        <label class="inline-flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+          <input type="checkbox" name="on_investments" class="accent-amber-500" />
+          Also take this % from investment gains (Investment Calculator &amp; investment chart)
+        </label>
+      </form>
+      <p id="txAddMsg" class="text-xs mt-2 min-h-[1rem]"></p>
+    </section>
+    {% endif %}
+
+    <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 md:p-6">
+      <h2 class="text-lg font-semibold mb-4">Your taxes</h2>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm text-left">
+          <thead><tr class="text-slate-400 border-b border-slate-800"><th class="py-2">Name</th><th class="text-right">Rate</th><th class="text-right">Fixed / month</th><th class="pl-4">Applied to</th><th class="text-right">This month</th><th class="text-right w-40"></th></tr></thead>
+          <tbody id="txRows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="rounded-2xl border border-indigo-900/40 bg-indigo-950/20 p-5 md:p-6">
+      <h2 class="text-lg font-semibold text-indigo-100 mb-1">Try it</h2>
+      <p class="text-xs text-slate-400 mb-4">Type a gross amount and tick taxes to see what's left. This doesn't change your data.</p>
+      <div class="grid md:grid-cols-[12rem_1fr] gap-4 items-start">
+        <label class="text-xs text-slate-400">Amount (before tax)
+          <input id="txTryAmount" inputmode="decimal" value="1500" class="mt-1 block w-full rounded-lg bg-slate-800 border border-slate-600 px-3 py-2 text-sm tabular-nums" />
+        </label>
+        <div class="space-y-2">
+          <div id="txTryTaxes" class="flex flex-wrap gap-x-4 gap-y-1 pt-5"></div>
+          <div class="rounded-xl bg-slate-900/70 border border-slate-800 p-3 text-sm">
+            <p><span class="text-slate-400">Before tax:</span> <span id="txTryPre" class="font-semibold tabular-nums">—</span>
+              <span class="text-slate-600 mx-1">→</span> <span class="text-slate-400">tax</span> <span id="txTryTax" class="font-semibold tabular-nums text-rose-300">—</span>
+              <span class="text-slate-600 mx-1">→</span> <span class="text-slate-400">after tax:</span> <span id="txTryPost" class="font-bold tabular-nums text-emerald-300">—</span></p>
+            <ul id="txTryLines" class="mt-2 text-xs text-slate-400 space-y-0.5"></ul>
+          </div>
+        </div>
+      </div>
+      <p class="text-xs text-slate-500 mt-4">Then <a href="/instances/{{ instance.id }}#long-range-section" class="text-indigo-300 underline">run the database calculation</a> to see before-tax and after-tax results month by month.</p>
+    </section>
+  </main>
+    </div>
+  </div>
+  <script id="txJson" type="application/json">{{ taxes | tojson }}</script>
+  <script>
+    (function () {
+      const INSTANCE_ID = {{ instance.id }};
+      const CAN_EDIT = {{ 'true' if can_edit else 'false' }};
+      let DATA = {};
+      try { DATA = JSON.parse(document.getElementById('txJson').textContent || '{}'); } catch (e) { DATA = {}; }
+      let editingId = null;
+      let tryChecked = null;
+
+      function fmt(n) {
+        if (window.WebableCurrency && window.WebableCurrency.format) return window.WebableCurrency.format(Number(n) || 0);
+        return Number(n || 0).toFixed(2);
+      }
+      function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+      }
+      function num(v) {
+        const n = Number(String(v == null ? '' : v).trim().replace(/\s/g, '').replace(',', '.'));
+        return Number.isFinite(n) ? n : 0;
+      }
+      function rateText(r) {
+        const parts = [];
+        if (r.rate_pct) parts.push(r.rate_pct + '%');
+        if (r.fixed_monthly) parts.push(fmt(r.fixed_monthly));
+        return parts.join(' + ');
+      }
+
+      // Same rule as tax_service.tax_on_amount: Σ(rate% × amount + fixed), never more than the amount.
+      function taxOn(amount, rules) {
+        let total = 0;
+        const lines = rules.map(function (r) {
+          let amt = amount * r.rate_pct / 100 + r.fixed_monthly;
+          amt = Math.min(amt, Math.max(0, amount - total));
+          total += amt;
+          return { name: r.name, amount: Math.round(amt * 100) / 100 };
+        });
+        return { total: Math.round(total * 100) / 100, lines: lines };
+      }
+
+      async function api(method, url, body) {
+        const res = await fetch(url, {
+          method: method,
+          credentials: 'same-origin',
+          headers: body ? { 'Content-Type': 'application/json' } : {},
+          body: body ? JSON.stringify(body) : undefined
+        });
+        const data = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error(data.detail || ('Request failed (' + res.status + ')'));
+        return data;
+      }
+
+      function renderSummary() {
+        const c = DATA.current_month || {};
+        const tx = c.taxes || {};
+        document.getElementById('txPre').textContent = fmt(c.income_pre_tax);
+        document.getElementById('txTax').textContent = fmt(tx.total_tax || 0);
+        document.getElementById('txRate').textContent = (tx.effective_rate_pct || 0) + '% effective · ' + (c.month || '');
+        document.getElementById('txPost').textContent = fmt(c.income_after_tax);
+        const sav = document.getElementById('txSav');
+        sav.innerHTML = '<span class="text-slate-300">' + fmt(c.savings_pre_tax) + '</span> <span class="text-slate-600">→</span> <span class="' + ((c.savings_after_tax || 0) < 0 ? 'text-rose-300' : 'text-emerald-300') + '">' + fmt(c.savings_after_tax) + '</span>';
+      }
+
+      function thisMonth(rule) {
+        if (!rule.active) return '<span class="text-slate-500 text-xs">off</span>';
+        const lines = ((DATA.current_month || {}).taxes || {}).lines || [];
+        const hit = lines.find(function (l) { return l.name === rule.name; });
+        return fmt(hit ? hit.amount : 0);
+      }
+
+      function appliedTo(rule) {
+        const tags = (rule.incomes || []).map(function (i) {
+          return '<span class="inline-block rounded bg-slate-800 border border-slate-700 px-1.5 py-0.5 text-[11px] text-slate-200 mr-1 mb-1">' + esc(i.name) + (i.kind === 'oneoff' ? ' <span class="text-slate-500">one-time</span>' : '') + '</span>';
+        });
+        if (rule.on_investments) tags.push('<span class="inline-block rounded bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.5 text-[11px] text-amber-200 mr-1 mb-1">investment gains</span>');
+        return tags.join('') || '<span class="text-xs text-slate-500">Not assigned — tick it on an income</span>';
+      }
+
+      function rowHtml(r) {
+        if (editingId === r.id) {
+          return '<tr class="border-b border-slate-800/80 bg-slate-800/40 align-top" data-id="' + r.id + '">' +
+            '<td class="py-2 pr-2"><input data-f="name" maxlength="120" value="' + esc(r.name) + '" class="w-full rounded bg-slate-900 border border-slate-600 px-2 py-1 text-sm" /></td>' +
+            '<td class="text-right pr-2 py-2"><input data-f="rate_pct" inputmode="decimal" value="' + r.rate_pct + '" class="w-20 text-right rounded bg-slate-900 border border-slate-600 px-2 py-1 text-sm" /></td>' +
+            '<td class="text-right pr-2 py-2"><input data-f="fixed_monthly" inputmode="decimal" value="' + r.fixed_monthly + '" class="w-24 text-right rounded bg-slate-900 border border-slate-600 px-2 py-1 text-sm" /></td>' +
+            '<td class="pl-4 py-2"><label class="inline-flex items-center gap-1.5 text-xs text-slate-300"><input data-f="on_investments" type="checkbox"' + (r.on_investments ? ' checked' : '') + ' class="accent-amber-500" /> also investment gains</label></td>' +
+            '<td></td>' +
+            '<td class="text-right whitespace-nowrap space-x-2 py-2"><button type="button" data-act="save" class="text-emerald-300 hover:text-emerald-200 text-xs font-medium">Save</button>' +
+            '<button type="button" data-act="cancel" class="text-slate-400 hover:text-slate-200 text-xs">Cancel</button></td></tr>';
+        }
+        const actions = CAN_EDIT
+          ? '<button type="button" data-act="toggle" class="text-slate-300 hover:text-white text-xs">' + (r.active ? 'Turn off' : 'Turn on') + '</button>' +
+            '<button type="button" data-act="edit" class="text-indigo-300 hover:text-indigo-200 text-xs font-medium">Edit</button>' +
+            '<button type="button" data-act="delete" class="text-rose-400 hover:text-rose-300 text-xs">Delete</button>'
+          : '';
+        return '<tr class="border-b border-slate-800/80 align-top' + (r.active ? '' : ' opacity-50') + '" data-id="' + r.id + '">' +
+          '<td class="py-2 pr-2 text-slate-100">' + esc(r.name) + '</td>' +
+          '<td class="text-right tabular-nums pr-2 py-2">' + (r.rate_pct ? r.rate_pct + '%' : '—') + '</td>' +
+          '<td class="text-right tabular-nums pr-2 py-2">' + (r.fixed_monthly ? fmt(r.fixed_monthly) : '—') + '</td>' +
+          '<td class="pl-4 py-2">' + appliedTo(r) + '</td>' +
+          '<td class="text-right tabular-nums pr-2 py-2 text-rose-300">' + thisMonth(r) + '</td>' +
+          '<td class="text-right whitespace-nowrap space-x-2 py-2">' + actions + '</td></tr>';
+      }
+
+      function renderRows() {
+        const rules = DATA.rules || [];
+        document.getElementById('txRows').innerHTML = rules.length
+          ? rules.map(rowHtml).join('')
+          : '<tr><td colspan="6" class="py-4 text-slate-500">No taxes yet. Until you create and assign one, incomes are treated as already after tax.</td></tr>';
+      }
+
+      function renderAddIncomes() {
+        const box = document.querySelector('#txAddIncomes [data-income-list]');
+        if (!box) return;
+        const incomes = DATA.incomes || [];
+        box.innerHTML = incomes.length ? incomes.map(function (i) {
+          return '<label class="inline-flex items-center gap-1.5 text-xs text-slate-200 cursor-pointer"><input type="checkbox" name="income_ids" value="' + i.id + '" class="accent-indigo-500" /> ' +
+            esc(i.name) + ' <span class="text-slate-500">' + fmt(i.amount) + '</span></label>';
+        }).join('') : '<span class="text-xs text-slate-500">No recurring incomes yet.</span>';
+      }
+
+      function renderTry() {
+        const box = document.getElementById('txTryTaxes');
+        const rules = (DATA.rules || []).filter(function (r) { return r.active; });
+        if (tryChecked === null) tryChecked = rules.map(function (r) { return r.id; });
+        box.innerHTML = rules.length ? rules.map(function (r) {
+          return '<label class="inline-flex items-center gap-1.5 text-xs text-slate-200 cursor-pointer"><input type="checkbox" data-try value="' + r.id + '"' +
+            (tryChecked.indexOf(r.id) >= 0 ? ' checked' : '') + ' class="accent-rose-500" /> ' + esc(r.name) + ' <span class="text-slate-500">' + rateText(r) + '</span></label>';
+        }).join('') : '<span class="text-xs text-slate-500">Create a tax first.</span>';
+        computeTry();
+      }
+
+      function computeTry() {
+        const amount = Math.max(0, num(document.getElementById('txTryAmount').value));
+        const rules = (DATA.rules || []).filter(function (r) { return r.active && tryChecked.indexOf(r.id) >= 0; });
+        const r = taxOn(amount, rules);
+        document.getElementById('txTryPre').textContent = fmt(amount);
+        document.getElementById('txTryTax').textContent = fmt(r.total);
+        document.getElementById('txTryPost').textContent = fmt(amount - r.total);
+        document.getElementById('txTryLines').innerHTML = r.lines.map(function (l) {
+          return '<li>' + esc(l.name) + ': ' + fmt(l.amount) + '</li>';
+        }).join('') || '<li>No taxes ticked.</li>';
+      }
+
+      function render() {
+        renderSummary();
+        renderRows();
+        renderAddIncomes();
+        renderTry();
+      }
+
+      function apply(d) { DATA = d; render(); }
+
+      document.getElementById('txTryTaxes').addEventListener('change', function () {
+        tryChecked = Array.prototype.map.call(document.querySelectorAll('[data-try]:checked'), function (c) { return Number(c.value); });
+        computeTry();
+      });
+      document.getElementById('txTryAmount').addEventListener('input', computeTry);
+
+      document.getElementById('txRows').addEventListener('click', function (e) {
+        const btn = e.target.closest('button[data-act]');
+        if (!btn) return;
+        const tr = btn.closest('tr[data-id]');
+        const id = Number(tr.getAttribute('data-id'));
+        const rule = (DATA.rules || []).find(function (r) { return r.id === id; });
+        const act = btn.getAttribute('data-act');
+        const url = '/instances/' + INSTANCE_ID + '/api/taxes/' + id;
+        if (act === 'edit') { editingId = id; renderRows(); return; }
+        if (act === 'cancel') { editingId = null; renderRows(); return; }
+        if (act === 'toggle') { api('POST', url, { active: !rule.active }).then(apply).catch(function (err) { alert(err.message); }); return; }
+        if (act === 'delete') {
+          if (!confirm('Delete the tax "' + rule.name + '"? It will be removed from every income it is assigned to.')) return;
+          api('DELETE', url).then(apply).catch(function (err) { alert(err.message); });
+          return;
+        }
+        if (act === 'save') {
+          api('POST', url, {
+            name: tr.querySelector('[data-f="name"]').value,
+            rate_pct: tr.querySelector('[data-f="rate_pct"]').value,
+            fixed_monthly: tr.querySelector('[data-f="fixed_monthly"]').value,
+            on_investments: tr.querySelector('[data-f="on_investments"]').checked,
+            note: rule.note,
+            active: rule.active
+          }).then(function (d) { editingId = null; apply(d); }).catch(function (err) { alert(err.message); });
+        }
+      });
+
+      const addForm = document.getElementById('txAddForm');
+      if (addForm) {
+        addForm.addEventListener('submit', async function (e) {
+          e.preventDefault();
+          const msg = document.getElementById('txAddMsg');
+          const btn = addForm.querySelector('button[type="submit"]');
+          const incomeIds = Array.prototype.map.call(addForm.querySelectorAll('input[name=income_ids]:checked'), function (c) { return Number(c.value); });
+          btn.disabled = true;
+          try {
+            const d = await api('POST', '/instances/' + INSTANCE_ID + '/api/taxes', {
+              name: addForm.elements.name.value,
+              rate_pct: addForm.elements.rate_pct.value,
+              fixed_monthly: addForm.elements.fixed_monthly.value,
+              on_investments: addForm.elements.on_investments.checked,
+              income_ids: incomeIds
+            });
+            addForm.reset();
+            msg.className = 'text-xs mt-2 min-h-[1rem] text-emerald-300';
+            msg.textContent = incomeIds.length
+              ? 'Tax created and assigned to ' + incomeIds.length + ' income' + (incomeIds.length > 1 ? 's' : '') + '.'
+              : 'Tax created — tick it on an income (Add / Edit income) to apply it.';
+            tryChecked = null;
+            apply(d);
+          } catch (err) {
+            msg.className = 'text-xs mt-2 min-h-[1rem] text-rose-300';
+            msg.textContent = err.message;
+          } finally {
+            btn.disabled = false;
+          }
+        });
+      }
+
+      document.addEventListener('webable:currency', render);
+      render();
+    })();
+  </script>
+  {% include "partials/global_fab_stack.html" %}
+</body>
+</html>

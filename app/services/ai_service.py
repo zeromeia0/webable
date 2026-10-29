@@ -387,6 +387,21 @@ def summarize_workspace_context(
     if mom:
         summary["month_over_month"] = mom
 
+    try:
+        from app.services import net_worth_service
+
+        nw = net_worth_service.summary(instance.finance_db_path)
+        summary["net_worth"] = {
+            "emergency_fund": nw["totals"]["emergency_fund"],
+            "invested": nw["totals"]["invested"],
+            "total_assets": nw["totals"]["assets"],
+            "total_liabilities": nw["totals"]["liabilities"],
+            "net_worth": nw["totals"]["net_worth"],
+            "emergency_fund_months_covered": nw["emergency"]["months_covered"],
+        }
+    except Exception:  # context is best-effort; never block the assistant
+        pass
+
     if db is not None and include_wishlist:
         safe = float(payload.get("safe_to_spend") or 0)
         items = wishlist_service.list_items(db, user.id)[:_TOP_N]

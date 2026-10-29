@@ -44,6 +44,10 @@
       </div>
     </section>
 
+    {% with balances_ws=instance %}
+      {% include "partials/balances_card.html" %}
+    {% endwith %}
+
     <div class="grid lg:grid-cols-2 gap-8">
       <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
         <h2 class="text-lg font-semibold text-emerald-200 mb-4">Top income sources</h2>
@@ -55,17 +59,9 @@
       </div>
     </div>
 
-    <section class="grid lg:grid-cols-2 gap-8">
-      <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 min-h-[300px]">
-        <h2 class="text-lg font-semibold mb-4">Savings trend (6 months)</h2>
-        <div class="relative h-72"><canvas id="anChartSav"></canvas></div>
-      </div>
-      <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 min-h-[300px]">
-        <h2 class="text-lg font-semibold mb-4">Compound savings interest</h2>
-        <p id="anCompoundNote" class="text-xs text-slate-500 mb-3">Projected compound growth from your saved database calculation (100% of monthly savings at 5% annual return).</p>
-        <div class="relative h-72"><canvas id="anChartCompound"></canvas></div>
-        <p id="anCompoundEmpty" class="hidden text-sm text-slate-500 mt-2">Run a database calculation on your workspace to see compound savings growth here.</p>
-      </div>
+    <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 min-h-[300px]">
+      <h2 class="text-lg font-semibold mb-4">Savings trend (6 months)</h2>
+      <div class="relative h-72"><canvas id="anChartSav"></canvas></div>
     </section>
 
     <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
@@ -74,8 +70,12 @@
     </section>
 
     <section class="rounded-2xl border border-cyan-900/40 bg-cyan-950/20 p-6">
-      <h2 class="text-lg font-semibold text-cyan-100 mb-2">Emergency buffer hint</h2>
+      <h2 class="text-lg font-semibold text-cyan-100 mb-2">Emergency buffer</h2>
       <p id="anEmerg" class="text-sm text-slate-300 leading-relaxed">—</p>
+      <div class="mt-4">
+        <div class="flex justify-between text-[11px] text-slate-400 mb-1"><span id="anEmergHave">—</span><span id="anEmergPct">—</span></div>
+        <div class="h-2 rounded-full bg-slate-800 overflow-hidden"><div id="anEmergBar" class="h-full rounded-full bg-cyan-400 transition-all" style="width:0%"></div></div>
+      </div>
     </section>
   </main>
     </div>
@@ -86,6 +86,8 @@
       const raw = document.getElementById('wbAnalysisJson');
       let DATA = {};
       try { DATA = JSON.parse(raw.textContent || '{}'); } catch (e) { DATA = {}; }
+      const INSTANCE_ID = {{ instance.id }};
+      let savChart;
       function fmt(n) {
         if (window.WebableCurrency && window.WebableCurrency.format) return window.WebableCurrency.format(Number(n));
         return '€ ' + Number(n).toFixed(2);
@@ -96,11 +98,10 @@
         if (n < 0) return 'text-rose-300';
         return 'text-slate-300';
       }
+      function renderAll() {
       const hasRecurring = (DATA.top_income_sources && DATA.top_income_sources.length) || (DATA.top_expense_sources && DATA.top_expense_sources.length);
       const hasTrend = DATA.monthly_trend && DATA.monthly_trend.some(function (x) { return x.savings_eur !== 0 || x.inflow_eur !== 0; });
-      if (!hasRecurring && !hasTrend) {
-        document.getElementById('analysisEmpty').classList.remove('hidden');
-      }
+      document.getElementById('analysisEmpty').classList.toggle('hidden', !!(hasRecurring || hasTrend));
       var hs = document.getElementById('anHeadSav');
       hs.textContent = fmt(DATA.headline_savings_eur || 0);
       hs.className = 'text-2xl font-bold mt-2 tabular-nums ' + moneyClass(DATA.headline_savings_eur || 0);
@@ -150,9 +151,14 @@
         insUl.appendChild(li);
       }
       var eh = DATA.emergency_fund_hint || {};
-      document.getElementById('anEmerg').textContent = (eh.note || '') + ' Recurring expenses ≈ ' + fmt(eh.recurring_expenses_monthly_eur || 0) + '/mo; rough 6-month cushion ≈ ' + fmt(eh.suggested_6m_buffer_eur || 0) + '.';
+      document.getElementById('anEmerg').textContent = (eh.note || '') + ' Recurring expenses ≈ ' + fmt(eh.recurring_expenses_monthly_eur || 0) + '/mo; rough 6-month cushion ≈ ' + fmt(eh.suggested_6m_buffer_eur || 0) + '.' +
+        (eh.months_covered != null ? ' Your emergency fund covers ≈ ' + eh.months_covered + ' months of recurring expenses.' : '');
+      document.getElementById('anEmergHave').textContent = 'You have ' + fmt(eh.current_emergency_fund_eur || 0) +
+        ((eh.still_needed_eur || 0) > 0 ? ' · still needed ' + fmt(eh.still_needed_eur) : ' · target reached');
+      var ePct = eh.progress_pct == null ? 0 : eh.progress_pct;
+      document.getElementById('anEmergPct').textContent = eh.progress_pct == null ? '—' : ePct + '%';
+      document.getElementById('anEmergBar').style.width = Math.max(0, Math.min(100, ePct)) + '%';
 
-      let savChart, compoundChart;
       function buildCharts() {
         var base = window.WebableCharts.darkChartOptions();
         var moneyTick = function (v) { return fmt(v); };
@@ -190,60 +196,23 @@
             }
           })
         });
-        var compound = DATA.compound_savings || {};
-        var cmpLabels = compound.labels || [];
-        var cmpValues = compound.values || [];
-        var cmpEmpty = document.getElementById('anCompoundEmpty');
-        var cmpCanvas = document.getElementById('anChartCompound');
-        if (compoundChart) compoundChart.destroy();
-        if (compound.available && cmpLabels.length) {
-          if (cmpEmpty) cmpEmpty.classList.add('hidden');
-          if (cmpCanvas) cmpCanvas.parentElement.classList.remove('hidden');
-          compoundChart = new Chart(cmpCanvas, {
-            type: 'line',
-            data: {
-              labels: cmpLabels,
-              datasets: [{
-                label: 'Compound savings balance',
-                data: cmpValues,
-                borderColor: '#a78bfa',
-                backgroundColor: 'rgba(167,139,250,0.12)',
-                tension: 0.3,
-                fill: true,
-                pointRadius: 2,
-                pointHoverRadius: 5,
-                pointBackgroundColor: '#c4b5fd'
-              }]
-            },
-            options: Object.assign({}, base, {
-              scales: {
-                x: { ticks: { color: '#94a3b8', maxRotation: 45, minRotation: 0, maxTicksLimit: 14 } },
-                y: { ticks: { color: '#94a3b8', callback: moneyTick } }
-              },
-              plugins: {
-                tooltip: Object.assign({}, base.plugins.tooltip, {
-                  callbacks: {
-                    label: function (ctx) { return 'Balance: ' + fmt(ctx.parsed.y); }
-                  }
-                })
-              }
-            })
-          });
-        } else {
-          if (cmpEmpty) cmpEmpty.classList.remove('hidden');
-        }
         window.webableRefreshCharts = function () {
           if (savChart && savChart.options.scales && savChart.options.scales.y) {
             savChart.options.scales.y.ticks.callback = moneyTick;
             savChart.update();
           }
-          if (compoundChart && compoundChart.options.scales && compoundChart.options.scales.y) {
-            compoundChart.options.scales.y.ticks.callback = moneyTick;
-            compoundChart.update();
-          }
         };
       }
       buildCharts();
+      }
+      renderAll();
+      document.addEventListener('webable:balances', function (e) {
+        if (!e.detail || e.detail.instanceId !== INSTANCE_ID) return;
+        fetch('/instances/' + INSTANCE_ID + '/analysis-data', { credentials: 'same-origin' })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (d) { if (d) { DATA = d; renderAll(); } })
+          .catch(function () { /* keep current view */ });
+      });
       document.addEventListener('webable:currency', function () {
         if (typeof window.webableRefreshCharts === 'function') window.webableRefreshCharts();
       });

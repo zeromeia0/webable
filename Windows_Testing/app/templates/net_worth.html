@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Net worth — {{ instance.name }} — Webable</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/static/js/webable-currency.js"></script>
+  <script src="/static/js/webable-charts.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+  <div class="flex flex-col md:flex-row min-h-screen">
+    {% include "partials/app_sidebar.html" %}
+    <div class="flex-1 min-w-0 flex flex-col">
+    {% include "partials/app_topbar.html" %}
+  <main class="flex-1 max-w-7xl w-full mx-auto p-6 md:p-10 space-y-8 pb-20">
+    <header class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Net worth</h1>
+        <p class="text-slate-400 mt-2 text-sm md:text-base max-w-3xl">{{ instance.name }} — everything you own minus everything you owe, in {{ instance.currency or 'EUR' }}. Your emergency fund and invested amount count as assets automatically.</p>
+      </div>
+      {% if instances|length > 1 %}
+      <label class="text-sm text-slate-400 shrink-0">Workspace
+        <select class="mt-1 block w-full lg:w-56 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" onchange="location.href='/instances/'+this.value+'/net-worth'">
+          {% for ins in instances %}
+          <option value="{{ ins.id }}" {% if ins.id == instance.id %}selected{% endif %}>{{ ins.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% endif %}
+    </header>
+
+    <section class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-5">
+        <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Net worth</p>
+        <p id="nwNet" class="text-3xl font-bold mt-2 tabular-nums">—</p>
+      </div>
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-5">
+        <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Total assets</p>
+        <p id="nwAssets" class="text-2xl font-semibold mt-2 tabular-nums text-emerald-300">—</p>
+      </div>
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-5">
+        <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Total liabilities</p>
+        <p id="nwLiab" class="text-2xl font-semibold mt-2 tabular-nums text-rose-300">—</p>
+      </div>
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-5">
+        <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Debt-to-asset ratio</p>
+        <p id="nwRatio" class="text-2xl font-semibold mt-2 tabular-nums text-slate-200">—</p>
+      </div>
+    </section>
+
+    {% with balances_ws=instance, balances_summary=net_worth, balances_can_edit=can_edit %}
+      {% include "partials/balances_card.html" %}
+    {% endwith %}
+
+    {% if can_edit %}
+    <section class="rounded-2xl border border-slate-800 bg-slate-900/80 p-5 md:p-6">
+      <h2 class="text-lg font-semibold mb-1">Add an asset or liability</h2>
+      <p class="text-xs text-slate-500 mb-4">e.g. current account balance, house value, car, crypto — or a mortgage, car loan, credit card balance.</p>
+      <form id="nwAddForm" class="grid sm:grid-cols-2 lg:grid-cols-[9rem_1fr_11rem_10rem_1fr_auto] gap-3 items-end">
+        <label class="text-xs text-slate-400">Type
+          <select name="kind" class="mt-1 block w-full rounded-lg bg-slate-800 border border-slate-600 px-2 py-2 text-sm">
+            <option value="asset">Asset</option>
+            <option value="liability">Liability</option>
+          </select>
+        </label>
+        <label class="text-xs text-slate-400">Name
+          <input name="name" required maxlength="120" placeholder="e.g. Main bank account" class="mt-1 block w-full rounded-lg bg-slate-800 border border-slate-600 px-3 py-2 text-sm" />
+        </label>
+        <label class="text-xs text-slate-400">Category
+          <select name="category" class="mt-1 block w-full rounded-lg bg-slate-800 border border-slate-600 px-2 py-2 text-sm"></select>
+        </label>
+        <label class="text-xs text-slate-400">Amount ({{ instance.currency or 'EUR' }})
+          <input name="amount" required inputmode="decimal" placeholder="0.00" class="mt-1 block w-full rounded-lg bg-slate-800 border border-slate-600 px-3 py-2 text-sm tabular-nums" />
+        </label>
+        <label class="text-xs text-slate-400">Note (optional)
+          <input name="note" maxlength="300" class="mt-1 block w-full rounded-lg bg-slate-800 border border-slate-600 px-3 py-2 text-sm" />
+        </label>
+        <button type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-sm font-medium text-white disabled:opacity-50">Add</button>
+      </form>
+      <p id="nwAddMsg" class="text-xs mt-2 min-h-[1rem]"></p>
+    </section>
+    {% endif %}
+
+    <div class="grid lg:grid-cols-2 gap-6">
+      <section class="rounded-2xl border border-emerald-900/40 bg-slate-900/60 p-5 md:p-6">
+        <h2 class="text-lg font-semibold text-emerald-200 mb-4">Assets</h2>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm text-left">
+            <thead><tr class="text-slate-400 border-b border-slate-800"><th class="py-2">Name</th><th>Category</th><th class="text-right">Amount</th><th class="text-right w-28"></th></tr></thead>
+            <tbody id="nwAssetRows"></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="rounded-2xl border border-rose-900/40 bg-slate-900/60 p-5 md:p-6">
+        <h2 class="text-lg font-semibold text-rose-200 mb-4">Liabilities</h2>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm text-left">
+            <thead><tr class="text-slate-400 border-b border-slate-800"><th class="py-2">Name</th><th>Category</th><th class="text-right">Amount</th><th class="text-right w-28"></th></tr></thead>
+            <tbody id="nwLiabRows"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <div class="grid lg:grid-cols-2 gap-6">
+      <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 md:p-6 min-h-[300px]">
+        <h2 class="text-lg font-semibold mb-4">Where your assets are</h2>
+        <div class="relative h-72"><canvas id="nwChartMix"></canvas></div>
+        <p id="nwChartMixEmpty" class="hidden text-sm text-slate-500 mt-2">Add assets or set your emergency fund / invested amount to see the breakdown.</p>
+      </section>
+      <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 md:p-6 min-h-[300px]">
+        <h2 class="text-lg font-semibold mb-1">Net worth over time</h2>
+        <p class="text-xs text-slate-500 mb-3">One point per day you update something here.</p>
+        <div class="relative h-64"><canvas id="nwChartHist"></canvas></div>
+        <p id="nwChartHistEmpty" class="hidden text-sm text-slate-500 mt-2">Your history starts the first time you save a value.</p>
+      </section>
+    </div>
+  </main>
+    </div>
+  </div>
+  <script id="nwJson" type="application/json">{{ net_worth | tojson }}</script>
+  <script>
+    (function () {
+      const INSTANCE_ID = {{ instance.id }};
+      const CAN_EDIT = {{ 'true' if can_edit else 'false' }};
+      let DATA = {};
+      try { DATA = JSON.parse(document.getElementById('nwJson').textContent || '{}'); } catch (e) { DATA = {}; }
+      let editingId = null;
+      let mixChart, histChart;
+
+      function fmt(n) {
+        if (window.WebableCurrency && window.WebableCurrency.format) return window.WebableCurrency.format(Number(n) || 0);
+        return Number(n || 0).toFixed(2);
+      }
+      function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+      }
+      function categoryOptions(kind, selected) {
+        const cats = ((DATA.categories || {})[kind]) || ['Other'];
+        return cats.map(function (c) {
+          return '<option value="' + esc(c) + '"' + (c === selected ? ' selected' : '') + '>' + esc(c) + '</option>';
+        }).join('');
+      }
+
+      async function api(method, url, body) {
+        const res = await fetch(url, {
+          method: method,
+          credentials: 'same-origin',
+          headers: body ? { 'Content-Type': 'application/json' } : {},
+          body: body ? JSON.stringify(body) : undefined
+        });
+        const data = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error(data.detail || ('Request failed (' + res.status + ')'));
+        return data;
+      }
+
+      function apply(summary) {
+        DATA = summary;
+        render();
+        if (window.WebableBalances) window.WebableBalances.broadcast(INSTANCE_ID, summary);
+      }
+
+      function renderTotals() {
+        const t = DATA.totals || {};
+        const net = document.getElementById('nwNet');
+        net.textContent = fmt(t.net_worth);
+        net.className = 'text-3xl font-bold mt-2 tabular-nums ' + ((t.net_worth || 0) < 0 ? 'text-rose-300' : 'text-emerald-300');
+        document.getElementById('nwAssets').textContent = fmt(t.assets);
+        document.getElementById('nwLiab').textContent = fmt(t.liabilities);
+        document.getElementById('nwRatio').textContent = t.debt_to_asset_pct == null ? '—' : (t.debt_to_asset_pct + '%');
+      }
+
+      function rowHtml(item) {
+        if (editingId === item.id) {
+          return '<tr class="border-b border-slate-800/80 bg-slate-800/40" data-id="' + item.id + '">' +
+            '<td class="py-2 pr-2"><input data-f="name" maxlength="120" value="' + esc(item.name) + '" class="w-full rounded bg-slate-900 border border-slate-600 px-2 py-1 text-sm" /></td>' +
+            '<td class="pr-2"><select data-f="category" class="rounded bg-slate-900 border border-slate-600 px-1 py-1 text-sm">' + categoryOptions(item.kind, item.category) + '</select></td>' +
+            '<td class="text-right pr-2"><input data-f="amount" inputmode="decimal" value="' + Number(item.amount).toFixed(2) + '" class="w-28 text-right rounded bg-slate-900 border border-slate-600 px-2 py-1 text-sm tabular-nums" /></td>' +
+            '<td class="text-right whitespace-nowrap space-x-2"><button type="button" data-act="save" class="text-emerald-300 hover:text-emerald-200 text-xs font-medium">Save</button>' +
+            '<button type="button" data-act="cancel" class="text-slate-400 hover:text-slate-200 text-xs">Cancel</button></td></tr>';
+        }
+        const actions = CAN_EDIT
+          ? '<button type="button" data-act="edit" class="text-indigo-300 hover:text-indigo-200 text-xs font-medium">Edit</button>' +
+            '<button type="button" data-act="delete" class="text-rose-400 hover:text-rose-300 text-xs">Delete</button>'
+          : '';
+        return '<tr class="border-b border-slate-800/80" data-id="' + item.id + '">' +
+          '<td class="py-2 pr-2"><div class="text-slate-100">' + esc(item.name) + '</div>' + (item.note ? '<div class="text-[11px] text-slate-500 truncate max-w-[16rem]">' + esc(item.note) + '</div>' : '') + '</td>' +
+          '<td class="text-slate-400 pr-2">' + esc(item.category) + '</td>' +
+          '<td class="text-right tabular-nums pr-2">' + fmt(item.amount) + '</td>' +
+          '<td class="text-right whitespace-nowrap space-x-2">' + actions + '</td></tr>';
+      }
+
+      function renderTables() {
+        const items = DATA.items || [];
+        const t = DATA.totals || {};
+        const builtIn =
+          '<tr class="border-b border-slate-800/80 text-slate-300"><td class="py-2">Emergency fund</td><td class="text-slate-500">Built-in</td><td class="text-right tabular-nums pr-2">' + fmt(t.emergency_fund) + '</td><td class="text-right text-[11px] text-slate-500">edit above</td></tr>' +
+          '<tr class="border-b border-slate-800/80 text-slate-300"><td class="py-2">Invested</td><td class="text-slate-500">Built-in</td><td class="text-right tabular-nums pr-2">' + fmt(t.invested) + '</td><td class="text-right text-[11px] text-slate-500">edit above</td></tr>';
+        const assets = items.filter(function (i) { return i.kind === 'asset'; });
+        const liabs = items.filter(function (i) { return i.kind === 'liability'; });
+        document.getElementById('nwAssetRows').innerHTML = builtIn + assets.map(rowHtml).join('') +
+          '<tr class="font-semibold"><td class="py-2" colspan="2">Total</td><td class="text-right tabular-nums pr-2 text-emerald-300">' + fmt(t.assets) + '</td><td></td></tr>';
+        document.getElementById('nwLiabRows').innerHTML = (liabs.length ? liabs.map(rowHtml).join('') :
+          '<tr><td colspan="4" class="py-3 text-slate-500">No liabilities — nice. Add loans or card balances if you have any.</td></tr>') +
+          '<tr class="font-semibold"><td class="py-2" colspan="2">Total</td><td class="text-right tabular-nums pr-2 text-rose-300">' + fmt(t.liabilities) + '</td><td></td></tr>';
+      }
+
+      function renderCharts() {
+        const base = window.WebableCharts.darkChartOptions();
+        const t = DATA.totals || {};
+        const mix = {};
+        if (t.emergency_fund > 0) mix['Emergency fund'] = t.emergency_fund;
+        if (t.invested > 0) mix['Invested'] = t.invested;
+        (DATA.items || []).forEach(function (i) {
+          if (i.kind !== 'asset' || !(i.amount > 0)) return;
+          mix[i.category] = (mix[i.category] || 0) + i.amount;
+        });
+        const labels = Object.keys(mix);
+        const mixEmpty = document.getElementById('nwChartMixEmpty');
+        if (mixChart) { mixChart.destroy(); mixChart = null; }
+        if (labels.length) {
+          mixEmpty.classList.add('hidden');
+          mixChart = new Chart(document.getElementById('nwChartMix'), {
+            type: 'doughnut',
+            data: {
+              labels: labels,
+              datasets: [{ data: labels.map(function (k) { return mix[k]; }), borderColor: '#0f172a', borderWidth: 2,
+                backgroundColor: ['#2dd4bf', '#818cf8', '#34d399', '#f59e0b', '#ec4899', '#38bdf8', '#a78bfa', '#f97316', '#94a3b8', '#facc15'] }]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { position: 'right', labels: { color: '#cbd5e1', boxWidth: 12, padding: 10 } },
+                tooltip: Object.assign({}, base.plugins.tooltip, {
+                  callbacks: {
+                    label: function (ctx) {
+                      const total = labels.reduce(function (s, k) { return s + mix[k]; }, 0) || 1;
+                      return ctx.label + ': ' + fmt(ctx.parsed) + ' (' + (ctx.parsed / total * 100).toFixed(1) + '%)';
+                    }
+                  }
+                })
+              }
+            }
+          });
+        } else {
+          mixEmpty.classList.remove('hidden');
+        }
+
+        const hist = DATA.history || [];
+        const histEmpty = document.getElementById('nwChartHistEmpty');
+        if (histChart) { histChart.destroy(); histChart = null; }
+        if (hist.length) {
+          histEmpty.classList.add('hidden');
+          histChart = new Chart(document.getElementById('nwChartHist'), {
+            type: 'line',
+            data: {
+              labels: hist.map(function (h) { return h.day; }),
+              datasets: [
+                { label: 'Net worth', data: hist.map(function (h) { return h.net_worth; }), borderColor: '#2dd4bf', backgroundColor: 'rgba(45,212,191,0.15)', fill: true, tension: 0.25, pointRadius: 3 },
+                { label: 'Liabilities', data: hist.map(function (h) { return h.liabilities; }), borderColor: '#fb7185', backgroundColor: 'transparent', borderDash: [4, 4], tension: 0.25, pointRadius: 2 }
+              ]
+            },
+            options: Object.assign({}, base, {
+              scales: {
+                x: Object.assign({}, base.scales.x),
+                y: Object.assign({}, base.scales.y, { ticks: Object.assign({}, base.scales.y.ticks, { callback: function (v) { return fmt(v); } }) })
+              },
+              plugins: Object.assign({}, base.plugins, {
+                tooltip: Object.assign({}, base.plugins.tooltip, {
+                  callbacks: { label: function (ctx) { return ctx.dataset.label + ': ' + fmt(ctx.parsed.y); } }
+                })
+              })
+            })
+          });
+        } else {
+          histEmpty.classList.remove('hidden');
+        }
+      }
+
+      function render() {
+        renderTotals();
+        renderTables();
+        renderCharts();
+      }
+
+      function onTableClick(e) {
+        const btn = e.target.closest('button[data-act]');
+        if (!btn) return;
+        const tr = btn.closest('tr[data-id]');
+        const id = Number(tr.getAttribute('data-id'));
+        const item = (DATA.items || []).find(function (i) { return i.id === id; });
+        const act = btn.getAttribute('data-act');
+        if (act === 'edit') { editingId = id; renderTables(); return; }
+        if (act === 'cancel') { editingId = null; renderTables(); return; }
+        if (act === 'delete') {
+          if (!confirm('Delete "' + (item ? item.name : 'item') + '"?')) return;
+          api('DELETE', '/instances/' + INSTANCE_ID + '/api/net-worth/items/' + id).then(apply).catch(function (err) { alert(err.message); });
+          return;
+        }
+        if (act === 'save' && item) {
+          const amount = window.WebableBalances ? window.WebableBalances.parseAmount(tr.querySelector('[data-f="amount"]').value) : Number(tr.querySelector('[data-f="amount"]').value);
+          if (amount == null || Number.isNaN(amount)) { alert('Enter a positive amount.'); return; }
+          api('POST', '/instances/' + INSTANCE_ID + '/api/net-worth/items/' + id, {
+            kind: item.kind,
+            name: tr.querySelector('[data-f="name"]').value,
+            category: tr.querySelector('[data-f="category"]').value,
+            amount: amount,
+            note: item.note
+          }).then(function (s) { editingId = null; apply(s); }).catch(function (err) { alert(err.message); });
+        }
+      }
+      document.getElementById('nwAssetRows').addEventListener('click', onTableClick);
+      document.getElementById('nwLiabRows').addEventListener('click', onTableClick);
+
+      const addForm = document.getElementById('nwAddForm');
+      if (addForm) {
+        const kindSel = addForm.elements.kind;
+        const catSel = addForm.elements.category;
+        const fillCats = function () { catSel.innerHTML = categoryOptions(kindSel.value, null); };
+        kindSel.addEventListener('change', fillCats);
+        fillCats();
+        addForm.addEventListener('submit', async function (e) {
+          e.preventDefault();
+          const msg = document.getElementById('nwAddMsg');
+          const amount = window.WebableBalances ? window.WebableBalances.parseAmount(addForm.elements.amount.value) : Number(addForm.elements.amount.value);
+          if (amount == null || Number.isNaN(amount)) {
+            msg.className = 'text-xs mt-2 min-h-[1rem] text-rose-300';
+            msg.textContent = 'Enter a positive amount.';
+            return;
+          }
+          const btn = addForm.querySelector('button[type="submit"]');
+          btn.disabled = true;
+          try {
+            const s = await api('POST', '/instances/' + INSTANCE_ID + '/api/net-worth/items', {
+              kind: kindSel.value,
+              name: addForm.elements.name.value,
+              category: catSel.value,
+              amount: amount,
+              note: addForm.elements.note.value
+            });
+            addForm.elements.name.value = '';
+            addForm.elements.amount.value = '';
+            addForm.elements.note.value = '';
+            msg.className = 'text-xs mt-2 min-h-[1rem] text-emerald-300';
+            msg.textContent = 'Added.';
+            apply(s);
+          } catch (err) {
+            msg.className = 'text-xs mt-2 min-h-[1rem] text-rose-300';
+            msg.textContent = err.message;
+          } finally {
+            btn.disabled = false;
+          }
+        });
+      }
+
+      // Balances saved from the card on this page.
+      document.addEventListener('webable:balances', function (e) {
+        if (!e.detail || e.detail.instanceId !== INSTANCE_ID || e.detail.summary === DATA) return;
+        DATA = e.detail.summary;
+        render();
+      });
+      document.addEventListener('webable:currency', render);
+      render();
+    })();
+  </script>
+  {% include "partials/global_fab_stack.html" %}
+</body>
+</html>

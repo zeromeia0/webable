@@ -21,7 +21,7 @@ from app.db import DATA_ROOT
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
-from app.services import instance_service
+from app.services import instance_service, net_worth_service, tax_service
 
 log = logging.getLogger(__name__)
 
@@ -112,6 +112,16 @@ def migrate_app_schema(engine: "Engine") -> None:
         if "currency" not in existing:
             # Every workspace created before multi-currency support stored EUR amounts.
             conn.execute(text("ALTER TABLE database_instances ADD COLUMN currency TEXT NOT NULL DEFAULT 'EUR'"))
+        if "kind" not in existing:
+            conn.execute(text("ALTER TABLE database_instances ADD COLUMN kind TEXT NOT NULL DEFAULT 'personal'"))
+        if "source_workspace_id" not in existing:
+            conn.execute(text("ALTER TABLE database_instances ADD COLUMN source_workspace_id INTEGER REFERENCES database_instances(id)"))
+        if "include_member_expenses" not in existing:
+            conn.execute(text("ALTER TABLE database_instances ADD COLUMN include_member_expenses BOOLEAN NOT NULL DEFAULT 0"))
+        if _table_exists(conn, "workspace_members"):
+            member_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(workspace_members)")).fetchall()}
+            if "linked_workspace_id" not in member_cols:
+                conn.execute(text("ALTER TABLE workspace_members ADD COLUMN linked_workspace_id INTEGER REFERENCES database_instances(id)"))
 
         if _table_exists(conn, "workspace_invites"):
             invite_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(workspace_invites)")).fetchall()}
@@ -195,6 +205,8 @@ def migrate_workspace_sqlite(path: str | Path) -> None:
             instance_service._ensure_recurring_recurrence(conn)
             instance_service._ensure_savings_schema(conn)
             instance_service._ensure_entry_metadata_schema(conn)
+            net_worth_service._ensure_net_worth_schema(conn)
+            tax_service._ensure_tax_schema(conn)
         conn.commit()
     finally:
         conn.close()

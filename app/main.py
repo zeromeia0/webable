@@ -3,6 +3,7 @@ import io
 import json
 import logging
 import os
+import sys
 from datetime import date, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -36,6 +37,7 @@ from .services import (
     financial_timeline_service,
     instance_service,
     monthly_snapshot_service,
+    net_worth_service,
     notes_service,
     notification_service,
     numeric_input,
@@ -48,7 +50,10 @@ from .services import (
     reports_pdf,
     safe_updater,
     savings_pdf,
+    server_restart_service,
+    shared_workspace_service,
     spending_report,
+    tax_service,
     update_orchestration,
     update_service,
     workspace_export_service,
@@ -82,6 +87,8 @@ _STATIC_DIR = _APP_DIR / "static"
 _TEMPLATE_DIR = _APP_DIR / "templates"
 app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
+# The "Restart server" button rebuilds the Docker deployment; the frozen Windows desktop app has no Docker.
+templates.env.globals["restart_button_available"] = not getattr(sys, "frozen", False)
 
 Base.metadata.create_all(bind=engine)
 ROOT = DATA_ROOT
@@ -277,11 +284,48 @@ def build_monthly_output(metrics: dict, show_iefp: bool, currency: str = "EUR") 
     }
 
     oneoff_net = float(metrics.get("oneoff_net", oneoff_inc - oneoff_exp))
+    taxes = metrics.get("taxes") or {}
+    tax_total = float(metrics.get("taxes_total", 0) or 0)
+    tax_cards = []
+    tax_sections = []
+    if taxes.get("lines"):
+        income_after = float(metrics.get("income_after_tax", total_in - tax_total))
+        savings_pre = float(metrics.get("estimated_savings_pre_tax", savings + tax_total))
+        tax_cards = [
+            {"label": "Income before tax", "value": money(total_in), "value_eur": round(total_in, 2), "tone": "info"},
+            {
+                "label": f"Taxes ({taxes.get('effective_rate_pct', 0):g}% effective)",
+                "value": money(tax_total),
+                "value_eur": round(tax_total, 2),
+                "tone": "negative",
+            },
+            {"label": "Income after tax", "value": money(income_after), "value_eur": round(income_after, 2), "tone": "positive"},
+            {
+                "label": "Net savings before tax",
+                "value": money(savings_pre),
+                "value_eur": round(savings_pre, 2),
+                "tone": "positive" if savings_pre >= 0 else "negative",
+            },
+        ]
+        tax_sections = [
+            {
+                "title": "Taxes",
+                "items": [
+                    f"{l['name']} ("
+                    + " + ".join(
+                        ([f"{l['rate_pct']:g}%"] if l["rate_pct"] else []) + ([f"{money(l['fixed_monthly'])} fixed"] if l["fixed_monthly"] else [])
+                    )
+                    + f"): {money(l['amount'])} on {', '.join(l.get('incomes') or [])} ({money(l['base'])})"
+                    for l in taxes["lines"]
+                ]
+                + [f"Total: {money(tax_total)} — income {money(total_in)} before tax → {money(income_after)} after tax"],
+            }
+        ]
 
     return {
         "cards": [
             {
-                "label": "Estimated net savings",
+                "label": "Estimated net savings" + (" (after tax)" if tax_cards else ""),
                 "value": money(savings),
                 "value_eur": round(savings, 2),
                 "tone": "positive" if savings >= 0 else "negative",
@@ -316,8 +360,10 @@ def build_monthly_output(metrics: dict, show_iefp: bool, currency: str = "EUR") 
                 "value_eur": round(oneoff_net, 2),
                 "tone": "positive" if oneoff_net >= 0 else "negative",
             },
-        ],
-        "sections": [
+        ]
+        + tax_cards,
+        "sections": tax_sections
+        + [
             {"title": "Recurring income", "items": income_lines},
             {"title": "Recurring expenses", "items": expense_lines},
             {
@@ -332,7 +378,9 @@ def build_monthly_output(metrics: dict, show_iefp: bool, currency: str = "EUR") 
             {
                 "title": "Net result",
                 "items": [
-                    ("Positive month" if savings >= 0 else "Negative month") + f" — net savings {money(savings)}",
+                    ("Positive month" if savings >= 0 else "Negative month")
+                    + f" — net savings {money(savings)}"
+                    + (f" after {money(tax_total)} tax" if tax_cards else ""),
                     f"Recurring income: {money(recurring_inc)} · One-time income: {money(oneoff_inc)}",
                     f"Recurring expenses: {money(recurring_exp)} · One-time expenses: {money(oneoff_exp)}",
                 ],
@@ -355,21 +403,52 @@ def build_projection_output(rows: list[dict], currency: str = "EUR") -> dict:
     acc = float(rows[-1].get("accumulated", 0))
     best = max(range(len(savings)), key=lambda i: savings[i])
     worst = min(range(len(savings)), key=lambda i: savings[i])
+    total_tax = round(sum(float(r.get("taxes_total", 0) or 0) for r in rows), 2)
+    gross_in = round(sum(float(r.get("income_pre_tax", r.get("total_before_expenses", 0)) or 0) for r in rows), 2)
+    acc_pre = round(acc + total_tax, 2)
+    tax_cards = []
+    tax_items = []
+    if total_tax > 0:
+        tax_cards = [
+            {"label": "Accumulated savings before tax", "value": money(acc_pre), "value_eur": acc_pre, "tone": "positive" if acc_pre >= 0 else "negative"},
+            {"label": "Total taxes over the period", "value": money(total_tax), "value_eur": total_tax, "tone": "negative"},
+            {
+                "label": "Income before → after tax",
+                "value": f"{money(gross_in)} → {money(gross_in - total_tax)}",
+                "tone": "info",
+            },
+        ]
+        tax_items = [
+            f"Income before tax: {money(gross_in)}",
+            f"Taxes: {money(total_tax)} ({(total_tax / gross_in * 100 if gross_in else 0):.1f}% of income)",
+            f"Income after tax: {money(gross_in - total_tax)}",
+            f"Accumulated savings: {money(acc_pre)} before tax → {money(acc)} after tax",
+        ]
     mx = max([abs(v) for v in savings], default=1) or 1
-    bars = [
-        {
-            "label": months[i],
-            "value": money(savings[i]),
-            "value_eur": round(float(savings[i]), 2),
-            "pct": max(8, int((abs(savings[i]) / mx) * 100)),
-            "tone": "positive" if savings[i] >= 0 else "negative",
-        }
-        for i in range(len(rows))
-    ]
+    running = 0.0
+    bars = []
+    for i in range(len(rows)):
+        running += float(savings[i])
+        bars.append(
+            {
+                "label": months[i],
+                "value": money(savings[i]),
+                "value_eur": round(float(savings[i]), 2),
+                "accumulated": money(running),
+                "accumulated_eur": round(running, 2),
+                "pct": max(8, int((abs(savings[i]) / mx) * 100)),
+                "tone": "positive" if savings[i] >= 0 else "negative",
+            }
+        )
 
     return {
         "cards": [
-            {"label": "Projected Accumulated Savings", "value": money(acc), "value_eur": round(acc, 2), "tone": "positive" if acc >= 0 else "negative"},
+            {
+                "label": "Projected Accumulated Savings" + (" (after tax)" if tax_cards else ""),
+                "value": money(acc),
+                "value_eur": round(acc, 2),
+                "tone": "positive" if acc >= 0 else "negative",
+            },
             {
                 "label": "Best Month",
                 "value": f"{months[best]} ({money(savings[best])})",
@@ -384,10 +463,12 @@ def build_projection_output(rows: list[dict], currency: str = "EUR") -> dict:
                 "value_note": str(months[worst]),
                 "tone": "negative",
             },
-        ],
+        ]
+        + tax_cards,
         "sections": [
             {"title": "Projection Highlights", "items": [f"Months analyzed: {len(rows)}", f"Positive months: {len([v for v in savings if v >= 0])}", f"Negative months: {len([v for v in savings if v < 0])}"]},
-        ],
+        ]
+        + ([{"title": "Taxes", "items": tax_items}] if tax_items else []),
         "bars": bars,
         "recommendation": "Your long-term trend is positive." if acc >= 0 else "Your long-term trend is negative. Lower recurring expenses.",
     }
@@ -787,7 +868,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
     instances, active = workspace_service.resolve_active_workspace(db, user, request)
     metadata = {ins.id: instance_service.list_metadata(ins.finance_db_path, ins.logic_db_path) for ins in instances}
-    member_ids = [m.workspace_id for m in workspace_service.list_memberships(db, user)]
+    member_ids = [ins.id for ins in instances]  # shared workspaces stay off the dashboard
     jobs = (
         db.query(JobRun)
         .filter(JobRun.instance_id.in_(member_ids) if member_ids else JobRun.instance_id == -1)
@@ -823,7 +904,6 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     chart_data = build_dashboard_chart_data(db, user, instances, active=active)
     insights = db.query(MotherInsightEvent).filter(MotherInsightEvent.owner_id == user.id).order_by(MotherInsightEvent.created_at.desc()).limit(10).all()
     latest_statement = None
-    budget_alerts = []
     if primary:
         latest_statement = (
             db.query(BankStatement)
@@ -831,8 +911,8 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             .order_by(BankStatement.created_at.desc())
             .first()
         )
-        budget_alerts = _budget_alerts(db, primary, now_m)
     roles = workspace_service.membership_map(db, user)
+    nw = net_worth_service.summary(primary.finance_db_path) if primary else None
     return templates.TemplateResponse(
         request=request,
         name="dashboard.html",
@@ -854,11 +934,13 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             "show_back_to_dashboard": False,
             "current_month": now_m,
             "latest_bank_statement": latest_statement,
-            "budget_alerts": budget_alerts,
             "oneoff_categories": list(instance_service.ONEOFF_CATEGORIES),
             "category_breakdown": category_breakdown,
             "currency_options": currency_service.currency_options(),
             "workspace_currency": ws_currency(primary),
+            "savings_reserved": nw["totals"]["emergency_fund"] if nw else 0.0,
+            "savings_reserved_months": nw["emergency"]["months_covered"] if nw else None,
+            "savings_reserved_can_edit": bool(primary) and workspace_service.role_allows(roles.get(primary.id), "edit"),
         },
     )
 
@@ -931,6 +1013,13 @@ def delete_instance(instance_id: int, request: Request, db: Session = Depends(ge
         db.add(u)
     db.query(WorkspaceMember).filter(WorkspaceMember.workspace_id == inst.id).delete()
     db.query(WorkspaceInvite).filter(WorkspaceInvite.workspace_id == inst.id).delete()
+    # Shared copies outlive their source; members linked to this workspace stop contributing.
+    db.query(WorkspaceMember).filter(WorkspaceMember.linked_workspace_id == inst.id).update(
+        {WorkspaceMember.linked_workspace_id: None}, synchronize_session=False
+    )
+    db.query(DatabaseInstance).filter(DatabaseInstance.source_workspace_id == inst.id).update(
+        {DatabaseInstance.source_workspace_id: None}, synchronize_session=False
+    )
     for p in [inst.finance_db_path, inst.logic_db_path]:
         if p and os.path.exists(p):
             os.remove(p)
@@ -1007,7 +1096,7 @@ def build_reports_payload(inst: DatabaseInstance) -> dict:
     oneoffs = items["oneoffs"]
     recurring_income = sum(float(i["amount"]) for i in items["incomes"])
     recurring_expense = sum(float(i["amount"]) for i in items["expenses"])
-    bounds = spending_report.transaction_date_bounds(oneoffs)
+    bounds = spending_report.report_date_bounds(oneoffs, items["incomes"] + items["expenses"])
     return {
         "instance_id": inst.id,
         "instance_name": inst.name,
@@ -1015,6 +1104,20 @@ def build_reports_payload(inst: DatabaseInstance) -> dict:
         "recurring_expense_monthly": recurring_expense,
         "date_bounds": {"min": bounds[0].isoformat() if bounds[0] else None, "max": bounds[1].isoformat() if bounds[1] else None},
     }
+
+
+def build_workspace_spending_report(inst: DatabaseInstance, start_d: date | None, end_d: date | None) -> dict:
+    """Spending report with recurring entries counted per active month (used by the page and the PDF)."""
+    items = instance_service.list_finance_items(inst.finance_db_path)
+    return spending_report.build_spending_report(
+        items["oneoffs"],
+        0.0,
+        0.0,
+        start_d,
+        end_d,
+        recurring_incomes=items["incomes"],
+        recurring_expenses=items["expenses"],
+    )
 
 
 @app.get("/instances/{instance_id}/reports", response_class=HTMLResponse)
@@ -1052,13 +1155,8 @@ def reports_data(
 ):
     user = require_user(request, db)
     inst = require_instance(db, user, instance_id)
-    items = instance_service.list_finance_items(inst.finance_db_path)
-    oneoffs = items["oneoffs"]
-    rin = sum(float(i["amount"]) for i in items["incomes"])
-    rex = sum(float(i["amount"]) for i in items["expenses"])
     start_d, end_d = resolve_report_date_range(preset, start_date, end_date)
-    report = spending_report.build_spending_report(oneoffs, rin, rex, start_d, end_d)
-    return JSONResponse(report)
+    return JSONResponse(build_workspace_spending_report(inst, start_d, end_d))
 
 
 @app.post("/instances/{instance_id}/reports/pdf")
@@ -1073,12 +1171,8 @@ def reports_pdf_export(
 ):
     user = require_user(request, db)
     inst = require_instance(db, user, instance_id)
-    items = instance_service.list_finance_items(inst.finance_db_path)
-    oneoffs = items["oneoffs"]
-    rin = sum(float(i["amount"]) for i in items["incomes"])
-    rex = sum(float(i["amount"]) for i in items["expenses"])
     start_d, end_d = resolve_report_date_range(preset, start_date, end_date)
-    report = spending_report.build_spending_report(oneoffs, rin, rex, start_d, end_d)
+    report = build_workspace_spending_report(inst, start_d, end_d)
     if report.get("range") and report["range"].get("start") and report["range"].get("end"):
         label = reports_range_label(None, date.fromisoformat(report["range"]["start"]), date.fromisoformat(report["range"]["end"]))
     else:
@@ -1131,6 +1225,7 @@ def investment_calculator_page(instance_id: int, request: Request, db: Session =
             "workspace_for_nav": inst,
             "nav_active": "calculator",
             "latest_projection_job_id": latest_range.id if latest_range else None,
+            "balances": net_worth_service.get_balances(inst.finance_db_path),
             "show_back_to_dashboard": True,
         },
     )
@@ -1161,9 +1256,13 @@ def _calculator_inputs(body: dict) -> dict:
 @app.post("/instances/{instance_id}/investment-calculator/simulate")
 async def investment_calculator_simulate(instance_id: int, request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
-    require_instance(db, user, instance_id)
+    inst = require_instance(db, user, instance_id)
     body = await request.json()
     result = projection_finance.run_investment_calculator(**_calculator_inputs(body or {}))
+    s = result.get("summary") or {}
+    tax = tax_service.apply_investment_tax(float(s.get("compound_growth", 0) or 0), tax_service.investment_tax_rate(inst.finance_db_path))
+    tax["final_after_tax"] = round(float(s.get("final_balance", 0) or 0) - tax["tax"], 2)
+    result["tax"] = tax
     return JSONResponse(result)
 
 
@@ -1237,13 +1336,16 @@ def instance_view(instance_id: int, request: Request, db: Session = Depends(get_
     workspace_role = membership.role if membership else "viewer"
     roles = workspace_service.membership_map(db, user)
     move_targets = [
-        w for w in instances
+        w for w in workspace_service.list_user_workspaces(db, user, include_shared=True)
         if w.id != inst.id and ws_currency(w) == ws_currency(inst) and workspace_service.role_allows(roles.get(w.id), "create")
     ]
     return templates.TemplateResponse(request=request, name="instance.html", context={
         "request": request,
         "user": user,
         "instance": inst,
+        "balances": net_worth_service.get_balances(inst.finance_db_path),
+        "tax_rules": tax_service.list_rules(inst.finance_db_path),
+        "tax_assignments": tax_service.assignments(inst.finance_db_path),
         "instances": instances,
         "workspace_for_nav": inst,
         "workspace_role": workspace_role,
@@ -1327,7 +1429,15 @@ def investment_simulation(
                     "note": "Beyond stored projection window; contribution uses extended savings base.",
                 }
             )
-    return JSONResponse({"summary": sim["summary"], "meta": sim["meta"], "chart": chart, "projection_tooltip": projection_tooltip})
+    inv_tax = None
+    if sim["summary"]:
+        inv_tax = tax_service.apply_investment_tax(
+            float(sim["summary"].get("final_compounded_profit", 0) or 0), tax_service.investment_tax_rate(_inst.finance_db_path)
+        )
+        inv_tax["final_after_tax"] = round(float(sim["summary"].get("final_investment_balance", 0) or 0) - inv_tax["tax"], 2)
+    return JSONResponse(
+        {"summary": sim["summary"], "meta": sim["meta"], "chart": chart, "projection_tooltip": projection_tooltip, "tax": inv_tax}
+    )
 
 
 @app.post("/instances/{instance_id}/projection-report")
@@ -1502,6 +1612,7 @@ def add_income(
     recurrence: str = Form("monthly"),
     start_date: str = Form(""),
     end_date: str = Form(""),
+    tax_ids: list[str] = Form(default=[]),
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
@@ -1511,12 +1622,15 @@ def add_income(
         instance_service.validate_date_window(start_date, end_date)
     except ValueError as exc:
         return _entry_redirect(instance_id, err=_err_code(exc))
-    run_job(
-        db, user, inst, "add_income",
-        lambda: instance_service.add_income(
+
+    def _add():
+        res = instance_service.add_income(
             inst.finance_db_path, nome.strip(), amount, recurrence=recurrence, start_date=start_date, end_date=end_date
-        ),
-    )
+        )
+        res["tax_ids"] = tax_service.set_income_taxes(inst.finance_db_path, "recurring", res["id"], tax_ids)
+        return res
+
+    run_job(db, user, inst, "add_income", _add)
     return _entry_redirect(instance_id)
 
 
@@ -1637,6 +1751,7 @@ def add_oneoff(
     txn_type: str = Form("expense"),
     category: str | None = Form(None),
     expense_type: str = Form(""),
+    tax_ids: list[str] = Form(default=[]),
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
@@ -1651,9 +1766,12 @@ def add_oneoff(
         return RedirectResponse(f"/instances/{instance_id}?msg=oneoff_category_required", status_code=302)
 
     def _add():
-        return instance_service.add_oneoff(
+        res = instance_service.add_oneoff(
             inst.finance_db_path, day, nome.strip(), parsed_valor, txn_type=tt, category=category, expense_type=expense_type
         )
+        if tt == "income":
+            res["tax_ids"] = tax_service.set_income_taxes(inst.finance_db_path, "oneoff", res["id"], tax_ids)
+        return res
 
     run_job(db, user, inst, "add_oneoff", _add)
     return _entry_redirect(instance_id)
@@ -1687,6 +1805,8 @@ def _finish_edit(
     run_job(db, user, inst, f"update_{kind}", lambda: result)
     if target is not None:
         moved = instance_service.move_entry(inst.finance_db_path, target.finance_db_path, kind, item_id, deleted_by=user.id)
+        if moved and kind in ("income", "oneoff"):
+            tax_service.clear_income_taxes(inst.finance_db_path, "recurring" if kind == "income" else "oneoff", item_id)
         if moved:
             run_job(db, user, target, f"update_{kind}", lambda: {**moved, "moved_from_workspace": inst.name})
             return _entry_redirect(inst.id, msg="entry_moved")
@@ -1705,6 +1825,7 @@ def edit_income(
     end_date: str = Form(""),
     ended: str = Form(""),
     target_workspace_id: str = Form(""),
+    tax_ids: list[str] = Form(default=[]),
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
@@ -1718,6 +1839,8 @@ def edit_income(
         )
     except ValueError as exc:
         return _entry_redirect(instance_id, err=_err_code(exc))
+    if result is not None:
+        result["tax_ids"] = tax_service.set_income_taxes(inst.finance_db_path, "recurring", item_id, tax_ids)
     return _finish_edit(db, user, inst, "income", item_id, result, target)
 
 
@@ -1763,6 +1886,7 @@ def edit_oneoff(
     category: str | None = Form(None),
     expense_type: str = Form(""),
     target_workspace_id: str = Form(""),
+    tax_ids: list[str] = Form(default=[]),
     db: Session = Depends(get_db),
 ):
     user = require_user(request, db)
@@ -1776,6 +1900,9 @@ def edit_oneoff(
         )
     except ValueError as exc:
         return _entry_redirect(instance_id, err=_err_code(exc))
+    if result is not None:
+        is_income = str(txn_type).lower() == "income"
+        result["tax_ids"] = tax_service.set_income_taxes(inst.finance_db_path, "oneoff", item_id, tax_ids if is_income else [])
     return _finish_edit(db, user, inst, "oneoff", item_id, result, target)
 
 
@@ -1786,6 +1913,7 @@ def delete_income(instance_id: int, item_id: int, request: Request, db: Session 
     deleted = instance_service.delete_income(inst.finance_db_path, item_id)
     if not deleted:
         return RedirectResponse(f"/instances/{instance_id}?msg=income_not_found", status_code=302)
+    tax_service.clear_income_taxes(inst.finance_db_path, "recurring", item_id)
     run_job(db, user, inst, "delete_income", lambda: {"deleted": {"name": deleted[0], "amount": deleted[1]}})
     return RedirectResponse(f"/instances/{instance_id}?msg=income_deleted", status_code=302)
 
@@ -1806,6 +1934,7 @@ def delete_oneoff(instance_id: int, item_id: int, request: Request, db: Session 
     user = require_user(request, db)
     inst = require_instance(db, user, instance_id, action="delete")
     run_job(db, user, inst, "delete_oneoff", lambda: {"deleted": instance_service.delete_oneoff(inst.finance_db_path, item_id)})
+    tax_service.clear_income_taxes(inst.finance_db_path, "oneoff", item_id)
     return RedirectResponse(f"/instances/{instance_id}?msg=transaction_deleted", status_code=302)
 
 
@@ -1854,6 +1983,26 @@ def ai_chat(instance_id: int, request: Request, question: str = Form(...), db: S
 def api_build_info():
     """Public build identity (version, commit) for post-image-update UX and ops probes."""
     return JSONResponse(build_info.build_info_dict())
+
+
+@app.post("/api/server/restart")
+def api_server_restart(request: Request, db: Session = Depends(get_db)):
+    """Ask the host-side restart helper to rebuild and restart the Docker deployment."""
+    user = require_user(request, db)
+    if not server_restart_service.watcher_online():
+        raise HTTPException(
+            status_code=503,
+            detail="The restart helper isn't running on the host. Install it once with: sudo make install-restart-helper",
+        )
+    st = server_restart_service.request_restart(user.username)
+    log.info("server restart requested by %s (queued=%s, helper_online=%s)", user.username, st["queued"], st["watcher_online"])
+    return JSONResponse(st)
+
+
+@app.get("/api/server/restart/status")
+def api_server_restart_status(request: Request, db: Session = Depends(get_db)):
+    require_user(request, db)
+    return JSONResponse(server_restart_service.status())
 
 
 @app.get("/api/update/status")
@@ -2001,7 +2150,7 @@ def api_market(db: Session = Depends(get_db)):
 
 @app.get("/api/market/history")
 def api_market_history(range: str = "1m", db: Session = Depends(get_db)):
-    """Bundled historical series for SP500/BTC/ETH (EUR). Cached server-side."""
+    """Bundled historical series for VWCE/BTC/ETH (EUR). Cached server-side."""
     try:
         r = str(range or "1m").strip().lower()
         bundle = market_chart_service.get_bundle(db, ROOT, r)
@@ -2455,6 +2604,7 @@ def analysis_data(instance_id: int, request: Request, db: Session = Depends(get_
         latest_statement_month=latest_m,
         projection_summary=_projection_summary_for_analysis(db, inst),
         projection_rows=proj_rows,
+        net_worth=net_worth_service.summary(inst.finance_db_path),
     )
     return JSONResponse(data)
 
@@ -2462,7 +2612,7 @@ def analysis_data(instance_id: int, request: Request, db: Session = Depends(get_
 @app.get("/instances/{instance_id}/analysis", response_class=HTMLResponse)
 def analysis_page(instance_id: int, request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
-    inst = require_instance(db, user, instance_id)
+    inst, member = workspace_service.require_workspace(db, user, instance_id, "read")
     instances = workspace_service.list_user_workspaces(db, user)
     now_m = datetime.utcnow().strftime("%Y-%m")
     stmt_count = db.query(BankStatement).filter(BankStatement.instance_id == inst.id).count()
@@ -2483,6 +2633,7 @@ def analysis_page(instance_id: int, request: Request, db: Session = Depends(get_
         latest_statement_month=latest_m,
         projection_summary=_projection_summary_for_analysis(db, inst),
         projection_rows=proj_rows,
+        net_worth=net_worth_service.summary(inst.finance_db_path),
     )
     return templates.TemplateResponse(
         request=request,
@@ -2496,6 +2647,8 @@ def analysis_page(instance_id: int, request: Request, db: Session = Depends(get_
             "nav_active": "analysis",
             "show_back_to_dashboard": True,
             "analysis_data": analysis_data_payload,
+            "balances_summary": net_worth_service.summary(inst.finance_db_path),
+            "balances_can_edit": workspace_service.role_allows(member.role, "edit"),
         },
     )
 
@@ -2516,6 +2669,7 @@ def savings_calculator_page(instance_id: int, request: Request, db: Session = De
             "workspace_for_nav": inst,
             "nav_active": "savings",
             "show_back_to_dashboard": True,
+            "balances": net_worth_service.get_balances(inst.finance_db_path),
         },
     )
 
@@ -2532,7 +2686,10 @@ def api_savings_saved_expenses_summary(
     user = require_user(request, db)
     inst = require_instance(db, user, instance_id)
     try:
-        summary = savings_expenses_service.summarize_saved_expenses(inst.finance_db_path, month)
+        if shared_workspace_service.is_shared(inst):
+            summary = shared_workspace_service.combined_saved_expenses(db, inst, month)
+        else:
+            summary = savings_expenses_service.summarize_saved_expenses(inst.finance_db_path, month)
         return JSONResponse(summary)
     except Exception as exc:
         log.warning("saved expenses summary failed: %s", exc)
@@ -2577,13 +2734,228 @@ async def savings_calculator_pdf(instance_id: int, request: Request, db: Session
     return download_response(pdf_bytes, "application/pdf", fname)
 
 
+# ---------------------------------------------------------------------------
+# Net worth, emergency fund and invested balances
+# ---------------------------------------------------------------------------
+
+
+@app.get("/instances/{instance_id}/net-worth", response_class=HTMLResponse)
+def net_worth_page(instance_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    inst, member = workspace_service.require_workspace(db, user, instance_id, "read")
+    instances = workspace_service.list_user_workspaces(db, user)
+    return templates.TemplateResponse(
+        request=request,
+        name="net_worth.html",
+        context={
+            "request": request,
+            "user": user,
+            "instance": inst,
+            "instances": instances,
+            "workspace_for_nav": inst,
+            "nav_active": "net_worth",
+            "show_back_to_dashboard": True,
+            "net_worth": net_worth_service.summary(inst.finance_db_path, with_history=True),
+            "can_edit": workspace_service.role_allows(member.role, "edit"),
+        },
+    )
+
+
+@app.get("/instances/{instance_id}/api/net-worth")
+def api_net_worth(instance_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    inst = require_instance(db, user, instance_id)
+    return JSONResponse(net_worth_service.summary(inst.finance_db_path, with_history=True))
+
+
+async def _json_body(request: Request) -> dict:
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+    if isinstance(body, dict):
+        return body
+    form = await request.form()
+    return dict(form)
+
+
+@app.post("/instances/{instance_id}/api/balances")
+async def api_set_balances(instance_id: int, request: Request, db: Session = Depends(get_db)):
+    """Set the emergency fund and/or invested amount. Missing or empty fields stay unchanged."""
+    user = require_user(request, db)
+    inst = require_instance(db, user, instance_id, action="edit")
+    body = await _json_body(request)
+    try:
+        values = {k: net_worth_service.parse_amount(body.get(k), allow_empty=True) for k in net_worth_service.BALANCE_KEYS}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    net_worth_service.set_balances(inst.finance_db_path, **values)
+    inst.last_activity_at = datetime.utcnow()
+    db.add(inst)
+    db.commit()
+    return JSONResponse(net_worth_service.summary(inst.finance_db_path, with_history=True))
+
+
+@app.post("/instances/{instance_id}/api/net-worth/items")
+async def api_net_worth_add(instance_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    inst = require_instance(db, user, instance_id, action="create")
+    body = await _json_body(request)
+    try:
+        net_worth_service.add_item(
+            inst.finance_db_path, body.get("kind", ""), body.get("name", ""), body.get("amount"),
+            category=body.get("category"), note=body.get("note"),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return JSONResponse(net_worth_service.summary(inst.finance_db_path, with_history=True))
+
+
+@app.post("/instances/{instance_id}/api/net-worth/items/{item_id}")
+async def api_net_worth_update(instance_id: int, item_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    inst = require_instance(db, user, instance_id, action="edit")
+    body = await _json_body(request)
+    try:
+        net_worth_service.update_item(
+            inst.finance_db_path, item_id, body.get("kind", ""), body.get("name", ""), body.get("amount"),
+            category=body.get("category"), note=body.get("note"),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return JSONResponse(net_worth_service.summary(inst.finance_db_path, with_history=True))
+
+
+@app.delete("/instances/{instance_id}/api/net-worth/items/{item_id}")
+def api_net_worth_delete(instance_id: int, item_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    inst = require_instance(db, user, instance_id, action="delete")
+    try:
+        net_worth_service.delete_item(inst.finance_db_path, item_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return JSONResponse(net_worth_service.summary(inst.finance_db_path, with_history=True))
+
+
+# ---------------------------------------------------------------------------
+# Taxes
+# ---------------------------------------------------------------------------
+
+
+def _taxes_payload(user: User, inst: DatabaseInstance) -> dict:
+    month = datetime.utcnow().strftime("%Y-%m")
+    sm = instance_service.month_summary(inst.finance_db_path, inst.logic_db_path, month, include_iefp=bool(user.enable_iefp_mode))
+    items = instance_service.list_finance_items(inst.finance_db_path)
+    return {
+        "rules": tax_service.list_rules(inst.finance_db_path),
+        "incomes": [
+            {"kind": "recurring", "id": i["id"], "name": i["name"], "amount": i["amount"], "recurrence": i.get("recurrence")}
+            for i in items["incomes"]
+            if not i.get("ended")
+        ],
+        "current_month": {
+            "month": month,
+            "salary": round(float(sm.get("extras", 0) or 0) + float(sm.get("iefp", 0) or 0), 2),
+            "oneoff_income": round(float(sm.get("oneoff_income_total", 0) or 0), 2),
+            "taxes": sm.get("taxes"),
+            "income_pre_tax": sm.get("income_pre_tax"),
+            "income_after_tax": sm.get("income_after_tax"),
+            "savings_pre_tax": sm.get("estimated_savings_pre_tax"),
+            "savings_after_tax": sm.get("estimated_savings"),
+        },
+        "investment_tax_rate": tax_service.investment_tax_rate(inst.finance_db_path),
+    }
+
+
+@app.get("/instances/{instance_id}/taxes", response_class=HTMLResponse)
+def taxes_page(instance_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    inst, member = workspace_service.require_workspace(db, user, instance_id, "read")
+    instances = workspace_service.list_user_workspaces(db, user)
+    return templates.TemplateResponse(
+        request=request,
+        name="taxes.html",
+        context={
+            "request": request,
+            "user": user,
+            "instance": inst,
+            "instances": instances,
+            "workspace_for_nav": inst,
+            "nav_active": "taxes",
+            "show_back_to_dashboard": True,
+            "taxes": _taxes_payload(user, inst),
+            "can_edit": workspace_service.role_allows(member.role, "edit"),
+        },
+    )
+
+
+@app.get("/instances/{instance_id}/api/taxes")
+def api_taxes(instance_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    inst = require_instance(db, user, instance_id)
+    return JSONResponse(_taxes_payload(user, inst))
+
+
+@app.post("/instances/{instance_id}/api/taxes")
+async def api_taxes_add(instance_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    inst = require_instance(db, user, instance_id, action="create")
+    body = await _json_body(request)
+    try:
+        rule_id = tax_service.add_rule(
+            inst.finance_db_path, body.get("name", ""), body.get("rate_pct"), body.get("fixed_monthly"),
+            body.get("on_investments"), body.get("note"),
+        )
+        # Optional: assign the new tax to incomes straight away.
+        assignments = tax_service.assignments(inst.finance_db_path)
+        for iid in tax_service.parse_tax_ids(body.get("income_ids") or []):
+            current = assignments.get(f"recurring:{iid}", [])
+            tax_service.set_income_taxes(inst.finance_db_path, "recurring", iid, current + [rule_id])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return JSONResponse(_taxes_payload(user, inst))
+
+
+@app.post("/instances/{instance_id}/api/taxes/{rule_id}")
+async def api_taxes_update(instance_id: int, rule_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    inst = require_instance(db, user, instance_id, action="edit")
+    body = await _json_body(request)
+    try:
+        if set(body) == {"active"}:
+            tax_service.set_active(inst.finance_db_path, rule_id, bool(body["active"]))
+        else:
+            tax_service.update_rule(
+                inst.finance_db_path, rule_id, body.get("name", ""), body.get("rate_pct"), body.get("fixed_monthly"),
+                body.get("on_investments"), body.get("note"), active=bool(body.get("active", True)),
+            )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return JSONResponse(_taxes_payload(user, inst))
+
+
+@app.delete("/instances/{instance_id}/api/taxes/{rule_id}")
+def api_taxes_delete(instance_id: int, rule_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    inst = require_instance(db, user, instance_id, action="delete")
+    try:
+        tax_service.delete_rule(inst.finance_db_path, rule_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return JSONResponse(_taxes_payload(user, inst))
+
+
 @app.post("/instances/{instance_id}/bank-statements/upload")
 async def bank_statement_upload(
     instance_id: int,
     request: Request,
     db: Session = Depends(get_db),
     file: UploadFile = File(...),
-    statement_month: str = Form(...),
+    statement_month: str = Form(""),
     bank_name: str | None = Form(None),
 ):
     user = require_user(request, db)
@@ -2604,7 +2976,14 @@ async def bank_statement_upload(
     if err or not row:
         log.warning("bank statement upload rejected: %s", err)
         raise HTTPException(status_code=400, detail=err or "Upload failed")
-    return JSONResponse({"id": row.id, "statement_month": row.statement_month, "filename": row.original_filename})
+    return JSONResponse(
+        {
+            "id": row.id,
+            "statement_month": row.statement_month,
+            "filename": row.original_filename,
+            "detection": getattr(row, "detection", None),
+        }
+    )
 
 
 @app.get("/instances/{instance_id}/bank-statements/{statement_id}/file")
@@ -2830,6 +3209,29 @@ def workspace_members_page(workspace_id: int, request: Request, db: Session = De
         .all()
     )
     instances = workspace_service.list_user_workspaces(db, user)
+    is_shared = shared_workspace_service.is_shared(inst)
+    shared_ctx: dict = {"is_shared": is_shared, "shared_workspaces": workspace_service.list_shared_workspaces(db, user)}
+    if is_shared:
+        source = (
+            db.query(DatabaseInstance).filter(DatabaseInstance.id == inst.source_workspace_id).first()
+            if inst.source_workspace_id
+            else None
+        )
+        contributions = shared_workspace_service.member_contributions(db, inst)
+        shared_ctx.update(
+            {
+                "source_workspace": source if source and workspace_service.get_membership(db, user.id, source.id) else None,
+                "contributions": contributions,
+                "combined_income": round(sum(c["monthly_income"] for c in contributions.values()), 2),
+                "linkable_workspaces": shared_workspace_service.linkable_workspaces(db, user, inst),
+                "my_link_id": membership.linked_workspace_id,
+                "can_edit_settings": workspace_service.role_allows(membership.role, "invite"),
+            }
+        )
+    else:
+        copy = shared_workspace_service.find_shared_copy(db, inst)
+        shared_ctx["shared_copy"] = copy if copy and workspace_service.get_membership(db, user.id, copy.id) else None
+        shared_ctx["can_share"] = workspace_service.role_allows(membership.role, "delete_workspace")
     return templates.TemplateResponse(
         request=request,
         name="workspace_members.html",
@@ -2850,6 +3252,8 @@ def workspace_members_page(workspace_id: int, request: Request, db: Session = De
             "can_manage": workspace_service.role_allows(membership.role, "remove_member"),
             "msg": request.query_params.get("msg", ""),
             "err": request.query_params.get("err", ""),
+            "currency": ws_currency(inst),
+            **shared_ctx,
         },
     )
 
@@ -2872,12 +3276,65 @@ def workspace_invite(
     user = require_user(request, db)
     workspace_service.require_workspace(db, user, workspace_id, "invite")  # 403/404 for unauthorized callers
     try:
-        invite = workspace_service.create_username_invite(db, workspace_id, username, role, user)
+        invite = workspace_service.create_username_invite(db, workspace_id, username, role, user, root=ROOT)
     except HTTPException as exc:
         db.rollback()
         return _members_redirect(workspace_id, err=str(exc.detail))
     db.commit()
+    if invite.workspace_id != workspace_id:
+        shared = db.query(DatabaseInstance).filter(DatabaseInstance.id == invite.workspace_id).first()
+        return _members_redirect(
+            invite.workspace_id,
+            msg=f'Invitation sent to {invite.email}. They will join "{shared.name}", a shared copy of this workspace; your personal workspace stays private.',
+        )
     return _members_redirect(workspace_id, msg=f"Invitation sent to {invite.email}.")
+
+
+@app.post("/workspaces/{workspace_id}/link")
+def workspace_set_link(
+    workspace_id: int,
+    request: Request,
+    linked_workspace_id: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """Choose which of your own workspaces contributes income to a shared workspace."""
+    user = require_user(request, db)
+    inst, _m = workspace_service.require_workspace(db, user, workspace_id, "read")
+    if not shared_workspace_service.is_shared(inst):
+        return _members_redirect(workspace_id, err="Only shared workspaces use linked workspaces.")
+    raw = (linked_workspace_id or "").strip()
+    try:
+        target = int(raw) if raw else None
+        shared_workspace_service.set_member_link(db, inst, user, target)
+        shared_workspace_service.sync_shared_workspace(db, inst)
+    except ValueError:
+        return _members_redirect(workspace_id, err="Invalid workspace.")
+    except HTTPException as exc:
+        db.rollback()
+        return _members_redirect(workspace_id, err=str(exc.detail))
+    db.commit()
+    return _members_redirect(workspace_id, msg="Your linked workspace was updated." if target else "You no longer contribute income here.")
+
+
+@app.post("/workspaces/{workspace_id}/shared-settings")
+def workspace_shared_settings(
+    workspace_id: int,
+    request: Request,
+    include_member_expenses: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    user = require_user(request, db)
+    inst, _m = workspace_service.require_workspace(db, user, workspace_id, "invite")
+    if not shared_workspace_service.is_shared(inst):
+        return _members_redirect(workspace_id, err="Only shared workspaces have these settings.")
+    inst.include_member_expenses = bool(include_member_expenses)
+    db.add(inst)
+    db.commit()
+    shared_workspace_service.sync_shared_workspace(db, inst)
+    return _members_redirect(
+        workspace_id,
+        msg="Members' expenses are now included." if inst.include_member_expenses else "Members' expenses are no longer included; add shared expenses manually.",
+    )
 
 
 @app.post("/workspaces/{workspace_id}/invites/{invite_id}/cancel")
@@ -2971,7 +3428,7 @@ def api_invite_respond(invite_id: int, decision: str, request: Request, db: Sess
     body = {"ok": True, "decision": decision, "unread": notification_service.unread_count(db, user)}
     if decision == "accept":
         body["workspace_id"] = inst.id
-        body["redirect"] = f"/instances/{inst.id}"
+        body["redirect"] = f"/workspaces/{inst.id}/members"
     return JSONResponse(body)
 
 
@@ -3000,9 +3457,23 @@ def invite_accept(token: str, request: Request, db: Session = Depends(get_db)):
     user = require_user(request, db)
     inst = workspace_service.accept_invite(db, user, token)
     db.commit()
+    if shared_workspace_service.is_shared(inst):
+        # Shared workspaces are reached from the Members page, never made the dashboard's active one.
+        return RedirectResponse(f"/workspaces/{inst.id}/members", status_code=302)
     resp = RedirectResponse(f"/instances/{inst.id}", status_code=302)
     workspace_service.set_active_workspace(resp, db, user, inst.id)
     return resp
+
+
+@app.get("/members")
+def members_entry(request: Request, db: Session = Depends(get_db)):
+    """Members page for users without a personal workspace to navigate from."""
+    user = require_user(request, db)
+    _instances, primary = workspace_service.resolve_active_workspace(db, user, request)
+    target = primary or next(iter(workspace_service.list_shared_workspaces(db, user)), None)
+    if not target:
+        return RedirectResponse("/dashboard", status_code=302)
+    return RedirectResponse(f"/workspaces/{target.id}/members", status_code=302)
 
 
 @app.get("/instances/{instance_id}/import-export", response_class=HTMLResponse)

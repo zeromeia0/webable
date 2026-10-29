@@ -1,10 +1,9 @@
-"""Cached market quotes (S&P 500 proxy via SPY, BTC, ETH). Refreshed at most every 12 hours."""
+"""Cached market quotes: VWCE (Vanguard FTSE All-World, Xetra, EUR), BTC and ETH. Refreshed every 15 minutes."""
 
 from __future__ import annotations
 
 import json
 import logging
-import threading
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -17,15 +16,29 @@ from . import currency_service
 
 log = logging.getLogger("webable.market")
 
-REFRESH_INTERVAL_SEC = 12 * 3600
-SYMBOLS = ("SP500", "BTC", "ETH")
+REFRESH_INTERVAL_SEC = 15 * 60
+RETRY_AFTER_ERROR_SEC = 120
+_last_attempt = float("-inf")
+SYMBOLS = ("VWCE", "BTC", "ETH")
 USER_AGENT = "WebableFinanceBot/1.0 (+https://localhost)"
+
+# Yahoo tickers for exchange-traded symbols.
+YAHOO_TICKERS = {"VWCE": "VWCE.DE"}
+
+LABELS = {
+    "VWCE": "VWCE · Vanguard FTSE All-World",
+    "BTC": "Bitcoin",
+    "ETH": "Ethereum",
+}
 
 _coingecko_url = (
     "https://api.coingecko.com/api/v3/simple/price"
     "?ids=bitcoin,ethereum&vs_currencies=eur,usd&include_24hr_change=true"
 )
-_yahoo_spy_url = "https://query1.finance.yahoo.com/v8/finance/chart/SPY?range=5d&interval=1d"
+
+
+def _yahoo_quote_url(symbol: str) -> str:
+    return f"https://query1.finance.yahoo.com/v8/finance/chart/{YAHOO_TICKERS[symbol]}?range=5d&interval=1d"
 
 
 def _http_json(url: str, timeout: float = 20.0) -> dict[str, Any] | None:
@@ -51,35 +64,56 @@ def _parse_coingecko(payload: dict[str, Any] | None) -> tuple[dict[str, Any] | N
         "price_eur": float(btc["eur"]),
         "change_pct": float(btc.get("eur_24h_change") or 0),
         "price_usd": float(btc.get("usd") or 0),
+        "change_basis": "24h",
     }
     out_eth = {
         "price_eur": float(eth["eur"]),
         "change_pct": float(eth.get("eur_24h_change") or 0),
         "price_usd": float(eth.get("usd") or 0),
+        "change_basis": "24h",
     }
     return out_btc, out_eth
 
 
-def _parse_yahoo_spy(payload: dict[str, Any] | None, root) -> dict[str, Any] | None:
+def _parse_yahoo_quote(payload: dict[str, Any] | None, root) -> dict[str, Any] | None:
+    """Latest price for an exchange-traded symbol, converted to EUR if the listing isn't in EUR."""
     if not payload:
         return None
     try:
         res = payload["chart"]["result"][0]
         meta = res.get("meta") or {}
-        price_usd = float(meta.get("regularMarketPrice") or 0)
+        price = float(meta.get("regularMarketPrice") or 0)
         prev = float(meta.get("chartPreviousClose") or meta.get("previousClose") or 0)
-        if price_usd <= 0:
+        if price <= 0:
             return None
-        change_pct = ((price_usd - prev) / prev * 100.0) if prev > 0 else 0.0
-        eur = currency_service.usd_to_eur(root, price_usd)
-        return {"price_eur": float(eur), "change_pct": float(change_pct), "price_usd": price_usd}
+        cur = str(meta.get("currency") or "EUR").upper()
+        to_eur = (lambda v: float(currency_service.usd_to_eur(root, v))) if cur == "USD" else (lambda v: float(v))
+        out = {
+            "price_eur": to_eur(price),
+            "change_pct": ((price - prev) / prev * 100.0) if prev > 0 else 0.0,
+            "change_basis": "prior close",
+            "listing_currency": cur,
+            "name": meta.get("longName") or meta.get("shortName"),
+            "exchange": meta.get("fullExchangeName") or meta.get("exchangeName"),
+        }
+        for src, dst in (
+            ("regularMarketDayHigh", "day_high_eur"),
+            ("regularMarketDayLow", "day_low_eur"),
+            ("fiftyTwoWeekHigh", "high_52w_eur"),
+            ("fiftyTwoWeekLow", "low_52w_eur"),
+        ):
+            if meta.get(src):
+                out[dst] = to_eur(float(meta[src]))
+        if meta.get("regularMarketTime"):
+            out["market_time"] = datetime.fromtimestamp(int(meta["regularMarketTime"]), tz=timezone.utc).isoformat()
+        return out
     except (KeyError, IndexError, TypeError, ValueError, ZeroDivisionError) as exc:
-        log.warning("yahoo SPY parse failed: %s", exc)
+        log.warning("yahoo quote parse failed: %s", exc)
         return None
 
 
 def fetch_live(root) -> dict[str, Any]:
-    """Returns dict symbol -> {price_eur, change_pct, price_usd?} and errors per symbol."""
+    """Returns dict symbol -> {price_eur, change_pct, ...} and errors per symbol."""
     out: dict[str, Any] = {}
     errs: dict[str, str] = {}
 
@@ -94,13 +128,12 @@ def fetch_live(root) -> dict[str, Any]:
     else:
         errs["ETH"] = "CoinGecko unavailable or parse error"
 
-    y = _http_json(_yahoo_spy_url)
-    spy = _parse_yahoo_spy(y, root)
-    if spy:
-        # SPY ETF tracks S&P 500 closely — label as proxy in API/UI
-        out["SP500"] = spy
-    else:
-        errs["SP500"] = "Market data provider unavailable"
+    for sym in YAHOO_TICKERS:
+        q = _parse_yahoo_quote(_http_json(_yahoo_quote_url(sym)), root)
+        if q:
+            out[sym] = q
+        else:
+            errs[sym] = "Market data provider unavailable"
 
     return {"quotes": out, "errors": errs, "fetched_at": datetime.now(timezone.utc).isoformat()}
 
@@ -110,12 +143,12 @@ def persist_snapshot(db: Session, root, payload: dict[str, Any]) -> None:
 
     quotes = payload.get("quotes") or {}
     errs = payload.get("errors") or {}
-    fetched = payload.get("fetched_at")
     for sym in SYMBOLS:
         row = db.query(MarketQuote).filter(MarketQuote.symbol == sym).first()
         if not row:
             row = MarketQuote(symbol=sym, label=_default_label(sym))
             db.add(row)
+        row.label = _default_label(sym)
         data = quotes.get(sym)
         if data:
             row.price_eur = float(data["price_eur"])
@@ -130,7 +163,7 @@ def persist_snapshot(db: Session, root, payload: dict[str, Any]) -> None:
 
 
 def _default_label(sym: str) -> str:
-    return {"SP500": "S&P 500 (SPY proxy)", "BTC": "Bitcoin", "ETH": "Ethereum"}.get(sym, sym)
+    return LABELS.get(sym, sym)
 
 
 def public_dict(db: Session) -> dict[str, Any]:
@@ -155,35 +188,55 @@ def public_dict(db: Session) -> dict[str, Any]:
             )
             stale = True
             continue
+        try:
+            meta = json.loads(r.meta_json or "{}")
+        except ValueError:
+            meta = {}
         items.append(
             {
                 "symbol": sym,
-                "label": r.label,
+                "label": _default_label(sym),
                 "price_eur": float(r.price_eur) if r.price_eur is not None else None,
                 "change_pct": float(r.change_pct) if r.change_pct is not None else None,
+                "change_basis": meta.get("change_basis") or "24h",
                 "price_usd": float(r.price_usd) if r.price_usd is not None else None,
+                "day_high_eur": meta.get("day_high_eur"),
+                "day_low_eur": meta.get("day_low_eur"),
+                "high_52w_eur": meta.get("high_52w_eur"),
+                "low_52w_eur": meta.get("low_52w_eur"),
+                "name": meta.get("name"),
+                "exchange": meta.get("exchange"),
+                "market_time": meta.get("market_time"),
                 "fetched_at": r.fetched_at.isoformat() + "Z" if r.fetched_at else None,
                 "fetch_error": r.fetch_error,
             }
         )
         if r.fetch_error:
             stale = True
-    return {"items": items, "stale": stale}
+    return {"items": items, "stale": stale, "refresh_interval_sec": REFRESH_INTERVAL_SEC}
 
 
 def needs_refresh(db: Session) -> bool:
     from ..models import MarketQuote
 
-    row = db.query(MarketQuote).filter(MarketQuote.symbol == "BTC").first()
-    if not row or not row.fetched_at:
-        return True
-    age = (datetime.utcnow() - row.fetched_at).total_seconds()
-    return age > REFRESH_INTERVAL_SEC
+    rows = {r.symbol: r for r in db.query(MarketQuote).filter(MarketQuote.symbol.in_(SYMBOLS)).all()}
+    for sym in SYMBOLS:
+        row = rows.get(sym)
+        if not row or not row.fetched_at:
+            return True
+        if (datetime.utcnow() - row.fetched_at).total_seconds() > REFRESH_INTERVAL_SEC:
+            return True
+    return False
 
 
 def refresh_if_stale(db: Session, root) -> None:
+    global _last_attempt
     if not needs_refresh(db):
         return
+    # A provider that keeps failing leaves its row stale; don't refetch on every page load.
+    if time.monotonic() - _last_attempt < RETRY_AFTER_ERROR_SEC:
+        return
+    _last_attempt = time.monotonic()
     try:
         payload = fetch_live(root)
         persist_snapshot(db, root, payload)
@@ -193,7 +246,7 @@ def refresh_if_stale(db: Session, root) -> None:
 
 def maintenance_loop(root, session_factory):
     while True:
-        time.sleep(600)
+        time.sleep(300)
         db = session_factory()
         try:
             refresh_if_stale(db, root)

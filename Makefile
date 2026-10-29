@@ -1,4 +1,6 @@
-.PHONY: setup install run run-local ai ai-run ai-down ai-logs up down logs restart update ps config backup migrate safe-update up-image up-image-ai up-watchtower
+RESTART_HELPER_UNIT := /etc/systemd/system/webable-restart-helper.service
+
+.PHONY: install-restart-helper uninstall-restart-helper restart-helper-logs setup install run run-local ai ai-run ai-down ai-logs up down logs restart update ps config backup migrate safe-update up-image up-image-ai up-watchtower
 
 # --- Compose file sets (core vs optional AI) ---
 COMPOSE ?= docker compose
@@ -79,3 +81,18 @@ migrate:
 
 safe-update:
 	bash scripts/webable-safe-update.sh
+
+# --- In-app "Restart server" button: host-side helper (needs root for Docker) ---
+install-restart-helper:
+	sed 's|@REPO_DIR@|$(CURDIR)|g' scripts/webable-restart-helper.service > $(RESTART_HELPER_UNIT)
+	systemctl daemon-reload
+	systemctl enable --now webable-restart-helper.service
+	@echo "Restart helper installed. The 'Restart server' button in the app is now active."
+
+uninstall-restart-helper:
+	-systemctl disable --now webable-restart-helper.service
+	rm -f $(RESTART_HELPER_UNIT)
+	systemctl daemon-reload
+
+restart-helper-logs:
+	journalctl -u webable-restart-helper.service -f

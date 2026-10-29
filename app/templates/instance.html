@@ -9,6 +9,24 @@
   <script src="/static/js/webable-scroll-preserve.js" defer></script>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen">
+{% macro tax_checklist(rules, wrap_id='', wrap_attrs='') -%}
+<fieldset {% if wrap_id %}id="{{ wrap_id }}"{% endif %} {{ wrap_attrs }} class="rounded-lg border border-slate-700/80 px-3 py-2">
+  <legend class="px-1 text-xs text-slate-400">Taxes on this income</legend>
+  {% if rules %}
+  <div class="flex flex-wrap gap-x-4 gap-y-1">
+    {% for t in rules %}
+    <label class="inline-flex items-center gap-1.5 text-xs text-slate-200 cursor-pointer{% if not t.active %} opacity-60{% endif %}">
+      <input type="checkbox" name="tax_ids" value="{{ t.id }}" class="accent-rose-500" />
+      {{ t.name }} <span class="text-slate-500">{% if t.rate_pct %}{{ '%g' | format(t.rate_pct) }}%{% endif %}{% if t.rate_pct and t.fixed_monthly %} + {% endif %}{% if t.fixed_monthly %}{{ '%.2f' | format(t.fixed_monthly) }}{% endif %}{% if not t.active %} · off{% endif %}</span>
+    </label>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="text-xs text-slate-500">No taxes yet — <a href="/instances/{{ instance.id }}/taxes" class="text-indigo-300 underline">create them on the Taxes page</a>, then tick them here.</p>
+  {% endif %}
+</fieldset>
+{%- endmacro %}
+
   <div class="flex flex-col md:flex-row min-h-screen">
     {% include "partials/app_sidebar.html" %}
     <div class="flex-1 min-w-0 flex flex-col">
@@ -135,6 +153,7 @@
           <label class="text-xs text-slate-400 block">End date <span class="text-slate-500">(optional)</span>
             <input name="end_date" type="date" class="w-full mt-0.5 px-3 py-2 rounded bg-slate-800 border border-slate-700" /></label>
         </div>
+        {{ tax_checklist(tax_rules) }}
         <button class="px-3 py-2 rounded bg-indigo-500">Save</button>
       </form>
       <form method="post" action="/instances/{{ instance.id }}/expense" class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2 min-w-0">
@@ -196,6 +215,7 @@
             </select>
           </label>
         </div>
+        {{ tax_checklist(tax_rules, 'oneoffTaxes') }}
         <button type="submit" class="w-full sm:w-auto px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm font-medium">Save</button>
       </form>
       <form method="post" action="/instances/{{ instance.id }}/savings-deposit" class="bg-slate-900 border border-emerald-800/40 rounded-xl p-4 space-y-2 min-w-0">
@@ -216,6 +236,11 @@
             const exp = form.querySelector('input[name=txn_type][value=expense]').checked;
             cat.required = exp;
             document.getElementById('oneoffCategoryWrap').classList.toggle('opacity-60', !exp);
+            var taxWrap = document.getElementById('oneoffTaxes');
+            if (taxWrap) {
+              taxWrap.classList.toggle('hidden', exp);
+              taxWrap.querySelectorAll('input').forEach(function (i) { i.disabled = exp; });
+            }
             if (!exp) cat.value = cat.options[0] ? '' : '';
           }
           types.forEach(function (el) { el.addEventListener('change', sync); });
@@ -369,10 +394,29 @@
 
         {% if latest_output.bars %}
         <div class="border border-slate-800 rounded-xl p-4">
-          <h3 class="font-semibold mb-3">Projection trend</h3>
-          <div class="space-y-2">
+          <h3 class="font-semibold mb-1">Projection trend</h3>
+          {% set _has_acc = latest_output.bars[0].accumulated_eur is defined %}
+          {% if _has_acc %}
+          <p class="text-[11px] text-slate-500 mb-3">Saved that month · running total · <span class="text-violet-300">compounded</span> if every month's savings is kept growing at <span id="trendRateLabel">5</span>% a year (set in Investment assumptions below).</p>
+          <div class="grid grid-cols-[4.5rem_1fr_1fr_1fr] gap-2 text-[10px] uppercase tracking-wide text-slate-500 mb-1">
+            <span>Month</span><span class="text-right">Saved</span><span class="text-right">Total</span><span class="text-right text-violet-300/80">Compounded</span>
+          </div>
+          {% endif %}
+          <div class="space-y-2" id="projectionTrend">
             {% for bar in latest_output.bars %}
+            {% if _has_acc %}
+            <div data-trend-saving="{{ bar.value_eur }}">
+              <div class="grid grid-cols-[4.5rem_1fr_1fr_1fr] gap-2 text-xs mb-1 tabular-nums">
+                <span>{{ bar.label }}</span>
+                <span class="text-right {% if bar.tone == 'positive' %}text-emerald-300{% else %}text-rose-300{% endif %}"><span class="wb-money" data-eur="{{ bar.value_eur }}">{{ bar.value }}</span></span>
+                <span class="text-right text-slate-300"><span class="wb-money" data-eur="{{ bar.accumulated_eur }}">{{ bar.accumulated }}</span></span>
+                <span class="text-right text-violet-200 font-medium"><span class="wb-money" data-trend-compound data-eur="{{ bar.accumulated_eur }}">{{ bar.accumulated }}</span></span>
+              </div>
+              <div class="w-full h-2 rounded bg-slate-800"><div class="h-2 rounded {% if bar.tone == 'positive' %}bg-emerald-400{% else %}bg-red-400{% endif %}" style="width: {{ bar.pct }}%"></div></div>
+            </div>
+            {% else %}
             <div><div class="flex justify-between text-xs mb-1"><span>{{ bar.label }}</span><span>{% if bar.value_eur is defined %}<span class="wb-money" data-eur="{{ bar.value_eur }}">{{ bar.value }}</span>{% else %}{{ bar.value }}{% endif %}</span></div><div class="w-full h-2 rounded bg-slate-800"><div class="h-2 rounded {% if bar.tone == 'positive' %}bg-emerald-400{% else %}bg-red-400{% endif %}" style="width: {{ bar.pct }}%"></div></div></div>
+            {% endif %}
             {% endfor %}
           </div>
         </div>
@@ -408,7 +452,7 @@
         <div class="grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
           <label class="block space-y-1.5">
             <span class="text-xs text-slate-300">Initial amount ({{ workspace_currency }})</span>
-            <input type="number" id="invInitial" min="0" step="0.01" value="0" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-100" />
+            <input type="number" id="invInitial" min="0" step="0.01" value="{{ '%.2f' | format(balances.invested) if balances else '0' }}" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-100" />
           </label>
           <label class="block space-y-1.5">
             <span class="text-xs text-slate-300">Contribution timing</span>
@@ -437,6 +481,7 @@
             <p><span class="text-slate-400">Initial investment:</span> <span id="invInitialOut" class="text-slate-100 font-medium">—</span></p>
             <p><span class="text-slate-400">Total contributions (incl. initial):</span> <span id="invTotalInvested" class="text-slate-100 font-medium">—</span></p>
             <p><span class="text-slate-400">Compound growth:</span> <span id="invProfit" class="text-slate-100 font-medium">—</span></p>
+            <p id="invTaxLine" class="hidden"><span class="text-slate-400">After investment tax (<span id="invTaxRate">—</span>):</span> <span id="invAfterTax" class="text-amber-200 font-semibold">—</span> <span class="text-slate-500">· tax <span id="invTaxAmt">—</span></span></p>
           </div>
         </div>
         <p id="invAssumptions" class="text-xs text-slate-500"></p>
@@ -528,8 +573,19 @@
           }
         }
 
+        function applyInvTax(tax) {
+          var line = document.getElementById('invTaxLine');
+          if (!line) return;
+          if (!tax || !(tax.rate_pct > 0)) { line.classList.add('hidden'); return; }
+          line.classList.remove('hidden');
+          document.getElementById('invTaxRate').textContent = tax.rate_pct + '% of gains';
+          document.getElementById('invAfterTax').textContent = fmtMoney(tax.final_after_tax || 0);
+          document.getElementById('invTaxAmt').textContent = fmtMoney(tax.tax || 0);
+        }
+
         function drawFromPayload(payload) {
           lastInvPayload = payload;
+          applyInvTax(payload.tax);
           projectionTooltipRows = payload.projection_tooltip || [];
           const c = payload.chart;
           applySummary(payload.summary, payload.meta);
@@ -665,8 +721,8 @@
         <h3 class="font-semibold mb-2">Income Entries</h3>
         {% for row in finance_items.incomes %}
         <div class="flex flex-wrap items-center justify-between gap-2 text-sm py-1 border-b border-slate-800">
-          <span class="min-w-0">🟢 {{ row.name }} — <span data-eur="{{ row.amount }}">{{ row.amount }}</span>{% if row.recurrence %} <span class="text-[10px] text-slate-500">({{ row.recurrence }})</span>{% endif %}{% if row.start_date or row.end_date %} <span class="text-[10px] text-slate-500">{{ row.start_date or '…' }} → {{ row.end_date or '…' }}</span>{% endif %}{% if row.ended %} <span class="text-[10px] text-amber-400">ended</span>{% endif %}</span>
-          {% if can_write %}
+          <span class="min-w-0">🟢 {{ row.name }} — <span data-eur="{{ row.amount }}">{{ row.amount }}</span>{% if row.recurrence %} <span class="text-[10px] text-slate-500">({{ row.recurrence }})</span>{% endif %}{% set _tids = tax_assignments.get('recurring:' ~ row.id, []) %}{% if _tids %} <span class="text-[10px] text-rose-300">· taxed: {% for t in tax_rules if t.id in _tids %}{{ t.name }}{% if not loop.last %}, {% endif %}{% endfor %}</span>{% endif %}{% if row.start_date or row.end_date %} <span class="text-[10px] text-slate-500">{{ row.start_date or '…' }} → {{ row.end_date or '…' }}</span>{% endif %}{% if row.ended %} <span class="text-[10px] text-amber-400">ended</span>{% endif %}{% if row.linked_source %} <span class="text-[10px] text-indigo-300" title="Synced from a member's own workspace. Edit it there.">linked</span>{% endif %}</span>
+          {% if can_write and not row.linked_source %}
           <span class="flex gap-2 shrink-0">
             <button type="button" class="text-sky-400 open-edit-entry" data-kind="income" data-entry='{{ row | tojson | forceescape }}'>Edit</button>
             <button type="button" class="text-red-400 open-delete-modal" data-action="/instances/{{ instance.id }}/income/{{ row.id }}/delete" data-title="Delete {{ row.name }} - {{ row.amount }}?" data-text="This will remove it from your monthly income.">Delete</button>
@@ -681,8 +737,8 @@
         <h3 class="font-semibold mb-2">Expense Entries</h3>
         {% for row in finance_items.expenses %}
         <div class="flex flex-wrap items-center justify-between gap-2 text-sm py-1 border-b border-slate-800">
-          <span class="min-w-0">🔴 {{ row.name }} — <span data-eur="{{ row.amount }}">{{ row.amount }}</span>{% if row.category %} <span class="text-[10px] text-slate-500">({{ row.category }})</span>{% endif %}{% if row.recurrence %} <span class="text-[10px] text-slate-500">({{ row.recurrence }})</span>{% endif %}{% if row.expense_type %} <span class="text-[10px] text-slate-400">· {{ row.expense_type }}</span>{% endif %}{% if row.start_date or row.end_date %} <span class="text-[10px] text-slate-500">{{ row.start_date or '…' }} → {{ row.end_date or '…' }}</span>{% endif %}{% if row.ended %} <span class="text-[10px] text-amber-400">ended</span>{% endif %}</span>
-          {% if can_write %}
+          <span class="min-w-0">🔴 {{ row.name }} — <span data-eur="{{ row.amount }}">{{ row.amount }}</span>{% if row.category %} <span class="text-[10px] text-slate-500">({{ row.category }})</span>{% endif %}{% if row.recurrence %} <span class="text-[10px] text-slate-500">({{ row.recurrence }})</span>{% endif %}{% if row.expense_type %} <span class="text-[10px] text-slate-400">· {{ row.expense_type }}</span>{% endif %}{% if row.start_date or row.end_date %} <span class="text-[10px] text-slate-500">{{ row.start_date or '…' }} → {{ row.end_date or '…' }}</span>{% endif %}{% if row.ended %} <span class="text-[10px] text-amber-400">ended</span>{% endif %}{% if row.linked_source %} <span class="text-[10px] text-indigo-300" title="Synced from a member's own workspace. Edit it there.">linked</span>{% endif %}</span>
+          {% if can_write and not row.linked_source %}
           <span class="flex gap-2 shrink-0">
             <button type="button" class="text-sky-400 open-edit-entry" data-kind="expense" data-entry='{{ row | tojson | forceescape }}'>Edit</button>
             <button type="button" class="text-red-400 open-delete-modal" data-action="/instances/{{ instance.id }}/expense/{{ row.id }}/delete" data-title="Delete {{ row.name }} - {{ row.amount }}?" data-text="This will remove it from your monthly expenses.">Delete</button>
@@ -713,7 +769,7 @@
         <h3 class="font-semibold mb-2">One-Time Transactions</h3>
         {% for row in finance_items.oneoffs %}
         <div class="flex flex-wrap items-center justify-between gap-2 text-sm py-1 border-b border-slate-800">
-          <span class="min-w-0">📅 {{ row.date }} — {{ row.name }} — <span class="text-slate-400">{{ row.txn_type|default('expense') }}</span> / {{ row.category|default('Other') }}{% if row.expense_type %} · {{ row.expense_type }}{% endif %} — <span data-eur="{{ row.amount }}">{{ row.amount }}</span></span>
+          <span class="min-w-0">📅 {{ row.date }} — {{ row.name }} — <span class="text-slate-400">{{ row.txn_type|default('expense') }}</span> / {{ row.category|default('Other') }}{% if row.expense_type %} · {{ row.expense_type }}{% endif %} — <span data-eur="{{ row.amount }}">{{ row.amount }}</span>{% set _tids = tax_assignments.get('oneoff:' ~ row.id, []) if row.txn_type == 'income' else [] %}{% if _tids %} <span class="text-[10px] text-rose-300">· taxed: {% for t in tax_rules if t.id in _tids %}{{ t.name }}{% if not loop.last %}, {% endif %}{% endfor %}</span>{% endif %}</span>
           {% if can_write %}
           <span class="flex gap-2 shrink-0">
             <button type="button" class="text-sky-400 open-edit-entry" data-kind="oneoff" data-entry='{{ row | tojson | forceescape }}'>Edit</button>
@@ -791,6 +847,7 @@
             <input type="date" name="end_date" class="mt-1 w-full px-3 py-2 rounded bg-slate-800 border border-slate-700" /></label>
         </div>
         <label data-f="ended" class="inline-flex items-center gap-2"><input type="checkbox" name="ended" value="1" /> <span class="text-slate-300">Ended (excluded from current and future months)</span></label>
+        {{ tax_checklist(tax_rules, '', 'data-f="taxes"') }}
         {% if move_targets %}
         <label class="block"><span class="text-slate-400">Workspace</span>
           <select name="target_workspace_id" class="mt-1 w-full px-3 py-2 rounded bg-slate-800 border border-slate-700">
@@ -808,6 +865,43 @@
     </div>
   </div>
 
+  <script>
+    // Projection trend: running balance if each month's savings is kept and compounded at the
+    // annual return from "Investment assumptions" (monthly rate = (1 + r)^(1/12) − 1).
+    (function () {
+      var rows = document.querySelectorAll('#projectionTrend [data-trend-saving]');
+      if (!rows.length) return;
+      var rateEl = document.getElementById('invAnnual');
+      var timingEl = document.getElementById('invTiming');
+      function fmt(v) {
+        return window.WebableCurrency && window.WebableCurrency.format ? window.WebableCurrency.format(v) : Number(v).toFixed(2);
+      }
+      function update() {
+        var r = rateEl ? parseFloat(rateEl.value) : 5;
+        if (!isFinite(r)) r = 0;
+        r = Math.max(-50, Math.min(50, r));
+        var im = Math.pow(1 + r / 100, 1 / 12) - 1;
+        var beginning = !timingEl || timingEl.value !== 'end';
+        var bal = 0;
+        rows.forEach(function (row) {
+          var s = parseFloat(row.getAttribute('data-trend-saving')) || 0;
+          bal = beginning ? (bal + s) * (1 + im) : bal * (1 + im) + s;
+          var el = row.querySelector('[data-trend-compound]');
+          var v = Math.round(bal * 100) / 100;
+          el.setAttribute('data-eur', String(v));
+          el.textContent = fmt(v);
+        });
+        var lbl = document.getElementById('trendRateLabel');
+        if (lbl) lbl.textContent = String(r);
+      }
+      ['input', 'change'].forEach(function (ev) {
+        if (rateEl) rateEl.addEventListener(ev, update);
+        if (timingEl) timingEl.addEventListener(ev, update);
+      });
+      document.addEventListener('webable:currency', update);
+      update();
+    })();
+  </script>
   {% include "partials/global_fab_stack.html" %}
 
   <script>
@@ -830,11 +924,12 @@
       openDeleteModal(trigger.dataset.action || '', trigger.dataset.title || 'Confirm deletion', trigger.dataset.text || 'This action cannot be undone.');
     });
     var EDIT_FIELDS = {
-      income: ['nome', 'valor', 'recurrence', 'window', 'ended'],
+      income: ['nome', 'valor', 'recurrence', 'window', 'ended', 'taxes'],
       expense: ['nome', 'valor', 'category', 'expense_type', 'recurrence', 'window', 'ended'],
-      oneoff: ['txn_type', 'data', 'nome', 'valor', 'category', 'expense_type'],
+      oneoff: ['txn_type', 'data', 'nome', 'valor', 'category', 'expense_type', 'taxes'],
       savings: ['data', 'nome', 'valor']
     };
+    var TAX_ASSIGN = {{ tax_assignments | default({}) | tojson }};
     var EDIT_TITLES = { income: 'Edit income', expense: 'Edit expense', oneoff: 'Edit one-time transaction', savings: 'Edit savings deposit' };
     function openEditEntryModal(kind, entry) {
       var form = document.getElementById('editEntryForm');
@@ -858,6 +953,8 @@
       form.elements.end_date.value = entry.end_date || '';
       form.elements.ended.checked = !!entry.ended;
       form.querySelectorAll('input[name=txn_type]').forEach(function (r) { r.checked = r.value === (entry.txn_type || 'expense'); });
+      var assigned = TAX_ASSIGN[(kind === 'income' ? 'recurring' : kind) + ':' + entry.id] || [];
+      form.querySelectorAll('input[name=tax_ids]').forEach(function (c) { c.checked = assigned.indexOf(Number(c.value)) >= 0; });
       form.elements.data.required = shown.indexOf('data') >= 0;
       form.elements.nome.required = kind !== 'savings';
       syncEditTxnType();
@@ -877,6 +974,11 @@
         el.classList.toggle('opacity-50', isIncome);
         el.querySelectorAll('select').forEach(function (s) { s.disabled = isIncome; });
       });
+      var taxEl = form.querySelector('[data-f=taxes]');
+      if (taxEl) {
+        taxEl.classList.toggle('hidden', !isIncome);
+        taxEl.querySelectorAll('input').forEach(function (i) { i.disabled = !isIncome; });
+      }
     }
     function closeEditEntryModal() {
       var modal = document.getElementById('editEntryModal');

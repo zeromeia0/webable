@@ -24,7 +24,7 @@
     </header>
 
     {% if primary_instance %}
-    <section class="grid md:grid-cols-2 gap-4">
+    <section>
       <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4">
         <h3 class="text-sm font-semibold text-slate-300 mb-2">Latest bank statement</h3>
         {% if latest_bank_statement %}
@@ -32,20 +32,6 @@
         <a href="/instances/{{ primary_instance.id }}/bank-statements/{{ latest_bank_statement.id }}/file" target="_blank" rel="noopener" class="text-indigo-400 text-sm mt-2 inline-block hover:text-indigo-300">View PDF</a>
         {% else %}
         <p class="text-sm text-slate-500">No statements yet. Upload from <a href="/instances/{{ primary_instance.id }}/reports" class="text-indigo-400 underline hover:text-indigo-300">Reports → Bank statements</a>.</p>
-        {% endif %}
-      </div>
-      <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4">
-        <h3 class="text-sm font-semibold text-slate-300 mb-2">Budget vs spend ({{ current_month }})</h3>
-        {% if budget_alerts|length %}
-        <ul class="text-sm space-y-2">
-          {% for a in budget_alerts %}
-          <li class="{% if a.tone == 'over' %}text-rose-300{% elif a.tone == 'warn' %}text-amber-200{% else %}text-slate-300{% endif %}">
-            {{ a.category }}: <span class="wb-money" data-eur="{{ a.spent }}">{{ a.spent }}</span> / <span class="wb-money" data-eur="{{ a.limit }}">{{ a.limit }}</span> ({{ a.pct }}%)
-          </li>
-          {% endfor %}
-        </ul>
-        {% else %}
-        <p class="text-sm text-slate-500">No category budgets yet. Set them on your <a href="/instances/{{ primary_instance.id }}" class="text-indigo-400 underline">workspace</a>.</p>
         {% endif %}
       </div>
     </section>
@@ -67,7 +53,20 @@
       <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4"><p class="text-xs text-slate-400">Total income</p><p class="text-2xl font-bold text-emerald-300"><span class="wb-money" data-eur="{{ chart_data.income_total }}">{{ chart_data.income_total }}</span></p></div>
       <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4"><p class="text-xs text-slate-400">Total expenses</p><p class="text-2xl font-bold text-red-300"><span class="wb-money" data-eur="{{ chart_data.expense_total }}">{{ chart_data.expense_total }}</span></p></div>
       <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4"><p class="text-xs text-slate-400">Net savings (month)</p><p class="text-2xl font-bold {% if chart_data.savings_total >= 0 %}text-emerald-300{% else %}text-red-300{% endif %}"><span class="wb-money" data-eur="{{ chart_data.savings_total }}">{{ chart_data.savings_total }}</span></p></div>
-      <div class="bg-slate-900 border border-emerald-900/40 rounded-2xl p-4"><p class="text-xs text-slate-400">Savings reserved</p><p class="text-2xl font-bold text-emerald-200"><span class="wb-money" data-eur="{{ chart_data.savings_reserved_total }}">{{ chart_data.savings_reserved_total }}</span></p></div>
+      <div id="wbSavingsReservedCard" class="bg-slate-900 border border-emerald-900/40 rounded-2xl p-4" {% if primary_instance %}data-instance-id="{{ primary_instance.id }}"{% endif %}>
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-xs text-slate-400" title="Your emergency fund — the money you keep set aside">Savings reserved</p>
+          {% if primary_instance and savings_reserved_can_edit %}
+          <button type="button" id="wbSavingsReservedEdit" class="text-[11px] text-emerald-300/80 hover:text-emerald-200 underline underline-offset-2">Edit</button>
+          {% endif %}
+        </div>
+        <p id="wbSavingsReservedView" class="text-2xl font-bold text-emerald-200"><span class="wb-money" data-eur="{{ savings_reserved }}">{{ savings_reserved }}</span></p>
+        <form id="wbSavingsReservedForm" class="hidden mt-1 flex items-center gap-1">
+          <input name="emergency_fund" inputmode="decimal" value="{{ '%.2f' | format(savings_reserved) }}" aria-label="Emergency fund amount" class="w-full min-w-0 rounded-md bg-slate-800 border border-slate-600 px-2 py-1 text-sm tabular-nums" />
+          <button type="submit" class="shrink-0 px-2 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-xs font-medium">Save</button>
+        </form>
+        <p id="wbSavingsReservedMsg" class="text-[11px] text-slate-500 mt-1">Emergency fund{% if savings_reserved_months is not none %} · {{ savings_reserved_months }} mo of expenses{% endif %}</p>
+      </div>
       <div class="bg-slate-900 border border-sky-900/40 rounded-2xl p-4"><p class="text-xs text-slate-400">Available balance</p><p class="text-2xl font-bold text-sky-300"><span class="wb-money" data-eur="{{ chart_data.available_balance }}">{{ chart_data.available_balance }}</span></p></div>
       <div id="wbSafeToSpendCard" class="bg-slate-900 border border-slate-800 rounded-2xl p-4" data-month-savings="{{ chart_data.current_month_savings }}">
         <div class="flex items-center justify-between gap-2">
@@ -263,6 +262,60 @@
     </div>
   </div>
 
+  <script>
+    (function () {
+      var card = document.getElementById('wbSavingsReservedCard');
+      var editBtn = document.getElementById('wbSavingsReservedEdit');
+      if (!card || !editBtn) return;
+      var form = document.getElementById('wbSavingsReservedForm');
+      var view = document.getElementById('wbSavingsReservedView');
+      var msg = document.getElementById('wbSavingsReservedMsg');
+      var defaultMsg = msg.textContent;
+      function toggle(editing) {
+        form.classList.toggle('hidden', !editing);
+        view.classList.toggle('hidden', editing);
+        editBtn.textContent = editing ? 'Cancel' : 'Edit';
+        msg.className = 'text-[11px] text-slate-500 mt-1';
+        msg.textContent = defaultMsg;
+        if (editing) { form.elements.emergency_fund.focus(); form.elements.emergency_fund.select(); }
+      }
+      editBtn.addEventListener('click', function () { toggle(form.classList.contains('hidden')); });
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var raw = String(form.elements.emergency_fund.value || '').trim().replace(/\s/g, '');
+        if (raw.indexOf(',') >= 0 && raw.indexOf('.') >= 0) raw = raw.lastIndexOf('.') > raw.lastIndexOf(',') ? raw.replace(/,/g, '') : raw.replace(/\./g, '').replace(',', '.');
+        else raw = raw.replace(',', '.');
+        var v = Number(raw);
+        if (!raw || !Number.isFinite(v) || v < 0) {
+          msg.className = 'text-[11px] text-rose-300 mt-1';
+          msg.textContent = 'Enter a positive amount.';
+          return;
+        }
+        fetch('/instances/' + card.getAttribute('data-instance-id') + '/api/balances', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ emergency_fund: v })
+        }).then(function (r) {
+          return r.json().catch(function () { return {}; }).then(function (d) {
+            if (!r.ok) throw new Error(d.detail || 'Save failed');
+            return d;
+          });
+        }).then(function (d) {
+          var amt = d.balances.emergency_fund;
+          var span = view.querySelector('[data-eur]');
+          span.setAttribute('data-eur', String(amt));
+          span.textContent = window.WebableCurrency ? window.WebableCurrency.format(amt) : amt.toFixed(2);
+          var em = d.emergency || {};
+          defaultMsg = 'Emergency fund' + (em.months_covered != null ? ' · ' + em.months_covered + ' mo of expenses' : '');
+          toggle(false);
+        }).catch(function (err) {
+          msg.className = 'text-[11px] text-rose-300 mt-1';
+          msg.textContent = err.message;
+        });
+      });
+    })();
+  </script>
   {% include "partials/global_fab_stack.html" %}
   <link rel="stylesheet" href="/static/css/webable-dashboard.css" />
   <script src="/static/js/webable-safe-to-spend.js"></script>

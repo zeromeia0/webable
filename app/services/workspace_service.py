@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import secrets
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Literal
 
 from fastapi import HTTPException, Request
@@ -57,12 +58,31 @@ def get_membership(db: Session, user_id: int, workspace_id: int) -> WorkspaceMem
     )
 
 
-def list_user_workspaces(db: Session, user: User) -> list[DatabaseInstance]:
-    return (
+def list_user_workspaces(db: Session, user: User, *, include_shared: bool = False) -> list[DatabaseInstance]:
+    """
+    Workspaces shown in the dashboard, switcher and pickers. Shared workspaces are left out by
+    default: they are listed and opened from the Members page only (see list_shared_workspaces).
+    """
+    q = (
         db.query(DatabaseInstance)
         .join(WorkspaceMember, WorkspaceMember.workspace_id == DatabaseInstance.id)
         .filter(WorkspaceMember.user_id == user.id, DatabaseInstance.is_active.is_(True))
-        .order_by(DatabaseInstance.created_at.desc())
+    )
+    if not include_shared:
+        q = q.filter(DatabaseInstance.kind != "shared")
+    return q.order_by(DatabaseInstance.created_at.desc()).all()
+
+
+def list_shared_workspaces(db: Session, user: User) -> list[DatabaseInstance]:
+    return (
+        db.query(DatabaseInstance)
+        .join(WorkspaceMember, WorkspaceMember.workspace_id == DatabaseInstance.id)
+        .filter(
+            WorkspaceMember.user_id == user.id,
+            DatabaseInstance.is_active.is_(True),
+            DatabaseInstance.kind == "shared",
+        )
+        .order_by(DatabaseInstance.created_at.asc())
         .all()
     )
 
@@ -89,6 +109,9 @@ def require_workspace(
     inst = db.query(DatabaseInstance).filter(DatabaseInstance.id == workspace_id).first()
     if not inst:
         raise HTTPException(status_code=404, detail="Workspace not found.")
+    from app.services import shared_workspace_service
+
+    shared_workspace_service.sync_if_shared(db, inst)
     return inst, member
 
 
@@ -158,6 +181,9 @@ def resolve_active_workspace(
         db.add(user)
         db.commit()
 
+    from app.services import shared_workspace_service
+
+    shared_workspace_service.sync_if_shared(db, active)
     return instances, active
 
 
@@ -201,14 +227,35 @@ def create_username_invite(
     username: str,
     role: str,
     actor: User,
+    *,
+    root: Path | None = None,
 ) -> WorkspaceInvite:
     """
     Invite an existing account by username. Relationships are stored by user id;
     the invitee is notified in-app (no e-mail involved).
+
+    Personal workspaces are never shared directly: the invitation goes to the workspace's shared
+    copy, which is created on first invite (see shared_workspace_service). Check
+    ``invite.workspace_id`` for where the invitation landed.
     """
-    from app.services import notification_service
+    from app.services import notification_service, shared_workspace_service
 
     inst, _member = require_workspace(db, actor, workspace_id, "invite")
+    if not shared_workspace_service.is_shared(inst):
+        if not role_allows(_member.role, "delete_workspace"):
+            raise HTTPException(status_code=403, detail="Only the owner can share a personal workspace.")
+        target_check = find_user_by_username(db, username)
+        if not target_check:
+            raise HTTPException(status_code=404, detail=f'No user named "{(username or "").strip()}" exists.')
+        if target_check.id == actor.id:
+            raise HTTPException(status_code=400, detail="You cannot invite yourself.")
+        if root is None:
+            from app.db import DATA_ROOT
+
+            root = DATA_ROOT
+        inst, _created = shared_workspace_service.get_or_create_shared_copy(db, inst, actor, root)
+        inst, _member = require_workspace(db, actor, inst.id, "invite")
+        workspace_id = inst.id
     target = find_user_by_username(db, username)
     if not target:
         raise HTTPException(status_code=404, detail=f'No user named "{(username or "").strip()}" exists.')
@@ -297,8 +344,19 @@ def respond_to_invite(db: Session, user: User, invite_id: int, accept: bool) -> 
     now = datetime.utcnow()
     invite.responded_at = now
     if accept:
+        from app.services import shared_workspace_service
+
         if not get_membership(db, user.id, invite.workspace_id):
-            db.add(WorkspaceMember(workspace_id=invite.workspace_id, user_id=user.id, role=invite.role))
+            linked_id = None
+            if shared_workspace_service.is_shared(inst):
+                linked_id = shared_workspace_service.default_link_for(db, user, inst)
+            db.add(
+                WorkspaceMember(
+                    workspace_id=invite.workspace_id, user_id=user.id, role=invite.role, linked_workspace_id=linked_id
+                )
+            )
+            db.flush()
+            shared_workspace_service.sync_if_shared(db, inst)
         invite.status = "accepted"
         invite.accepted_at = now
         kind = notification_service.KIND_INVITE_ACCEPTED
@@ -391,6 +449,9 @@ def remove_member(db: Session, workspace_id: int, target_user_id: int, actor: Us
         )
     db.commit()
     ensure_at_least_one_owner(db, workspace_id)
+    from app.services import shared_workspace_service
+
+    shared_workspace_service.sync_if_shared(db, inst)
 
 
 def leave_workspace(db: Session, user: User, workspace_id: int) -> None:
@@ -400,6 +461,9 @@ def leave_workspace(db: Session, user: User, workspace_id: int) -> None:
     db.delete(member)
     _clear_active_workspace(db, user.id, workspace_id)
     db.commit()
+    from app.services import shared_workspace_service
+
+    shared_workspace_service.sync_if_shared(db, inst)
 
 
 def _clear_active_workspace(db: Session, user_id: int, workspace_id: int) -> None:

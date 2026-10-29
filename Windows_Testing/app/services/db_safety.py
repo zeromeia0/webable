@@ -21,7 +21,7 @@ from app.db import DATA_ROOT
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
-from app.services import instance_service
+from app.services import instance_service, net_worth_service, tax_service
 
 log = logging.getLogger(__name__)
 
@@ -95,6 +95,8 @@ def migrate_app_schema(engine: "Engine") -> None:
         user_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(users)")).fetchall()}
         if "enable_iefp_mode" not in user_cols:
             conn.execute(text("ALTER TABLE users ADD COLUMN enable_iefp_mode BOOLEAN NOT NULL DEFAULT 0"))
+        if "active_workspace_id" not in user_cols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN active_workspace_id INTEGER"))
 
         existing = {row[1] for row in conn.execute(text("PRAGMA table_info(database_instances)")).fetchall()}
         if "health_status" not in existing:
@@ -107,6 +109,38 @@ def migrate_app_schema(engine: "Engine") -> None:
             )
         if "last_activity_at" not in existing:
             conn.execute(text("ALTER TABLE database_instances ADD COLUMN last_activity_at DATETIME"))
+        if "currency" not in existing:
+            # Every workspace created before multi-currency support stored EUR amounts.
+            conn.execute(text("ALTER TABLE database_instances ADD COLUMN currency TEXT NOT NULL DEFAULT 'EUR'"))
+        if "kind" not in existing:
+            conn.execute(text("ALTER TABLE database_instances ADD COLUMN kind TEXT NOT NULL DEFAULT 'personal'"))
+        if "source_workspace_id" not in existing:
+            conn.execute(text("ALTER TABLE database_instances ADD COLUMN source_workspace_id INTEGER REFERENCES database_instances(id)"))
+        if "include_member_expenses" not in existing:
+            conn.execute(text("ALTER TABLE database_instances ADD COLUMN include_member_expenses BOOLEAN NOT NULL DEFAULT 0"))
+        if _table_exists(conn, "workspace_members"):
+            member_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(workspace_members)")).fetchall()}
+            if "linked_workspace_id" not in member_cols:
+                conn.execute(text("ALTER TABLE workspace_members ADD COLUMN linked_workspace_id INTEGER REFERENCES database_instances(id)"))
+
+        if _table_exists(conn, "workspace_invites"):
+            invite_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(workspace_invites)")).fetchall()}
+            if "invitee_user_id" not in invite_cols:
+                conn.execute(text("ALTER TABLE workspace_invites ADD COLUMN invitee_user_id INTEGER REFERENCES users(id)"))
+            if "status" not in invite_cols:
+                conn.execute(text("ALTER TABLE workspace_invites ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'"))
+                conn.execute(text("UPDATE workspace_invites SET status = 'accepted' WHERE accepted_at IS NOT NULL"))
+            if "responded_at" not in invite_cols:
+                conn.execute(text("ALTER TABLE workspace_invites ADD COLUMN responded_at DATETIME"))
+                conn.execute(text("UPDATE workspace_invites SET responded_at = accepted_at WHERE accepted_at IS NOT NULL"))
+            # Legacy email invites: link to the account whose username matches the invited address.
+            conn.execute(
+                text(
+                    "UPDATE workspace_invites SET invitee_user_id = "
+                    "(SELECT u.id FROM users u WHERE lower(u.username) = lower(workspace_invites.email)) "
+                    "WHERE invitee_user_id IS NULL"
+                )
+            )
 
         job_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(job_runs)")).fetchall()}
         if "friendly_message" not in job_cols:
@@ -117,6 +151,45 @@ def migrate_app_schema(engine: "Engine") -> None:
             conn.execute(text("ALTER TABLE job_runs ADD COLUMN metrics_json TEXT NOT NULL DEFAULT '{}'"))
         if "duration_ms" not in job_cols:
             conn.execute(text("ALTER TABLE job_runs ADD COLUMN duration_ms INTEGER"))
+
+        _backfill_workspace_members(conn)
+
+
+def _table_exists(conn, name: str) -> bool:
+    from sqlalchemy import text
+
+    row = conn.execute(
+        text("SELECT name FROM sqlite_master WHERE type='table' AND name=:n"),
+        {"n": name},
+    ).fetchone()
+    return row is not None
+
+
+def _backfill_workspace_members(conn) -> None:
+    """Ensure every existing workspace has an owner membership row."""
+    from sqlalchemy import text
+
+    if not _table_exists(conn, "database_instances"):
+        return
+    if not _table_exists(conn, "workspace_members"):
+        return
+
+    rows = conn.execute(text("SELECT id, owner_id FROM database_instances")).fetchall()
+    for inst_id, owner_id in rows:
+        exists = conn.execute(
+            text(
+                "SELECT 1 FROM workspace_members WHERE workspace_id = :wid AND user_id = :uid LIMIT 1"
+            ),
+            {"wid": inst_id, "uid": owner_id},
+        ).fetchone()
+        if not exists:
+            conn.execute(
+                text(
+                    "INSERT INTO workspace_members (workspace_id, user_id, role, created_at) "
+                    "VALUES (:wid, :uid, 'owner', datetime('now'))"
+                ),
+                {"wid": inst_id, "uid": owner_id},
+            )
 
 
 def migrate_workspace_sqlite(path: str | Path) -> None:
@@ -130,7 +203,10 @@ def migrate_workspace_sqlite(path: str | Path) -> None:
         if name.endswith("_financas.db"):
             instance_service._ensure_oneoff_schema(conn)
             instance_service._ensure_recurring_recurrence(conn)
-        # logic DB: schema created at init; no destructive changes yet
+            instance_service._ensure_savings_schema(conn)
+            instance_service._ensure_entry_metadata_schema(conn)
+            net_worth_service._ensure_net_worth_schema(conn)
+            tax_service._ensure_tax_schema(conn)
         conn.commit()
     finally:
         conn.close()

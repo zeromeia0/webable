@@ -8,7 +8,7 @@
   <script src="/static/js/webable-currency.js"></script>
   <script src="/static/js/webable-charts.js"></script>
   <script src="/static/js/webable-reports.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen">
   <div class="flex flex-col md:flex-row min-h-screen">
@@ -34,9 +34,9 @@
 
     <section class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 md:p-5" id="bankStatementsSection">
       <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-2">Bank statements</h2>
-      <p class="text-xs text-slate-500 mb-4">Upload monthly PDF statements (max 10&nbsp;MB). Duplicates by file hash, filename, or same bank+month are rejected.</p>
+      <p class="text-xs text-slate-500 mb-4">Upload monthly PDF statements (max 10&nbsp;MB). The month is read from the period printed in the PDF — banks often name the file after the month it was issued, which is the month <em>after</em> the one it covers. Duplicates by file hash, filename, or same bank+month are rejected.</p>
       <form id="stmtUploadForm" class="flex flex-wrap gap-3 items-end mb-6">
-        <label class="text-xs text-slate-400">Statement month<br/><input type="month" name="statement_month" required class="mt-1 rounded-lg bg-slate-800 border border-slate-600 px-2 py-1.5 text-sm" /></label>
+        <label class="text-xs text-slate-400">Month covered <span class="text-slate-500">(optional — read from the PDF)</span><br/><input type="month" name="statement_month" class="mt-1 rounded-lg bg-slate-800 border border-slate-600 px-2 py-1.5 text-sm" /></label>
         <label class="text-xs text-slate-400">Bank (optional)<br/><input name="bank_name" class="mt-1 rounded-lg bg-slate-800 border border-slate-600 px-2 py-1.5 text-sm w-44" placeholder="e.g. N26" /></label>
         <label class="text-xs text-slate-400">PDF file<br/><input type="file" name="file" accept="application/pdf,.pdf" required class="mt-1 block text-sm max-w-[14rem]" /></label>
         <button type="submit" id="stmtUploadBtn" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm font-medium">Upload</button>
@@ -44,7 +44,7 @@
       </form>
       <div class="overflow-x-auto">
         <table class="w-full text-sm text-left">
-          <thead><tr class="text-slate-400 border-b border-slate-800"><th class="py-2">Month</th><th>Bank</th><th>File</th><th>Uploaded (UTC)</th><th>Size</th><th class="text-right">Actions</th></tr></thead>
+          <thead><tr class="text-slate-400 border-b border-slate-800"><th class="py-2">Covers</th><th>Bank</th><th>File</th><th>Uploaded (UTC)</th><th>Size</th><th class="text-right">Actions</th></tr></thead>
           <tbody id="stmtTableBody">
             {% for s in bank_statements %}
             <tr class="border-b border-slate-800/80" data-stmt-id="{{ s.id }}">
@@ -65,39 +65,55 @@
       </div>
     </section>
 
-    <section class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 md:p-5">
-      <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-3">Time range &amp; export</h2>
-      <div class="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-4 xl:gap-6">
-        <div class="flex flex-wrap items-center gap-2 min-w-0">
-          <span class="hidden sm:inline text-xs text-slate-500 mr-1">Presets</span>
-          <button type="button" data-preset="last_7_days" class="preset px-3 py-2 rounded-lg bg-slate-800 text-sm border border-slate-700 hover:border-indigo-500/50 hover:bg-slate-700 active:bg-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 whitespace-nowrap transition-colors">Last 7 days</button>
-          <button type="button" data-preset="last_30_days" class="preset px-3 py-2 rounded-lg bg-slate-800 text-sm border border-slate-700 hover:border-indigo-500/50 hover:bg-slate-700 active:bg-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 whitespace-nowrap transition-colors">Last 30 days</button>
-          <button type="button" data-preset="last_3_months" class="preset px-3 py-2 rounded-lg bg-slate-800 text-sm border border-slate-700 hover:border-indigo-500/50 hover:bg-slate-700 active:bg-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 whitespace-nowrap transition-colors">Last 3 months</button>
-          <button type="button" data-preset="last_6_months" class="preset px-3 py-2 rounded-lg bg-slate-800 text-sm border border-slate-700 hover:border-indigo-500/50 hover:bg-slate-700 active:bg-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 whitespace-nowrap transition-colors">Last 6 months</button>
-          <button type="button" data-preset="last_12_months" class="preset px-3 py-2 rounded-lg bg-slate-800 text-sm border border-slate-700 hover:border-indigo-500/50 hover:bg-slate-700 active:bg-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 whitespace-nowrap transition-colors">Last 12 months</button>
-          <button type="button" data-preset="all_time" class="preset px-3 py-2 rounded-lg bg-slate-800 text-sm border border-slate-700 hover:border-indigo-500/50 hover:bg-slate-700 active:bg-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 whitespace-nowrap transition-colors">All time</button>
-        </div>
-        <div class="flex-1 min-w-[220px] max-w-3xl space-y-2">
-          <p class="text-xs text-slate-400">Pick dates (calendar) or drag the range — selection updates live.</p>
-          <div class="flex flex-wrap items-end gap-2">
-            <label class="text-xs text-slate-400">Start <input type="date" id="dateStart" class="mt-0.5 block w-full min-w-[10rem] rounded-lg bg-slate-800 border border-slate-600 px-2 py-1.5 text-sm" /></label>
-            <label class="text-xs text-slate-400">End <input type="date" id="dateEnd" class="mt-0.5 block w-full min-w-[10rem] rounded-lg bg-slate-800 border border-slate-600 px-2 py-1.5 text-sm" /></label>
-          </div>
-          <div class="relative pt-8 pb-1 px-1">
-            <div id="bubbleLo" class="pointer-events-none absolute top-0 z-10 text-[10px] font-mono text-indigo-100 bg-slate-900/95 border border-indigo-500/50 px-1.5 py-0.5 rounded shadow whitespace-nowrap" style="left:0%; transform:translateX(-50%)">—</div>
-            <div id="bubbleHi" class="pointer-events-none absolute top-0 z-10 text-[10px] font-mono text-violet-100 bg-slate-900/95 border border-violet-500/50 px-1.5 py-0.5 rounded shadow whitespace-nowrap" style="left:100%; transform:translateX(-50%)">—</div>
-            <div class="relative h-9">
-              <input type="range" id="rangeLo" min="0" max="1000" value="0" class="absolute w-full h-2 opacity-90 accent-indigo-500 cursor-pointer z-[1]" />
-              <input type="range" id="rangeHi" min="0" max="1000" value="1000" class="absolute w-full h-2 opacity-90 accent-violet-400 cursor-pointer z-[2]" />
-            </div>
-          </div>
-          <p id="rangeLabel" class="text-sm text-slate-200 font-mono"></p>
-        </div>
-        <div class="flex items-end shrink-0">
-          <button type="button" id="exportReportsPdf" class="w-full xl:w-auto px-4 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 text-white text-sm font-medium border border-indigo-500/40 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Export PDF</button>
-          <p id="reportLoadErr" class="hidden text-xs text-rose-300 mt-2 max-w-xs"></p>
+    <section class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 md:p-5 space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wide">Time range &amp; export</h2>
+        <div class="flex items-center gap-3">
+          <span id="reportLoading" class="hidden text-xs text-slate-400">Loading…</span>
+          <button type="button" id="exportReportsPdf" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 text-white text-sm font-medium border border-indigo-500/40 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Export PDF</button>
         </div>
       </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="text-xs text-slate-500 mr-1">Presets</span>
+        <button type="button" data-preset="last_7_days" class="preset px-3 py-1.5 rounded-lg bg-slate-800 text-sm border border-slate-700 hover:border-indigo-500/50 hover:bg-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 whitespace-nowrap transition-colors">Last 7 days</button>
+        <button type="button" data-preset="last_30_days" class="preset px-3 py-1.5 rounded-lg bg-slate-800 text-sm border border-slate-700 hover:border-indigo-500/50 hover:bg-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 whitespace-nowrap transition-colors">Last 30 days</button>
+        <button type="button" data-preset="last_3_months" class="preset px-3 py-1.5 rounded-lg bg-slate-800 text-sm border border-slate-700 hover:border-indigo-500/50 hover:bg-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 whitespace-nowrap transition-colors">Last 3 months</button>
+        <button type="button" data-preset="last_6_months" class="preset px-3 py-1.5 rounded-lg bg-slate-800 text-sm border border-slate-700 hover:border-indigo-500/50 hover:bg-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 whitespace-nowrap transition-colors">Last 6 months</button>
+        <button type="button" data-preset="last_12_months" class="preset px-3 py-1.5 rounded-lg bg-slate-800 text-sm border border-slate-700 hover:border-indigo-500/50 hover:bg-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 whitespace-nowrap transition-colors">Last 12 months</button>
+        <button type="button" data-preset="all_time" class="preset px-3 py-1.5 rounded-lg bg-slate-800 text-sm border border-slate-700 hover:border-indigo-500/50 hover:bg-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 whitespace-nowrap transition-colors">All time</button>
+      </div>
+      <div class="grid md:grid-cols-[auto_auto_1fr] gap-4 items-end">
+        <label class="text-xs text-slate-400">Start <input type="date" id="dateStart" class="mt-1 block w-full min-w-[10rem] rounded-lg bg-slate-800 border border-slate-600 px-2 py-1.5 text-sm text-slate-100" /></label>
+        <label class="text-xs text-slate-400">End <input type="date" id="dateEnd" class="mt-1 block w-full min-w-[10rem] rounded-lg bg-slate-800 border border-slate-600 px-2 py-1.5 text-sm text-slate-100" /></label>
+        <div class="min-w-0">
+          <div class="flex justify-between text-[11px] text-slate-500 mb-1"><span id="boundLo">—</span><span class="text-slate-400">or drag the range</span><span id="boundHi">—</span></div>
+          <div class="relative h-8">
+            <div class="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1.5 rounded-full bg-slate-700"></div>
+            <div id="rangeFill" class="absolute top-1/2 -translate-y-1/2 h-1.5 rounded-full bg-indigo-500" style="left:0%;width:100%"></div>
+            <input type="range" id="rangeLo" min="0" max="1000" value="0" aria-label="Range start" class="wb-dual-range absolute inset-0 w-full" />
+            <input type="range" id="rangeHi" min="0" max="1000" value="1000" aria-label="Range end" class="wb-dual-range absolute inset-0 w-full" />
+          </div>
+        </div>
+      </div>
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <p id="rangeLabel" class="text-sm text-slate-200 font-mono"></p>
+        <p id="rangeSummary" class="text-xs text-slate-400"></p>
+        <p id="reportLoadErr" class="hidden text-xs text-rose-300"></p>
+      </div>
+      <div class="rounded-xl border border-slate-800 bg-slate-950/50 p-3">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <p class="text-xs font-medium text-slate-300">Income, expenses &amp; running balance <span id="rangeGranularity" class="text-slate-500"></span></p>
+        </div>
+        <div class="relative h-64 md:h-72"><canvas id="chartRange"></canvas></div>
+        <p id="chartRangeEmpty" class="hidden text-sm text-slate-500 mt-2">No income or expenses in this range.</p>
+      </div>
+      <style>
+        .wb-dual-range { -webkit-appearance: none; appearance: none; background: transparent; pointer-events: none; margin: 0; height: 2rem; }
+        .wb-dual-range::-webkit-slider-runnable-track { background: transparent; height: 2rem; }
+        .wb-dual-range::-moz-range-track { background: transparent; }
+        .wb-dual-range::-webkit-slider-thumb { -webkit-appearance: none; pointer-events: auto; width: 18px; height: 18px; margin-top: 7px; border-radius: 9999px; background: #e0e7ff; border: 3px solid #6366f1; cursor: grab; }
+        .wb-dual-range::-moz-range-thumb { pointer-events: auto; width: 14px; height: 14px; border-radius: 9999px; background: #e0e7ff; border: 3px solid #6366f1; cursor: grab; }
+      </style>
     </section>
 
     <div class="grid lg:grid-cols-2 gap-6">
@@ -145,6 +161,7 @@
     const INSTANCE_ID = {{ instance.id }};
     const BOOT = {{ report_bootstrap | tojson }};
     const base = window.WebableCharts.darkChartOptions();
+    const DAY = 86400000;
     let charts = {};
     let deb;
     let activePreset = 'last_6_months';
@@ -152,11 +169,48 @@
     let lastReportData = null;
     let reportLoading = false;
     let reportLoadToken = 0;
+    // Slider span; widened when a preset or typed date falls outside it.
+    let span = { min: null, max: null };
 
     function parseISODate(s) {
       if (!s) return null;
-      const d = new Date(s + 'T12:00:00');
+      const d = new Date(String(s).slice(0, 10) + 'T12:00:00');
       return isNaN(d) ? null : d;
+    }
+
+    function dateToISO(d) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return y + '-' + m + '-' + day;
+    }
+
+    function initSpan() {
+      const today = parseISODate(dateToISO(new Date()));
+      span.min = parseISODate(BOOT.date_bounds && BOOT.date_bounds.min) || new Date(today.getTime() - 365 * DAY);
+      span.max = parseISODate(BOOT.date_bounds && BOOT.date_bounds.max) || today;
+      if (span.max < today) span.max = today;
+      if (span.max.getTime() - span.min.getTime() < DAY) span.min = new Date(span.max.getTime() - 365 * DAY);
+    }
+
+    function widenSpan(startIso, endIso) {
+      const s = parseISODate(startIso);
+      const e = parseISODate(endIso);
+      if (s && s < span.min) span.min = s;
+      if (e && e > span.max) span.max = e;
+    }
+
+    function ordToDate(o) {
+      // span dates sit at local noon, so rounding to whole days never crosses midnight.
+      const days = Math.round(((o / 1000) * (span.max.getTime() - span.min.getTime())) / DAY);
+      return new Date(span.min.getTime() + days * DAY);
+    }
+
+    function dateIsoToOrd(iso) {
+      const d = parseISODate(iso);
+      const width = span.max.getTime() - span.min.getTime();
+      if (!d || width <= 0) return 0;
+      return Math.round(Math.max(0, Math.min(1000, ((d.getTime() - span.min.getTime()) / width) * 1000)));
     }
 
     function fmtEUR(n) {
@@ -168,27 +222,16 @@
       return fmtEUR(v);
     }
 
-    function bounds() {
-      const mn = parseISODate(BOOT.date_bounds.min);
-      const mx = parseISODate(BOOT.date_bounds.max);
-      if (!mn || !mx) return { min: new Date(), max: new Date(), span: 1 };
-      const span = Math.max(1, Math.round((mx - mn) / 86400000));
-      return { min: mn, max: mx, span };
-    }
-
-    function ordToDate(o) {
-      const b = bounds();
-      const t = b.min.getTime() + (o / 1000) * (b.max - b.min);
-      return new Date(Math.min(b.max.getTime(), Math.max(b.min.getTime(), t)));
-    }
-
-    function dateToISO(d) {
-      return d.toISOString().slice(0, 10);
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
     }
 
     function fetchReport(params) {
       const q = new URLSearchParams(params);
       return fetch('/instances/' + INSTANCE_ID + '/reports/data?' + q.toString(), { credentials: 'same-origin' }).then(function (r) {
+        if (r.status === 401) throw new Error('Your session expired — please log in again.');
         if (!r.ok) throw new Error('Report request failed (' + r.status + ')');
         return r.json();
       });
@@ -198,82 +241,60 @@
       reportLoading = on;
       var btn = document.getElementById('exportReportsPdf');
       if (btn) btn.disabled = on;
+      var ind = document.getElementById('reportLoading');
+      if (ind) ind.classList.toggle('hidden', !on);
     }
 
     function showReportError(msg) {
       var el = document.getElementById('reportLoadErr');
       if (!el) return;
-      if (msg) {
-        el.textContent = msg;
-        el.classList.remove('hidden');
-      } else {
-        el.textContent = '';
-        el.classList.add('hidden');
-      }
+      el.textContent = msg || '';
+      el.classList.toggle('hidden', !msg);
     }
 
-    function dateIsoToOrd(iso) {
-      const d = parseISODate(iso);
-      const b = bounds();
-      if (!d || !b.min || !b.max) return 0;
-      const span = b.max.getTime() - b.min.getTime();
-      if (span <= 0) return 0;
-      const t = (d.getTime() - b.min.getTime()) / span;
-      return Math.round(Math.max(0, Math.min(1000, t * 1000)));
-    }
-
-    function updateSliderVisual() {
-      const loEl = document.getElementById('rangeLo');
-      const hiEl = document.getElementById('rangeHi');
-      const lo = Math.min(parseInt(loEl.value, 10), parseInt(hiEl.value, 10));
-      const hi = Math.max(parseInt(loEl.value, 10), parseInt(hiEl.value, 10));
-      const d0 = ordToDate(lo);
-      const d1 = ordToDate(hi);
-      const s = dateToISO(d0);
-      const e = dateToISO(d1);
-      document.getElementById('rangeLabel').textContent = s + ' → ' + e;
-      var ds = document.getElementById('dateStart');
-      var de = document.getElementById('dateEnd');
-      if (ds && de && document.activeElement !== ds && document.activeElement !== de) {
-        ds.value = s;
-        de.value = e;
-      }
-      var bl = document.getElementById('bubbleLo');
-      var bh = document.getElementById('bubbleHi');
-      if (bl) {
-        bl.textContent = s;
-        bl.style.left = ((lo / 1000) * 100) + '%';
-      }
-      if (bh) {
-        bh.textContent = e;
-        bh.style.left = ((hi / 1000) * 100) + '%';
-      }
-    }
-
-    function syncSlidersFromRange(data) {
-      const r = (data && data.range) || {};
-      let s = r.start;
-      let e = r.end;
-      if (!s || !e) {
-        s = (BOOT.date_bounds && BOOT.date_bounds.min) || null;
-        e = (BOOT.date_bounds && BOOT.date_bounds.max) || null;
-      }
-      if (!s || !e) return;
+    // Draw thumbs, fill and labels for the given ISO dates (no data fetch).
+    function paintRange(startIso, endIso, opts) {
+      opts = opts || {};
       const lo = document.getElementById('rangeLo');
       const hi = document.getElementById('rangeHi');
-      if (!lo || !hi) return;
-      lo.value = String(dateIsoToOrd(s));
-      hi.value = String(dateIsoToOrd(e));
+      if (!opts.fromSlider) {
+        lo.value = String(dateIsoToOrd(startIso));
+        hi.value = String(dateIsoToOrd(endIso));
+      }
+      const a = Math.min(+lo.value, +hi.value);
+      const b = Math.max(+lo.value, +hi.value);
+      const fill = document.getElementById('rangeFill');
+      fill.style.left = (a / 10) + '%';
+      fill.style.width = ((b - a) / 10) + '%';
+      document.getElementById('boundLo').textContent = dateToISO(span.min);
+      document.getElementById('boundHi').textContent = dateToISO(span.max);
+      document.getElementById('rangeLabel').textContent = (startIso || '—') + ' → ' + (endIso || '—');
+      const ds = document.getElementById('dateStart');
+      const de = document.getElementById('dateEnd');
+      if (document.activeElement !== ds) ds.value = startIso || '';
+      if (document.activeElement !== de) de.value = endIso || '';
+    }
+
+    function markPreset(preset) {
+      document.querySelectorAll('.preset').forEach(function (b) {
+        const on = b.getAttribute('data-preset') === preset;
+        b.classList.toggle('ring-2', on);
+        b.classList.toggle('ring-indigo-400', on);
+        b.classList.toggle('bg-indigo-600/30', on);
+      });
     }
 
     function render(data) {
       lastReportData = data;
       const t = data.totals || {};
+      const net = Number(t.net || 0);
       document.getElementById('totalsBox').innerHTML =
-        '<div class="text-slate-400">One-off expenses</div><div class="font-semibold">' + fmtEUR(t.oneoff_expenses || 0) + '</div>' +
-        '<div class="text-slate-400">One-off income</div><div class="font-semibold">' + fmtEUR(t.oneoff_income || 0) + '</div>' +
-        '<div class="text-slate-400">Recurring / mo</div><div class="text-xs">' + fmtEUR(t.recurring_expense_monthly || 0) + ' exp · ' + fmtEUR(t.recurring_income_monthly || 0) + ' inc</div>' +
-        '<div class="text-slate-400">Txn counts</div><div>' + (t.transaction_count_expenses || 0) + ' exp · ' + (t.transaction_count_income || 0) + ' inc</div>';
+        '<div class="text-slate-400">Total income</div><div class="font-semibold text-emerald-300">' + fmtEUR(t.total_income != null ? t.total_income : (t.oneoff_income || 0)) + '</div>' +
+        '<div class="text-slate-400">Total expenses</div><div class="font-semibold text-rose-300">' + fmtEUR(t.total_expenses != null ? t.total_expenses : (t.oneoff_expenses || 0)) + '</div>' +
+        '<div class="text-slate-400">Net</div><div class="font-semibold ' + (net < 0 ? 'text-rose-300' : 'text-emerald-300') + '">' + fmtEUR(net) + '</div>' +
+        '<div class="text-slate-400">One-off</div><div class="text-xs">' + fmtEUR(t.oneoff_expenses || 0) + ' exp · ' + fmtEUR(t.oneoff_income || 0) + ' inc</div>' +
+        '<div class="text-slate-400">Recurring in range</div><div class="text-xs">' + fmtEUR(t.recurring_expenses_in_range || 0) + ' exp · ' + fmtEUR(t.recurring_income_in_range || 0) + ' inc</div>' +
+        '<div class="text-slate-400">Txn counts</div><div>' + (t.transaction_count_expenses || 0) + ' exp · ' + (t.transaction_count_income || 0) + ' inc · ' + (t.months_in_range || 0) + ' mo</div>';
 
       function fillTable(id, rows) {
         const tb = document.querySelector('#' + id + ' tbody');
@@ -281,24 +302,31 @@
         (rows || []).forEach(function (r) {
           const tr = document.createElement('tr');
           tr.className = 'border-b border-slate-800/80';
-          tr.innerHTML = '<td class="py-2 pr-2">' + r.key + '</td><td>' + fmtEUR(r.total) + '</td><td>' + r.pct_of_total + '%</td><td>' + r.count + '</td><td>' + fmtEUR(r.average) + '</td>';
+          tr.innerHTML = '<td class="py-2 pr-2">' + esc(r.key) + '</td><td>' + fmtEUR(r.total) + '</td><td>' + r.pct_of_total + '%</td><td>' + r.count + '</td><td>' + fmtEUR(r.average) + '</td>';
           tb.appendChild(tr);
         });
+        if (!(rows || []).length) {
+          tb.innerHTML = '<tr><td colspan="5" class="py-3 text-slate-500">No spending in this range.</td></tr>';
+        }
       }
       fillTable('catTable', data.top_categories);
       fillTable('merchTable', data.top_merchants);
 
-      const months = (data.monthly || []).map(function (m) { return m.month; });
-      const spend = (data.monthly || []).map(function (m) { return m.oneoff_expenses; });
-      const inc = (data.monthly || []).map(function (m) { return m.oneoff_income; });
-      const totExp = (data.monthly || []).map(function (m) { return m.total_expenses; });
-      const totInc = (data.monthly || []).map(function (m) { return m.total_income; });
+      const monthly = data.monthly || [];
+      const months = monthly.map(function (m) { return m.month; });
+      const spend = monthly.map(function (m) { return m.oneoff_expenses; });
+      const recSpend = monthly.map(function (m) { return m.recurring_expenses || 0; });
+      const totExp = monthly.map(function (m) { return m.total_expenses; });
+      const totInc = monthly.map(function (m) { return m.total_income; });
 
       function ensureChart(id, cfg) {
         const el = document.getElementById(id);
         if (!el) return;
         if (charts[id]) charts[id].destroy();
         charts[id] = new Chart(el, cfg);
+      }
+      function dropChart(id) {
+        if (charts[id]) { charts[id].destroy(); charts[id] = null; }
       }
 
       const catTotals = (data.charts && data.charts.category_totals) ? data.charts.category_totals : {};
@@ -307,32 +335,32 @@
       const catEmpty = document.getElementById('chartCatEmpty');
       if (labels.length) {
         catEmpty.classList.add('hidden');
-        const totalOneoff = Number((data.totals || {}).oneoff_expenses || 0) || 1;
+        const catSum = vals.reduce(function (s, v) { return s + Number(v || 0); }, 0) || 1;
+        // Doughnuts have no x/y axes, so build options without base.scales.
         ensureChart('chartCat', {
           type: 'doughnut',
           data: {
             labels: labels,
-            datasets: [{ data: vals, backgroundColor: ['#6366f1','#8b5cf6','#ec4899','#f97316','#eab308','#22c55e','#14b8a6','#64748b'] }]
+            datasets: [{ data: vals, borderColor: '#0f172a', borderWidth: 2, backgroundColor: ['#6366f1','#8b5cf6','#ec4899','#f97316','#eab308','#22c55e','#14b8a6','#64748b'] }]
           },
-          options: Object.assign({}, base, {
-            plugins: Object.assign({}, base.plugins, {
-              legend: { position: 'right', labels: { color: '#cbd5e1' } },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { position: 'right', labels: { color: '#cbd5e1', boxWidth: 12, padding: 10 } },
               tooltip: Object.assign({}, base.plugins.tooltip, {
                 callbacks: {
-                  title: function (items) { return items[0].label || ''; },
                   label: function (ctx) {
-                    const v = ctx.parsed;
-                    const raw = typeof v === 'number' ? v : (v && typeof v === 'object' && v.r != null ? v.r : 0);
-                    const pct = totalOneoff > 0 ? (raw / totalOneoff) * 100 : 0;
-                    return ['Amount: ' + fmtEUR(raw), 'Share of one-off spend: ' + window.WebableCharts.fmtPct(pct, 1)];
+                    const raw = Number(ctx.parsed) || 0;
+                    return [ctx.label + ': ' + fmtEUR(raw), 'Share: ' + window.WebableCharts.fmtPct(raw / catSum * 100, 1)];
                   }
                 }
               })
-            })
-          })
+            }
+          }
         });
       } else {
-        if (charts.chartCat) { charts.chartCat.destroy(); charts.chartCat = null; }
+        dropChart('chartCat');
         catEmpty.classList.remove('hidden');
       }
 
@@ -341,20 +369,18 @@
       const topRows = data.top_categories || [];
       ensureChart('chartTop', {
         type: 'bar',
-        data: { labels: topLabels, datasets: [{ label: 'Spent', data: topVals, backgroundColor: '#6366f1' }] },
+        data: { labels: topLabels, datasets: [{ label: 'Spent', data: topVals, backgroundColor: '#6366f1', borderRadius: 4 }] },
         options: Object.assign({}, base, {
           plugins: Object.assign({}, base.plugins, {
+            legend: { display: false },
             tooltip: Object.assign({}, base.plugins.tooltip, {
               callbacks: {
-                title: function (items) { return items[0].label || ''; },
                 label: function (ctx) {
-                  const idx = ctx.dataIndex;
-                  const row = topRows[idx];
-                  const v = ctx.parsed.y;
-                  const lines = ['Amount: ' + fmtEUR(v)];
+                  const row = topRows[ctx.dataIndex];
+                  const lines = ['Amount: ' + fmtEUR(ctx.parsed.y)];
                   if (row) {
                     lines.push('Share of spend: ' + window.WebableCharts.fmtPct(row.pct_of_total, 1));
-                    lines.push('Transactions: ' + (row.count != null ? row.count : '—'));
+                    lines.push('Entries: ' + (row.count != null ? row.count : '—'));
                     lines.push('Average: ' + fmtEUR(row.average || 0));
                   }
                   return lines;
@@ -364,55 +390,45 @@
           }),
           scales: {
             x: Object.assign({}, base.scales.x),
-            y: Object.assign({}, base.scales.y, { ticks: Object.assign({}, base.scales.y.ticks, { callback: moneyTick }) })
+            y: Object.assign({}, base.scales.y, { beginAtZero: true, ticks: Object.assign({}, base.scales.y.ticks, { callback: moneyTick }) })
           }
         })
       });
 
       var spendEmpty = document.getElementById('chartSpendTimeEmpty');
-      var hasSpendSeries = months.length && spend.some(function (v) { return Number(v) !== 0; });
+      var hasSpendSeries = months.length && totExp.some(function (v) { return Number(v) !== 0; });
       if (hasSpendSeries) {
         if (spendEmpty) spendEmpty.classList.add('hidden');
-        var spendDs = window.WebableReports && window.WebableReports.lineSpendDataset
-          ? window.WebableReports.lineSpendDataset('One-off expenses', spend)
-          : { label: 'One-off expenses', data: spend, borderColor: '#f87171', backgroundColor: 'rgba(248,113,113,0.15)', tension: 0.25, fill: true, pointRadius: 4, pointHoverRadius: 8 };
         ensureChart('chartSpendTime', {
-          type: 'line',
-          data: { labels: months, datasets: [spendDs] },
+          type: 'bar',
+          data: {
+            labels: months,
+            datasets: [
+              { label: 'Recurring', data: recSpend, backgroundColor: 'rgba(248,113,113,0.45)', stack: 's', borderRadius: 3 },
+              { label: 'One-off', data: spend, backgroundColor: '#f87171', stack: 's', borderRadius: 3 }
+            ]
+          },
           options: Object.assign({}, base, {
-            animation: { duration: 280 },
-            interaction: { mode: 'index', intersect: false },
             plugins: Object.assign({}, base.plugins, {
               tooltip: Object.assign({}, base.plugins.tooltip, {
                 callbacks: {
                   title: function (items) { return 'Month: ' + (months[items[0].dataIndex] || ''); },
-                  label: function (ctx) {
-                    return 'One-off expenses: ' + fmtEUR(ctx.parsed.y);
-                  },
-                  afterBody: function (items) {
-                    const i = items[0].dataIndex;
-                    const m = (data.monthly || [])[i];
-                    if (!m) return [];
-                    return [
-                      'One-off income: ' + fmtEUR(m.oneoff_income || 0),
-                      'Total expenses (incl. recurring): ' + fmtEUR(m.total_expenses || 0),
-                      'Total income: ' + fmtEUR(m.total_income || 0)
-                    ];
+                  label: function (ctx) { return ctx.dataset.label + ': ' + fmtEUR(ctx.parsed.y); },
+                  footer: function (items) {
+                    const m = monthly[items[0].dataIndex];
+                    return m ? 'Total: ' + fmtEUR(m.total_expenses || 0) : '';
                   }
                 }
               })
             }),
             scales: {
-              x: Object.assign({}, base.scales.x),
-              y: Object.assign({}, base.scales.y, { ticks: Object.assign({}, base.scales.y.ticks, { callback: moneyTick }) })
+              x: Object.assign({}, base.scales.x, { stacked: true }),
+              y: Object.assign({}, base.scales.y, { stacked: true, beginAtZero: true, ticks: Object.assign({}, base.scales.y.ticks, { callback: moneyTick }) })
             }
           })
         });
-        if (charts.chartSpendTime) {
-          charts.chartSpendTime.options.onHover = function () { charts.chartSpendTime.update('none'); };
-        }
       } else {
-        if (charts.chartSpendTime) { charts.chartSpendTime.destroy(); charts.chartSpendTime = null; }
+        dropChart('chartSpendTime');
         if (spendEmpty) spendEmpty.classList.remove('hidden');
       }
 
@@ -421,24 +437,23 @@
         data: {
           labels: months,
           datasets: [
-            { label: 'Total income', data: totInc, backgroundColor: '#34d399' },
-            { label: 'Total expenses', data: totExp, backgroundColor: '#f87171' }
+            { label: 'Total income', data: totInc, backgroundColor: '#34d399', borderRadius: 3 },
+            { label: 'Total expenses', data: totExp, backgroundColor: '#f87171', borderRadius: 3 }
           ]
         },
         options: Object.assign({}, base, {
           scales: {
-            x: Object.assign({}, base.scales.x, { stacked: false }),
-            y: Object.assign({}, base.scales.y, {
-              stacked: false,
-              ticks: Object.assign({}, base.scales.y.ticks, { callback: moneyTick })
-            })
+            x: Object.assign({}, base.scales.x),
+            y: Object.assign({}, base.scales.y, { beginAtZero: true, ticks: Object.assign({}, base.scales.y.ticks, { callback: moneyTick }) })
           },
           plugins: Object.assign({}, base.plugins, {
             tooltip: Object.assign({}, base.plugins.tooltip, {
               callbacks: {
                 title: function (items) { return 'Month: ' + (months[items[0].dataIndex] || ''); },
-                label: function (ctx) {
-                  return ctx.dataset.label + ': ' + fmtEUR(ctx.parsed.y);
+                label: function (ctx) { return ctx.dataset.label + ': ' + fmtEUR(ctx.parsed.y); },
+                footer: function (items) {
+                  const m = monthly[items[0].dataIndex];
+                  return m ? 'Net: ' + fmtEUR(m.net != null ? m.net : (m.total_income - m.total_expenses)) : '';
                 }
               }
             })
@@ -453,11 +468,68 @@
           ch.update();
         });
       };
-      if (data.range && data.range.start && data.range.end) {
-        currentReportParams = { preset: null, start: data.range.start, end: data.range.end };
+      renderRangeChart(data);
+      const r = data.range || {};
+      if (r.start && r.end) {
+        widenSpan(r.start, r.end);
+        paintRange(r.start, r.end);
       }
-      syncSlidersFromRange(data);
-      updateSliderVisual();
+    }
+
+    // Chart inside the "Time range & export" box; updated in place so dragging feels live.
+    function renderRangeChart(data) {
+      const daily = data.daily || [];
+      const useDaily = daily.length > 0;
+      const rows = useDaily
+        ? daily.map(function (d) { return { label: d.date, inc: d.income, exp: d.expenses }; })
+        : (data.monthly || []).map(function (m) { return { label: m.month, inc: m.total_income, exp: m.total_expenses }; });
+      const labels = rows.map(function (r) { return r.label; });
+      const inc = rows.map(function (r) { return r.inc; });
+      const exp = rows.map(function (r) { return r.exp; });
+      let run = 0;
+      const net = rows.map(function (r) { run += (r.inc || 0) - (r.exp || 0); return Math.round(run * 100) / 100; });
+      const t = data.totals || {};
+      document.getElementById('rangeGranularity').textContent = useDaily ? '· per day' : '· per month';
+      document.getElementById('rangeSummary').textContent =
+        'In ' + fmtEUR(t.total_income || 0) + ' · Out ' + fmtEUR(t.total_expenses || 0) + ' · Net ' + fmtEUR(t.net || 0);
+      const empty = !rows.some(function (r) { return (r.inc || 0) !== 0 || (r.exp || 0) !== 0; });
+      document.getElementById('chartRangeEmpty').classList.toggle('hidden', !empty);
+      const ch = charts.chartRange;
+      if (ch) {
+        ch.data.labels = labels;
+        ch.data.datasets[0].data = inc;
+        ch.data.datasets[1].data = exp;
+        ch.data.datasets[2].data = net;
+        const pr = useDaily && labels.length > 45 ? 0 : 2;
+        ch.data.datasets.forEach(function (ds) { ds.pointRadius = pr; });
+        ch.update();
+        return;
+      }
+      charts.chartRange = new Chart(document.getElementById('chartRange'), {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            { label: 'Income', data: inc, borderColor: '#34d399', backgroundColor: 'rgba(52,211,153,0.12)', fill: true, tension: 0.25, pointRadius: 2, borderWidth: 2 },
+            { label: 'Expenses', data: exp, borderColor: '#f87171', backgroundColor: 'rgba(248,113,113,0.12)', fill: true, tension: 0.25, pointRadius: 2, borderWidth: 2 },
+            { label: 'Running balance', data: net, borderColor: '#818cf8', backgroundColor: 'transparent', borderDash: [5, 4], tension: 0.25, pointRadius: 2, borderWidth: 2, yAxisID: 'y2' }
+          ]
+        },
+        options: Object.assign({}, base, {
+          animation: { duration: 250 },
+          interaction: { mode: 'index', intersect: false },
+          plugins: Object.assign({}, base.plugins, {
+            tooltip: Object.assign({}, base.plugins.tooltip, {
+              callbacks: { label: function (ctx) { return ctx.dataset.label + ': ' + fmtEUR(ctx.parsed.y); } }
+            })
+          }),
+          scales: {
+            x: Object.assign({}, base.scales.x, { ticks: Object.assign({}, base.scales.x.ticks, { maxTicksLimit: 12, autoSkip: true }) }),
+            y: Object.assign({}, base.scales.y, { beginAtZero: true, ticks: Object.assign({}, base.scales.y.ticks, { callback: moneyTick }) }),
+            y2: { position: 'right', grid: { drawOnChartArea: false }, ticks: { color: '#a5b4fc', callback: moneyTick } }
+          }
+        })
+      });
     }
 
     function load(preset, start, end) {
@@ -486,30 +558,28 @@
       });
     }
 
-    function scheduleLoad() {
-      clearTimeout(deb);
-      deb = setTimeout(function () {
-        updateSliderVisual();
-        const lo = Math.min(parseInt(document.getElementById('rangeLo').value, 10), parseInt(document.getElementById('rangeHi').value, 10));
-        const hi = Math.max(parseInt(document.getElementById('rangeLo').value, 10), parseInt(document.getElementById('rangeHi').value, 10));
-        const d0 = ordToDate(lo);
-        const d1 = ordToDate(hi);
-        activePreset = 'custom';
-        document.querySelectorAll('.preset').forEach(function (b) { b.classList.remove('ring-2', 'ring-indigo-400'); });
-        load(null, dateToISO(d0), dateToISO(d1));
-      }, 160);
+    function sliderDates() {
+      const a = Math.min(+document.getElementById('rangeLo').value, +document.getElementById('rangeHi').value);
+      const b = Math.max(+document.getElementById('rangeLo').value, +document.getElementById('rangeHi').value);
+      return [dateToISO(ordToDate(a)), dateToISO(ordToDate(b))];
     }
 
     function onRangeSliderInput() {
-      updateSliderVisual();
-      scheduleLoad();
+      const d = sliderDates();
+      paintRange(d[0], d[1], { fromSlider: true });
+      activePreset = 'custom';
+      markPreset(null);
+      clearTimeout(deb);
+      deb = setTimeout(function () {
+        const dd = sliderDates();
+        load(null, dd[0], dd[1]);
+      }, 120);
     }
 
     document.querySelectorAll('.preset').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        document.querySelectorAll('.preset').forEach(function (b) { b.classList.remove('ring-2', 'ring-indigo-400'); });
-        btn.classList.add('ring-2', 'ring-indigo-400');
         activePreset = btn.getAttribute('data-preset');
+        markPreset(activePreset);
         load(activePreset, null, null);
       });
     });
@@ -519,48 +589,46 @@
     function applyDateInputsToRange() {
       var ds = document.getElementById('dateStart');
       var de = document.getElementById('dateEnd');
-      if (!ds || !de || !ds.value || !de.value) return;
-      document.getElementById('rangeLo').value = String(dateIsoToOrd(ds.value));
-      document.getElementById('rangeHi').value = String(dateIsoToOrd(de.value));
-      updateSliderVisual();
+      if (!ds.value || !de.value) return;
+      let s = ds.value;
+      let e = de.value;
+      if (s > e) { const tmp = s; s = e; e = tmp; }
+      widenSpan(s, e);
+      paintRange(s, e);
       activePreset = 'custom';
-      document.querySelectorAll('.preset').forEach(function (b) { b.classList.remove('ring-2', 'ring-indigo-400'); });
-      load(null, ds.value, de.value);
+      markPreset(null);
+      load(null, s, e);
     }
     document.getElementById('dateStart').addEventListener('change', applyDateInputsToRange);
     document.getElementById('dateEnd').addEventListener('change', applyDateInputsToRange);
 
     document.getElementById('exportReportsPdf').addEventListener('click', async function () {
       if (reportLoading) {
-        alert('Please wait until the report finishes loading for the selected time range.');
+        showReportError('Please wait until the report finishes loading.');
         return;
       }
       if (!lastReportData) {
-        alert('Load a time range first, then export.');
+        showReportError('Load a time range first, then export.');
         return;
       }
-      if (charts.chartSpendTime) {
-        try { charts.chartSpendTime.update('none'); } catch (e) { /* ignore */ }
-      }
-      await new Promise(function (r) { requestAnimationFrame(function () { requestAnimationFrame(r); }); });
       const fd = new FormData();
-      var range = (lastReportData && lastReportData.range) ? lastReportData.range : {};
+      var range = lastReportData.range || {};
       var start = range.start || currentReportParams.start;
       var end = range.end || currentReportParams.end;
       if (start && end) {
         fd.append('start_date', start);
         fd.append('end_date', end);
-      }
-      if (currentReportParams.preset) {
+      } else if (currentReportParams.preset) {
         fd.append('preset', currentReportParams.preset);
-      } else if (activePreset && activePreset !== 'custom') {
-        fd.append('preset', activePreset);
       }
       if (window.WebableCurrency && typeof window.WebableCurrency.getCode === 'function') {
         fd.append('display_currency', window.WebableCurrency.getCode());
       }
       var btn = document.getElementById('exportReportsPdf');
-      if (btn) btn.disabled = true;
+      btn.disabled = true;
+      const prevText = btn.textContent;
+      btn.textContent = 'Exporting…';
+      showReportError(null);
       try {
         const res = await fetch('/instances/' + INSTANCE_ID + '/reports/pdf', { method: 'POST', body: fd, credentials: 'same-origin' });
         if (!res.ok) {
@@ -571,18 +639,13 @@
           } catch (e2) { /* ignore */ }
           throw new Error(detail);
         }
-        const blob = await res.blob();
-        if (!blob || blob.size < 100) throw new Error('PDF file was empty.');
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'webable-spending-report-' + INSTANCE_ID + '.pdf';
-        a.click();
-        URL.revokeObjectURL(url);
+        if (Number(res.headers.get('Content-Length') || 1000) < 100) throw new Error('PDF file was empty.');
+        await window.WebableDownload.save(res, 'Webable_Spending-Report.pdf');
       } catch (e) {
-        alert(e.message || 'Could not export PDF. Check that you are logged in and server dependencies are installed.');
+        showReportError(e.message || 'Could not export PDF.');
       } finally {
-        if (btn) btn.disabled = reportLoading;
+        btn.textContent = prevText;
+        btn.disabled = reportLoading;
       }
     });
 
@@ -591,15 +654,26 @@
       var msg = document.getElementById('stmtUploadMsg');
       var btn = document.getElementById('stmtUploadBtn');
       msg.textContent = '';
+      msg.className = 'text-xs text-amber-300/90 max-w-xs';
       var fd = new FormData(e.target);
       btn.disabled = true;
       try {
         var res = await fetch('/instances/' + INSTANCE_ID + '/bank-statements/upload', { method: 'POST', body: fd, credentials: 'same-origin' });
         var data = await res.json().catch(function () { return {}; });
         if (!res.ok) throw new Error((data.detail) || 'Upload failed');
-        msg.textContent = 'Uploaded.';
+        var det = data.detection || {};
+        var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+        var label = MONTHS[Number(String(data.statement_month).slice(5, 7)) - 1] + ' ' + String(data.statement_month).slice(0, 4);
+        if (det.corrected) {
+          msg.textContent = 'Saved as ' + label + ' — the PDF covers ' + det.period_start + ' to ' + det.period_end + ', not ' + det.typed_month + '.';
+        } else if (det.detected) {
+          msg.textContent = 'Saved as ' + label + ' (period ' + det.period_start + ' to ' + det.period_end + ', read from the PDF).';
+        } else {
+          msg.textContent = 'Saved as ' + label + '.';
+        }
+        msg.className = 'text-xs text-emerald-300 max-w-xs';
         e.target.reset();
-        location.reload();
+        setTimeout(function () { location.reload(); }, det.detected ? 2500 : 600);
       } catch (err) {
         msg.textContent = err.message || 'Upload failed';
       } finally {
@@ -619,10 +693,10 @@
       if (lastReportData) render(lastReportData);
     });
 
-    (function initSlider() {
-      document.getElementById('rangeLabel').textContent = (BOOT.date_bounds.min || '—') + ' → ' + (BOOT.date_bounds.max || '—');
-    })();
-    document.querySelector('[data-preset="last_6_months"]').click();
+    initSpan();
+    paintRange(dateToISO(span.min), dateToISO(span.max));
+    markPreset(activePreset);
+    load(activePreset, null, null);
   </script>
   {% include "partials/global_fab_stack.html" %}
 </body>

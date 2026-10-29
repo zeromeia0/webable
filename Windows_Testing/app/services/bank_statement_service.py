@@ -6,10 +6,11 @@ import hashlib
 import logging
 import re
 import uuid
+from datetime import date
 from pathlib import Path
 from sqlalchemy.orm import Session
 
-from ..models import BankStatement, DatabaseInstance
+from ..models import BankStatement, DatabaseInstance, WorkspaceMember
 
 log = logging.getLogger("webable.bank_statement")
 
@@ -64,6 +65,50 @@ def optional_text_excerpt(content: bytes, max_chars: int = 8000) -> str | None:
         return None
 
 
+_DATE = r"(\d{1,2}[-/.]\d{1,2}[-/.]\d{4}|\d{4}-\d{2}-\d{2})"
+# "Período de 01-09-2026 a 30-09-2026" (Crédito Agrícola and other PT banks), "Statement period: 01/09/2026 - 30/09/2026",
+# "Period from 2026-09-01 to 2026-09-30", ...
+_PERIOD_PATTERNS = [
+    re.compile(r"per[ií]odo\s*(?:de|:)?\s*" + _DATE + r"\s*(?:a|até|-|–)\s*" + _DATE, re.I),
+    re.compile(r"(?:statement\s+)?period\s*(?:from|:)?\s*" + _DATE + r"\s*(?:to|-|–|until)\s*" + _DATE, re.I),
+    re.compile(r"\bfrom\s+" + _DATE + r"\s+to\s+" + _DATE, re.I),
+]
+
+
+def _parse_date(s: str) -> date | None:
+    s = s.strip()
+    try:
+        if re.match(r"^\d{4}-\d{2}-\d{2}$", s):
+            return date.fromisoformat(s)
+        d, m, y = re.split(r"[-/.]", s)
+        return date(int(y), int(m), int(d))
+    except ValueError:
+        return None
+
+
+def detect_statement_period(text: str | None) -> dict | None:
+    """
+    Find the period a statement covers from its text. Banks often name the file after the issue
+    month (e.g. the "October" statement covers September), so the period printed inside wins.
+    Returns {"month": "YYYY-MM", "start": date, "end": date} using the month most of the period falls in.
+    """
+    if not text:
+        return None
+    flat = re.sub(r"\s+", " ", text)
+    for pat in _PERIOD_PATTERNS:
+        for m in pat.finditer(flat):
+            start, end = _parse_date(m.group(1)), _parse_date(m.group(2))
+            if not start or not end:
+                continue
+            if end < start:
+                start, end = end, start
+            if (end - start).days > 400:
+                continue
+            mid = start + (end - start) / 2
+            return {"month": mid.strftime("%Y-%m"), "start": start, "end": end}
+    return None
+
+
 def find_duplicates(
     db: Session,
     instance_id: int,
@@ -104,9 +149,10 @@ def get_owned(db: Session, user_id: int, statement_id: int) -> BankStatement | N
     return (
         db.query(BankStatement)
         .join(DatabaseInstance)
+        .join(WorkspaceMember, WorkspaceMember.workspace_id == DatabaseInstance.id)
         .filter(
             BankStatement.id == statement_id,
-            DatabaseInstance.owner_id == user_id,
+            WorkspaceMember.user_id == user_id,
         )
         .first()
     )
@@ -123,14 +169,31 @@ def save_statement(
     statement_month: str,
     bank_name: str | None,
 ) -> tuple[BankStatement | None, str | None]:
+    """Save a statement. The period printed in the PDF overrides the typed month; the returned row carries ``detection``."""
     ok, err = validate_pdf_bytes(content)
     if not ok:
         log.warning("bank statement validation failed: %s", err)
         return None, err
 
-    sm = (statement_month or "").strip()[:7]
-    if not re.match(r"^\d{4}-\d{2}$", sm):
+    excerpt = optional_text_excerpt(content)
+    detected = detect_statement_period(excerpt)
+    typed = (statement_month or "").strip()[:7]
+    if detected:
+        sm = detected["month"]
+    elif re.match(r"^\d{4}-\d{2}$", typed):
+        sm = typed
+    elif typed:
         return None, "Statement month must be YYYY-MM."
+    else:
+        return None, "Couldn't find the statement period in this PDF — please pick the month it covers."
+    detection = {
+        "detected": bool(detected),
+        "typed_month": typed or None,
+        "statement_month": sm,
+        "period_start": detected["start"].isoformat() if detected else None,
+        "period_end": detected["end"].isoformat() if detected else None,
+        "corrected": bool(detected and typed and typed != sm),
+    }
 
     safe_name = sanitize_original_filename(original_filename)
     digest = sha256_hex(content)
@@ -156,7 +219,6 @@ def save_statement(
         log.exception("bank statement write failed")
         return None, f"Could not save file: {exc}"
 
-    excerpt = optional_text_excerpt(content)
     row = BankStatement(
         instance_id=inst.id,
         owner_id=user_id,
@@ -172,6 +234,7 @@ def save_statement(
     db.add(row)
     db.commit()
     db.refresh(row)
+    row.detection = detection  # transient, for the upload response
     return row, None
 
 

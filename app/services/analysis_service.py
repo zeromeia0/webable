@@ -8,7 +8,7 @@ from typing import Any
 
 from dateutil.relativedelta import relativedelta
 
-from app.services import instance_service, projection_finance, spending_report
+from app.services import instance_service, spending_report
 
 
 def _month_keys_ending(n: int, end_month: str) -> list[str]:
@@ -31,31 +31,6 @@ def _top_n_from_pairs(pairs: list[tuple[str, float]], n: int = 3) -> list[dict[s
     return [{"label": a, "amount_eur": round(b, 2), "pct": round(100.0 * b / total, 1)} for a, b in ranked]
 
 
-def _compound_savings_series(projection_rows: list[dict]) -> dict[str, Any]:
-    """Compound growth on projected monthly savings (same engine as workspace investment chart)."""
-    if not projection_rows:
-        return {"labels": [], "values": [], "available": False}
-    horizon = max(1.0, min(40.0, len(projection_rows) / 12.0 + 2.0))
-    sim = projection_finance.run_monthly_simulation(
-        projection_rows,
-        invest_pct=100.0,
-        annual_rate_pct=5.0,
-        horizon_years=horizon,
-    )
-    rows = sim.get("rows") or []
-    if not rows:
-        return {"labels": [], "values": [], "available": False}
-    labels = [str(r.get("month", "")) for r in rows]
-    values = [round(float(r.get("investment_balance", 0) or 0), 2) for r in rows]
-    return {
-        "labels": labels,
-        "values": values,
-        "available": True,
-        "annual_rate_pct": 5.0,
-        "invest_pct": 100.0,
-    }
-
-
 def build_workspace_analytics(
     finance_db: str,
     logic_db: str,
@@ -66,6 +41,7 @@ def build_workspace_analytics(
     latest_statement_month: str | None = None,
     projection_summary: dict[str, Any] | None = None,
     projection_rows: list[dict] | None = None,
+    net_worth: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     items = instance_service.list_finance_items(finance_db)
     cur = instance_service.month_summary(finance_db, logic_db, current_month, include_iefp=include_iefp)
@@ -140,7 +116,24 @@ def build_workspace_analytics(
     elif mom_pct is not None and mom_pct < -15:
         insights.append(f"Savings vs prior month moved about {mom_pct:.0f}% — worth checking what changed.")
 
-    compound = _compound_savings_series(projection_rows or [])
+    nw_totals = (net_worth or {}).get("totals") or {}
+    emergency_fund = float(nw_totals.get("emergency_fund") or 0)
+    rec_exp_monthly = (net_worth or {}).get("emergency", {}).get("monthly_expenses")
+    if rec_exp_monthly is None:
+        rec_exp_monthly = rec_exp
+    months_covered = round(emergency_fund / rec_exp_monthly, 1) if rec_exp_monthly > 0 else None
+    if months_covered is not None and emergency_fund > 0:
+        if months_covered < 3:
+            insights.append(
+                f"Your emergency fund covers about {months_covered:g} months of recurring expenses — aim for at least 3, ideally 6."
+            )
+        elif months_covered < 6:
+            insights.append(f"Emergency fund covers ~{months_covered:g} months; topping it up to 6 months gives a solid cushion.")
+        else:
+            insights.append(f"Emergency fund covers ~{months_covered:g} months of recurring expenses — fully funded.")
+    elif net_worth is not None and emergency_fund <= 0:
+        insights.append("Set your emergency fund amount above so coverage and targets can be tracked.")
+
 
     return {
         "current_month": current_month,
@@ -158,9 +151,13 @@ def build_workspace_analytics(
             "recurring_expenses_monthly_eur": round(rec_exp, 2),
             "suggested_6m_buffer_eur": suggested_6m,
             "note": "Rough buffer = 6× recurring expenses + one-off spend in the last 6 months (not tax advice).",
+            "current_emergency_fund_eur": round(emergency_fund, 2),
+            "months_covered": months_covered,
+            "progress_pct": min(100.0, round(emergency_fund / suggested_6m * 100.0, 1)) if suggested_6m > 0 else None,
+            "still_needed_eur": max(0.0, round(suggested_6m - emergency_fund, 2)),
         },
+        "net_worth": nw_totals,
         "statements": {"count": int(statement_count), "latest_month": latest_statement_month},
         "projection": projection_summary or {"available": False},
-        "compound_savings": compound,
         "insights": insights[:5],
     }

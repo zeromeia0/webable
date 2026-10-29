@@ -34,6 +34,11 @@ class DatabaseInstance(Base):
     finance_db_path = Column(String(255), nullable=False)
     logic_db_path = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
+    # "personal" or "shared". A shared workspace is a copy of source_workspace_id that members collaborate on.
+    kind = Column(String(20), default="personal", nullable=False)
+    source_workspace_id = Column(Integer, ForeignKey("database_instances.id"), nullable=True, index=True)
+    # Shared workspaces always sum members' incomes; expenses are only mirrored when this is on.
+    include_member_expenses = Column(Boolean, default=False, nullable=False)
     health_status = Column(String(30), default="healthy", nullable=False)
     last_sync_status = Column(String(120), default="Waiting for execution", nullable=False)
     last_activity_at = Column(DateTime, nullable=True)
@@ -44,7 +49,7 @@ class DatabaseInstance(Base):
     bank_statements = relationship("BankStatement", back_populates="instance", cascade="all, delete-orphan")
     category_budgets = relationship("CategoryBudget", back_populates="instance", cascade="all, delete-orphan")
     monthly_snapshots = relationship("MonthlySnapshot", back_populates="instance", cascade="all, delete-orphan")
-    members = relationship("WorkspaceMember", back_populates="workspace", cascade="all, delete-orphan")
+    members = relationship("WorkspaceMember", back_populates="workspace", cascade="all, delete-orphan", foreign_keys="WorkspaceMember.workspace_id")
     invites = relationship("WorkspaceInvite", back_populates="workspace", cascade="all, delete-orphan")
 
 
@@ -56,9 +61,12 @@ class WorkspaceMember(Base):
     workspace_id = Column(Integer, ForeignKey("database_instances.id"), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     role = Column(String(20), default="member", nullable=False)
+    # Shared workspaces only: the member's own workspace whose incomes (and optionally expenses) count here.
+    linked_workspace_id = Column(Integer, ForeignKey("database_instances.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
-    workspace = relationship("DatabaseInstance", back_populates="members")
+    workspace = relationship("DatabaseInstance", back_populates="members", foreign_keys=[workspace_id])
+    linked_workspace = relationship("DatabaseInstance", foreign_keys=[linked_workspace_id])
     user = relationship("User", back_populates="workspace_memberships")
 
 

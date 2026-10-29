@@ -76,6 +76,7 @@ hiddenimports = [
     "pypdf",
     "markdown",
     "bleach",
+    "certifi",
     "tkinter",
     "jinja2",
     "jinja2.ext",

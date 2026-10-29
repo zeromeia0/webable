@@ -12,6 +12,11 @@
       <span class="text-xs text-slate-600">Webable</span>
       {% endif %}
       <span id="wbDeployBadge" class="hidden ml-2 align-middle text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded border border-slate-700 text-slate-400" title="Deployment mode"></span>
+      {% if user is defined and user and restart_button_available | default(true) %}
+      <button type="button" id="wbRestartServerBtn" class="ml-1 align-middle text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded border border-amber-600/60 text-amber-300 hover:bg-amber-500/10 hover:text-amber-200 disabled:opacity-60 disabled:cursor-wait" title="Rebuild the Docker image from the current code and restart the server">↻ Restart server</button>
+      <span id="wbRestartServerMsg" class="hidden text-[11px] text-slate-400 max-w-[22rem] truncate" role="status" aria-live="polite"></span>
+      <script defer src="/static/js/webable-restart.js"></script>
+      {% endif %}
     </div>
     <div class="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0">
       {% include "partials/workspace_switcher.html" %}

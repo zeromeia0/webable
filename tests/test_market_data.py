@@ -29,7 +29,7 @@ class TestMarketPublicDict(unittest.TestCase):
             self.assertIn("items", d)
             self.assertEqual(len(d["items"]), 3)
             symbols = {x["symbol"] for x in d["items"]}
-            self.assertEqual(symbols, {"SP500", "BTC", "ETH"})
+            self.assertEqual(symbols, {"VWCE", "BTC", "ETH"})
         finally:
             db.close()
 

@@ -8,72 +8,78 @@
   <script src="/static/js/webable-currency.js"></script>
   <script src="/static/js/webable-charts.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen">
   <div class="flex flex-col md:flex-row min-h-screen">
     {% include "partials/app_sidebar.html" %}
     <div class="flex-1 min-w-0 flex flex-col">
     {% include "partials/app_topbar.html" %}
-  <main class="flex-1 max-w-7xl w-full mx-auto p-6 md:p-10 space-y-8 pb-20">
-    <header>
-      <h1 class="text-3xl font-bold tracking-tight">Market Watch</h1>
-      <p class="text-slate-400 mt-2 text-sm md:text-base">{{ instance.name }} — delayed snapshots, not live trading data.</p>
+  <main class="flex-1 max-w-7xl w-full mx-auto p-6 md:p-10 space-y-6 pb-20">
+    <header class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">Market Watch</h1>
+        <p class="text-slate-400 mt-1 text-sm">VWCE (Vanguard FTSE All-World, Xetra) and crypto, in EUR. Prices are delayed ~15 min — informational only, not investment advice.</p>
+      </div>
+      <p id="mwUpdated" class="text-xs text-slate-500 shrink-0"></p>
     </header>
-    <p class="text-xs md:text-sm text-amber-200/90 border border-amber-500/30 rounded-xl px-4 py-3 bg-amber-500/5 leading-relaxed max-w-4xl">
-      <strong class="text-slate-100">Informational only — not investment advice.</strong>
-      S&amp;P 500 is shown via the <strong class="text-slate-200">SPY ETF</strong> as a proxy; Bitcoin and Ethereum use public EUR rates. Charts load historical series from the same providers, cached on the server to limit requests.
-    </p>
 
-    <div class="flex flex-wrap gap-2 items-center">
-      <span class="text-xs text-slate-500 uppercase tracking-wide mr-2">Range</span>
-      <button type="button" data-range="24h" class="mw-range px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-700 bg-slate-800/80 hover:border-indigo-500/50 transition">24H</button>
-      <button type="button" data-range="7d" class="mw-range px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-700 bg-slate-800/80 hover:border-indigo-500/50 transition">7D</button>
-      <button type="button" data-range="1m" class="mw-range px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-700 bg-slate-800/80 hover:border-indigo-500/50 transition">1M</button>
-      <button type="button" data-range="6m" class="mw-range px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-700 bg-slate-800/80 hover:border-indigo-500/50 transition">6M</button>
-      <button type="button" data-range="1y" class="mw-range px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-700 bg-slate-800/80 hover:border-indigo-500/50 transition">1Y</button>
-      <button type="button" data-range="max" class="mw-range px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-700 bg-slate-800/80 hover:border-indigo-500/50 transition">MAX</button>
-    </div>
+    <div id="mwCards" class="grid sm:grid-cols-3 gap-4" role="tablist" aria-label="Assets"></div>
+    <p id="mwSpotError" class="hidden text-sm text-rose-300"></p>
 
-    <div id="marketSpotLoading" class="text-sm text-slate-400">Loading spot prices…</div>
-    <div id="marketSpotError" class="hidden text-sm text-rose-300"></div>
-    <div id="marketCards" class="grid sm:grid-cols-3 gap-4 hidden"></div>
-
-    <div id="chartGlobalLoading" class="text-sm text-slate-500 hidden">Updating charts…</div>
-    <div id="chartGlobalError" class="hidden text-sm text-amber-300/90"></div>
-
-    <div class="grid xl:grid-cols-3 gap-8">
-      <div class="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 md:p-5 flex flex-col min-h-[320px]">
-        <div class="flex justify-between items-start gap-2 mb-2">
-          <h2 class="font-semibold text-slate-100">S&amp;P 500 <span class="text-xs font-normal text-slate-500">(SPY)</span></h2>
-          <button type="button" data-reset="SP500" class="text-xs px-2 py-1 rounded border border-slate-600 text-slate-400 hover:text-white hover:border-slate-400">Reset zoom</button>
+    <section class="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 md:p-6 space-y-4">
+      <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+        <div class="min-w-0">
+          <p id="mwTitle" class="text-sm text-slate-400">—</p>
+          <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1 mt-1">
+            <p id="mwPrice" class="text-3xl md:text-4xl font-bold tabular-nums">—</p>
+            <p id="mwPerf" class="text-base font-semibold tabular-nums">—</p>
+          </div>
+          <p id="mwPerfNote" class="text-xs text-slate-500 mt-1"></p>
         </div>
-        <p class="text-[11px] text-slate-500 mb-2 mw-meta" data-sym="SP500"></p>
-        <div class="relative flex-1 min-h-[220px]"><canvas id="chartSP500"></canvas></div>
-        <p class="text-[10px] text-slate-600 mt-2">Drag to pan · wheel or pinch to zoom (horizontal).</p>
-      </div>
-      <div class="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 md:p-5 flex flex-col min-h-[320px]">
-        <div class="flex justify-between items-start gap-2 mb-2">
-          <h2 class="font-semibold text-slate-100">Bitcoin</h2>
-          <button type="button" data-reset="BTC" class="text-xs px-2 py-1 rounded border border-slate-600 text-slate-400 hover:text-white hover:border-slate-400">Reset zoom</button>
+        <div class="flex flex-col items-start lg:items-end gap-2">
+          <div class="flex flex-wrap gap-1.5" role="group" aria-label="Range">
+            {% for r, lbl in [('24h','24H'),('7d','7D'),('1m','1M'),('6m','6M'),('ytd','YTD'),('1y','1Y'),('5y','5Y'),('max','MAX')] %}
+            <button type="button" data-range="{{ r }}" class="mw-range px-2.5 py-1 rounded-md text-xs font-semibold border border-slate-700 bg-slate-800/80 text-slate-300 hover:border-indigo-500/50 hover:text-white transition">{{ lbl }}</button>
+            {% endfor %}
+          </div>
+          <label class="inline-flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
+            <input id="mwCompare" type="checkbox" class="rounded border-slate-600 bg-slate-800 text-indigo-500 focus:ring-indigo-500/40" />
+            Compare all three (% change)
+          </label>
         </div>
-        <p class="text-[11px] text-slate-500 mb-2 mw-meta" data-sym="BTC"></p>
-        <div class="relative flex-1 min-h-[220px]"><canvas id="chartBTC"></canvas></div>
-        <p class="text-[10px] text-slate-600 mt-2">Drag to pan · wheel or pinch to zoom (horizontal).</p>
       </div>
-      <div class="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 md:p-5 flex flex-col min-h-[320px]">
-        <div class="flex justify-between items-start gap-2 mb-2">
-          <h2 class="font-semibold text-slate-100">Ethereum</h2>
-          <button type="button" data-reset="ETH" class="text-xs px-2 py-1 rounded border border-slate-600 text-slate-400 hover:text-white hover:border-slate-400">Reset zoom</button>
-        </div>
-        <p class="text-[11px] text-slate-500 mb-2 mw-meta" data-sym="ETH"></p>
-        <div class="relative flex-1 min-h-[220px]"><canvas id="chartETH"></canvas></div>
-        <p class="text-[10px] text-slate-600 mt-2">Drag to pan · wheel or pinch to zoom (horizontal).</p>
-      </div>
-    </div>
 
-    <p class="text-xs text-slate-500">Spot rows refresh from the server about every 12 hours. Chart history uses separate caches (minutes to hours) per range to avoid hammering APIs.</p>
+      <div class="relative h-[300px] md:h-[380px]">
+        <canvas id="mwChart" aria-label="Price chart"></canvas>
+        <div id="mwChartLoading" class="hidden absolute inset-0 flex items-center justify-center text-sm text-slate-400 bg-slate-900/40">Loading…</div>
+      </div>
+      <p id="mwChartError" class="hidden text-sm text-amber-300/90"></p>
+
+      <dl class="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+        <div class="rounded-xl bg-slate-950/60 border border-slate-800 p-3">
+          <dt class="text-[11px] uppercase tracking-wide text-slate-500">Range high</dt>
+          <dd id="mwHigh" class="mt-1 font-semibold tabular-nums">—</dd>
+        </div>
+        <div class="rounded-xl bg-slate-950/60 border border-slate-800 p-3">
+          <dt class="text-[11px] uppercase tracking-wide text-slate-500">Range low</dt>
+          <dd id="mwLow" class="mt-1 font-semibold tabular-nums">—</dd>
+        </div>
+        <div class="rounded-xl bg-slate-950/60 border border-slate-800 p-3">
+          <dt class="text-[11px] uppercase tracking-wide text-slate-500" id="mwExtraLabel1">Today's range</dt>
+          <dd id="mwExtra1" class="mt-1 font-semibold tabular-nums">—</dd>
+        </div>
+        <div class="rounded-xl bg-slate-950/60 border border-slate-800 p-3">
+          <dt class="text-[11px] uppercase tracking-wide text-slate-500">52-week range</dt>
+          <dd class="mt-1">
+            <div class="flex justify-between text-[11px] text-slate-400 tabular-nums"><span id="mw52Lo">—</span><span id="mw52Hi">—</span></div>
+            <div class="relative h-1.5 rounded-full bg-slate-800 mt-1.5">
+              <div id="mw52Dot" class="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 h-3 w-3 rounded-full bg-indigo-400 ring-2 ring-slate-900 hidden"></div>
+            </div>
+          </dd>
+        </div>
+      </dl>
+    </section>
+
     {% if instances|length > 1 %}
     <label class="text-sm text-slate-400 block max-w-xs">Workspace
       <select class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" onchange="location.href='/instances/'+this.value+'/market-watch'">
@@ -86,187 +92,273 @@
   </main>
     </div>
   </div>
+  <script id="mwInitial" type="application/json">{{ market_payload | tojson }}</script>
   <script>
     (function () {
-      var RANGE = '1m';
-      var charts = {};
-      function fmtEur(n) {
-        if (n == null || n === '') return '—';
+      var COLORS = { VWCE: '#38bdf8', BTC: '#f97316', ETH: '#a78bfa' };
+      var SHORT = { VWCE: 'VWCE', BTC: 'Bitcoin', ETH: 'Ethereum' };
+      var RANGE_TEXT = { '24h': 'past 24 hours', '7d': 'past 7 days', '1m': 'past month', '6m': 'past 6 months', ytd: 'year to date', '1y': 'past year', '5y': 'past 5 years', max: 'all time' };
+      var state = { symbol: 'VWCE', range: '1y', compare: false };
+      var spot = {};
+      var bundles = {};
+      var chart = null;
+      var loadToken = 0;
+      try { var saved = JSON.parse(localStorage.getItem('webable_mw') || '{}'); Object.assign(state, saved, { compare: !!saved.compare }); } catch (e) { /* ignore */ }
+
+      function fmt(n) {
+        if (n == null || isNaN(n)) return '—';
         if (window.WebableCurrency && window.WebableCurrency.format) return window.WebableCurrency.format(Number(n));
         return '€ ' + Number(n).toFixed(2);
       }
-      function fmtPct(a, b) {
-        if (a == null || b == null || b === 0) return null;
-        return ((Number(a) - Number(b)) / Number(b) * 100).toFixed(2);
+      function pct(n, digits) {
+        if (n == null || isNaN(n)) return '—';
+        return (n >= 0 ? '+' : '') + Number(n).toFixed(digits == null ? 2 : digits) + '%';
       }
-      async function loadSpot() {
-        var loading = document.getElementById('marketSpotLoading');
-        var errEl = document.getElementById('marketSpotError');
-        var cards = document.getElementById('marketCards');
-        loading.classList.remove('hidden');
-        errEl.classList.add('hidden');
-        cards.classList.add('hidden');
-        try {
-          var res = await fetch('/api/market', { credentials: 'same-origin' });
-          var data = await res.json();
-          if (!res.ok) throw new Error('spot');
-          loading.classList.add('hidden');
-          cards.classList.remove('hidden');
-          cards.innerHTML = '';
-          (data.items || []).forEach(function (it) {
-            var d = document.createElement('div');
-            d.className = 'rounded-2xl border border-slate-800 bg-slate-900/80 p-4 space-y-1 transition hover:border-slate-600';
-            var ch = it.change_pct != null ? (Number(it.change_pct) >= 0 ? 'text-emerald-400' : 'text-rose-400') : 'text-slate-400';
-            d.innerHTML = '<p class="text-xs text-slate-500">' + (it.label || it.symbol) + '</p>' +
-              '<p class="text-2xl font-bold text-slate-100">' + fmtEur(it.price_eur) + '</p>' +
-              '<p class="text-sm ' + ch + '">' + (it.change_pct != null ? (Number(it.change_pct).toFixed(2) + '% vs prior close') : '—') + '</p>' +
-              '<p class="text-[10px] text-slate-500 mt-2">Updated: ' + (it.fetched_at || '—') + '</p>' +
-              (it.fetch_error ? '<p class="text-[10px] text-amber-400/90">Cache note: ' + it.fetch_error + '</p>' : '');
-            cards.appendChild(d);
+      function tone(n) { return n == null ? 'text-slate-400' : n >= 0 ? 'text-emerald-400' : 'text-rose-400'; }
+      function save() { try { localStorage.setItem('webable_mw', JSON.stringify(state)); } catch (e) { /* ignore */ } }
+      function ago(iso) {
+        if (!iso) return '';
+        var s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+        if (s < 90) return 'just now';
+        if (s < 3600) return Math.round(s / 60) + ' min ago';
+        if (s < 86400) return Math.round(s / 3600) + ' h ago';
+        return Math.round(s / 86400) + ' d ago';
+      }
+      function axisLabel(iso) {
+        var d = new Date(iso);
+        if (state.range === '24h') return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+        if (state.range === '7d') return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });
+        if (state.range === '5y' || state.range === 'max') return d.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+        return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+      }
+      function tooltipDate(iso) {
+        var d = new Date(iso);
+        var opts = { day: 'numeric', month: 'short', year: 'numeric' };
+        if (state.range === '24h' || state.range === '7d') { opts.hour = '2-digit'; opts.minute = '2-digit'; }
+        return d.toLocaleString(undefined, opts);
+      }
+
+      // ---- spot cards ---------------------------------------------------------------
+      function renderCards() {
+        var wrap = document.getElementById('mwCards');
+        wrap.innerHTML = '';
+        ['VWCE', 'BTC', 'ETH'].forEach(function (sym) {
+          var it = spot[sym] || { symbol: sym, label: SHORT[sym] };
+          var on = sym === state.symbol && !state.compare;
+          var b = document.createElement('button');
+          b.type = 'button';
+          b.setAttribute('role', 'tab');
+          b.setAttribute('aria-selected', on ? 'true' : 'false');
+          b.className = 'text-left rounded-2xl border p-4 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ' +
+            (on ? 'border-indigo-500/70 bg-indigo-500/10' : 'border-slate-800 bg-slate-900/80 hover:border-slate-600');
+          var ser = ((bundles[state.range] || {}).series || {})[sym];
+          var rp = ser ? rangePerf(ser.points) : null;
+          b.innerHTML =
+            '<div class="flex items-center justify-between gap-2"><p class="text-xs text-slate-400 truncate">' + (it.label || sym) + '</p>' +
+            '<span class="h-2 w-2 rounded-full shrink-0" style="background:' + COLORS[sym] + '"></span></div>' +
+            '<p class="text-2xl font-bold tabular-nums mt-1">' + fmt(it.price_eur) + '</p>' +
+            '<p class="text-xs mt-1"><span class="' + tone(it.change_pct) + ' font-semibold">' + pct(it.change_pct) + '</span> <span class="text-slate-500">' +
+            (it.change_basis === 'prior close' ? 'today' : '24h') + '</span>' +
+            (rp ? ' · <span class="' + tone(rp.pct) + '">' + pct(rp.pct, 1) + '</span> <span class="text-slate-500">' + state.range.toUpperCase() + '</span>' : '') + '</p>' +
+            (it.fetch_error && it.price_eur == null ? '<p class="text-[11px] text-amber-400/90 mt-1">Unavailable right now</p>' : '');
+          b.addEventListener('click', function () {
+            state.symbol = sym;
+            state.compare = false;
+            document.getElementById('mwCompare').checked = false;
+            save();
+            renderAll();
           });
-        } catch (e) {
-          loading.classList.add('hidden');
-          errEl.textContent = 'Could not load spot prices.';
-          errEl.classList.remove('hidden');
+          wrap.appendChild(b);
+        });
+      }
+
+      function applySpot(data) {
+        (data.items || []).forEach(function (it) { spot[it.symbol] = it; });
+        var newest = (data.items || []).map(function (i) { return i.fetched_at; }).filter(Boolean).sort().pop();
+        document.getElementById('mwUpdated').textContent = newest ? 'Prices updated ' + ago(newest) : '';
+        var errs = (data.items || []).filter(function (i) { return i.price_eur == null; });
+        var e = document.getElementById('mwSpotError');
+        e.classList.toggle('hidden', !errs.length);
+        e.textContent = errs.length ? 'Couldn’t load ' + errs.map(function (i) { return SHORT[i.symbol]; }).join(', ') + ' — showing the last saved data where available.' : '';
+      }
+
+      function loadSpot() {
+        return fetch('/api/market', { credentials: 'same-origin' })
+          .then(function (r) { return r.ok ? r.json() : Promise.reject(); })
+          .then(function (d) { applySpot(d); renderAll(); })
+          .catch(function () { /* keep last */ });
+      }
+
+      // ---- history -------------------------------------------------------------------
+      function rangePerf(points) {
+        if (!points || points.length < 2) return null;
+        var first = points[0].v, last = points[points.length - 1].v;
+        var hi = -Infinity, lo = Infinity;
+        points.forEach(function (p) { if (p.v > hi) hi = p.v; if (p.v < lo) lo = p.v; });
+        return { first: first, last: last, abs: last - first, pct: first ? (last - first) / first * 100 : null, hi: hi, lo: lo };
+      }
+
+      function loadRange(range) {
+        if (bundles[range]) return Promise.resolve(bundles[range]);
+        var token = ++loadToken;
+        document.getElementById('mwChartLoading').classList.remove('hidden');
+        return fetch('/api/market/history?range=' + encodeURIComponent(range), { credentials: 'same-origin' })
+          .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('history')); })
+          .then(function (b) { bundles[range] = b; return b; })
+          .finally(function () { if (token === loadToken) document.getElementById('mwChartLoading').classList.add('hidden'); });
+      }
+
+      function renderDetail() {
+        var it = spot[state.symbol] || {};
+        var ser = ((bundles[state.range] || {}).series || {})[state.symbol] || {};
+        var rp = rangePerf(ser.points);
+        var title = document.getElementById('mwTitle');
+        var priceEl = document.getElementById('mwPrice');
+        var perf = document.getElementById('mwPerf');
+        var note = document.getElementById('mwPerfNote');
+        if (state.compare) {
+          title.textContent = 'VWCE vs Bitcoin vs Ethereum';
+          priceEl.textContent = 'Performance';
+          var parts = ['VWCE', 'BTC', 'ETH'].map(function (s) {
+            var r = rangePerf((((bundles[state.range] || {}).series || {})[s] || {}).points);
+            return '<span style="color:' + COLORS[s] + '">' + SHORT[s] + '</span> <span class="' + tone(r && r.pct) + '">' + pct(r && r.pct, 1) + '</span>';
+          });
+          perf.innerHTML = parts.join(' <span class="text-slate-600">·</span> ');
+          perf.className = 'text-base font-semibold tabular-nums';
+          note.textContent = 'Change over the ' + RANGE_TEXT[state.range] + ', each starting at 0%.';
+        } else {
+          title.textContent = (it.name || it.label || SHORT[state.symbol]) + (it.exchange ? ' · ' + it.exchange : '');
+          priceEl.textContent = fmt(it.price_eur != null ? it.price_eur : rp && rp.last);
+          if (rp) {
+            perf.textContent = (rp.abs >= 0 ? '+' : '−') + fmt(Math.abs(rp.abs)) + '  (' + pct(rp.pct) + ')';
+            perf.className = 'text-base font-semibold tabular-nums ' + tone(rp.pct);
+            note.textContent = 'Over the ' + RANGE_TEXT[state.range] + (ser.error ? ' · showing saved data (' + ser.error + ')' : '');
+          } else {
+            perf.textContent = '';
+            note.textContent = ser.error ? 'Chart data unavailable: ' + ser.error : '';
+          }
+        }
+        document.getElementById('mwHigh').textContent = rp && !state.compare ? fmt(rp.hi) : '—';
+        document.getElementById('mwLow').textContent = rp && !state.compare ? fmt(rp.lo) : '—';
+        var isEtf = state.symbol === 'VWCE' && !state.compare;
+        document.getElementById('mwExtraLabel1').textContent = isEtf ? 'Today’s range' : '24h change';
+        document.getElementById('mwExtra1').innerHTML = state.compare ? '—' : isEtf
+          ? (it.day_low_eur ? fmt(it.day_low_eur) + ' – ' + fmt(it.day_high_eur) : '—')
+          : '<span class="' + tone(it.change_pct) + '">' + pct(it.change_pct) + '</span>';
+        var lo52 = it.low_52w_eur, hi52 = it.high_52w_eur;
+        var dot = document.getElementById('mw52Dot');
+        if (isEtf && lo52 && hi52 && it.price_eur) {
+          document.getElementById('mw52Lo').textContent = fmt(lo52);
+          document.getElementById('mw52Hi').textContent = fmt(hi52);
+          dot.classList.remove('hidden');
+          dot.style.left = Math.max(0, Math.min(100, (it.price_eur - lo52) / (hi52 - lo52) * 100)) + '%';
+        } else {
+          document.getElementById('mw52Lo').textContent = '—';
+          document.getElementById('mw52Hi').textContent = '—';
+          dot.classList.add('hidden');
         }
       }
-      function zoomOpts() {
-        return {
-          pan: { enabled: true, mode: 'x' },
-          zoom: {
-            wheel: { enabled: true },
-            pinch: { enabled: true },
-            mode: 'x',
-          },
-        };
-      }
-      function buildChart(sym, canvasId, bundle) {
-        var ser = (bundle.series || {})[sym] || {};
-        var pts = ser.points || [];
-        var labels = pts.map(function (p) { return p.t; });
-        var vals = pts.map(function (p) { return p.v; });
-        var meta = document.querySelector('.mw-meta[data-sym="' + sym + '"]');
-        if (meta) {
-          var line = 'Points: ' + pts.length;
-          if (ser.cached_at) line += ' · cached ' + ser.cached_at.replace('T', ' ').slice(0, 19) + 'Z';
-          if (ser.error) line += ' · ' + ser.error;
-          meta.textContent = line;
-        }
+
+      function renderChart() {
+        var bundle = bundles[state.range];
+        var err = document.getElementById('mwChartError');
+        if (!bundle) return;
         var base = window.WebableCharts.darkChartOptions();
-        var prev = [];
-        for (var i = 0; i < vals.length; i++) {
-          prev.push(i ? fmtPct(vals[i], vals[i - 1]) : null);
+        var syms = state.compare ? ['VWCE', 'BTC', 'ETH'] : [state.symbol];
+        var ref = ((bundle.series || {})[syms[0]] || {}).points || [];
+        // Compare mode: align every series to the longest timeline by nearest earlier point.
+        if (state.compare) {
+          syms.forEach(function (s) { var p = ((bundle.series || {})[s] || {}).points || []; if (p.length > ref.length) ref = p; });
         }
-        if (charts[sym]) charts[sym].destroy();
-        var ctx = document.getElementById(canvasId);
-        if (!ctx) return;
-        charts[sym] = new Chart(ctx, {
+        var labels = ref.map(function (p) { return p.t; });
+        var datasets = syms.map(function (s) {
+          var pts = ((bundle.series || {})[s] || {}).points || [];
+          var data;
+          if (state.compare) {
+            var j = 0, first = null;
+            data = labels.map(function (t) {
+              while (j + 1 < pts.length && pts[j + 1].t <= t) j++;
+              if (!pts.length || pts[0].t > t) return null;
+              if (first == null) first = pts[j].v;
+              return Math.round((pts[j].v / first - 1) * 10000) / 100;
+            });
+          } else {
+            data = pts.map(function (p) { return p.v; });
+          }
+          var rp = rangePerf(pts);
+          var col = state.compare ? COLORS[s] : (rp && rp.pct < 0 ? '#f87171' : '#34d399');
+          return {
+            label: SHORT[s], data: data, borderColor: col, borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: 0.15, spanGaps: true,
+            fill: !state.compare, backgroundColor: state.compare ? 'transparent' : (rp && rp.pct < 0 ? 'rgba(248,113,113,0.10)' : 'rgba(52,211,153,0.10)')
+          };
+        });
+        var empty = !datasets.some(function (d) { return d.data.length; });
+        err.classList.toggle('hidden', !empty);
+        err.textContent = empty ? 'No chart data for this range right now — try again in a few minutes.' : '';
+        var yTick = state.compare ? function (v) { return v + '%'; } : function (v) { return fmt(v); };
+        var cfg = {
           type: 'line',
-          data: {
-            labels: labels,
-            datasets: [{
-              label: 'Price (EUR)',
-              data: vals,
-              borderColor: sym === 'BTC' ? '#f97316' : sym === 'ETH' ? '#a78bfa' : '#38bdf8',
-              backgroundColor: sym === 'BTC' ? 'rgba(249,115,22,0.12)' : sym === 'ETH' ? 'rgba(167,139,250,0.12)' : 'rgba(56,189,248,0.12)',
-              tension: 0.2,
-              pointRadius: 0,
-              borderWidth: 2,
-              fill: true,
-            }],
-          },
+          data: { labels: labels, datasets: datasets },
           options: Object.assign({}, base, {
+            animation: { duration: 250 },
+            interaction: { mode: 'index', intersect: false },
             plugins: Object.assign({}, base.plugins, {
-              zoom: zoomOpts(),
+              legend: { display: state.compare, labels: { color: '#cbd5e1', boxWidth: 12 } },
               tooltip: Object.assign({}, base.plugins.tooltip, {
                 callbacks: {
-                  title: function (items) {
-                    var i = items[0].dataIndex;
-                    return labels[i] ? String(labels[i]).replace('T', ' ').slice(0, 19) + ' UTC' : '';
-                  },
-                  label: function (item) {
-                    var i = item.dataIndex;
-                    var v = vals[i];
-                    var lines = ['Price: ' + fmtEur(v)];
-                    if (prev[i]) lines.push('Δ vs prev: ' + prev[i] + '%');
-                    return lines;
-                  },
-                },
-              }),
+                  title: function (items) { return tooltipDate(labels[items[0].dataIndex]); },
+                  label: function (ctx) {
+                    if (ctx.parsed.y == null) return null;
+                    return (state.compare ? ctx.dataset.label + ': ' + pct(ctx.parsed.y) : 'Price: ' + fmt(ctx.parsed.y));
+                  }
+                }
+              })
             }),
             scales: {
-              x: {
-                ticks: { color: '#94a3b8', maxTicksLimit: 8, maxRotation: 0 },
-                grid: { color: 'rgba(51,65,85,0.35)' },
-              },
-              y: {
-                ticks: {
-                  color: '#94a3b8',
-                  callback: function (v) { return fmtEur(v); },
-                },
-                grid: { color: 'rgba(51,65,85,0.35)' },
-              },
-            },
-          }),
-        });
+              x: { ticks: { color: '#94a3b8', maxTicksLimit: 7, maxRotation: 0, autoSkip: true, callback: function (v, i) { return axisLabel(labels[i]); } }, grid: { display: false } },
+              y: { position: 'right', ticks: { color: '#94a3b8', callback: yTick }, grid: { color: 'rgba(51,65,85,0.35)' } }
+            }
+          })
+        };
+        if (chart) chart.destroy();
+        chart = new Chart(document.getElementById('mwChart'), cfg);
       }
-      async function loadHist() {
-        var gLoad = document.getElementById('chartGlobalLoading');
-        var gErr = document.getElementById('chartGlobalError');
-        gLoad.classList.remove('hidden');
-        gErr.classList.add('hidden');
-        try {
-          var res = await fetch('/api/market/history?range=' + encodeURIComponent(RANGE), { credentials: 'same-origin' });
-          var bundle = await res.json();
-          if (!res.ok) throw new Error('hist');
-          gLoad.classList.add('hidden');
-          buildChart('SP500', 'chartSP500', bundle);
-          buildChart('BTC', 'chartBTC', bundle);
-          buildChart('ETH', 'chartETH', bundle);
-          window.webableRefreshCharts = function () {
-            Object.keys(charts).forEach(function (k) {
-              var ch = charts[k];
-              if (!ch || !ch.options || !ch.options.scales || !ch.options.scales.y) return;
-              ch.options.scales.y.ticks.callback = function (v) { return fmtEur(v); };
-              ch.update();
-            });
-          };
-          if (window.webableRefreshCharts) window.webableRefreshCharts();
-        } catch (e) {
-          gLoad.classList.add('hidden');
-          gErr.textContent = 'Could not refresh all chart series; any previous chart may remain.';
-          gErr.classList.remove('hidden');
-        }
-      }
-      function setActiveRangeBtn() {
+
+      function renderAll() {
         document.querySelectorAll('.mw-range').forEach(function (b) {
-          var on = b.getAttribute('data-range') === RANGE;
-          b.classList.toggle('ring-2', on);
-          b.classList.toggle('ring-indigo-500/60', on);
-          b.classList.toggle('bg-indigo-600/30', on);
-          b.classList.toggle('border-indigo-500/50', on);
+          var on = b.getAttribute('data-range') === state.range;
+          b.classList.toggle('bg-indigo-600', on);
+          b.classList.toggle('border-indigo-500', on);
+          b.classList.toggle('text-white', on);
+        });
+        renderCards();
+        renderDetail();
+        renderChart();
+      }
+
+      function selectRange(range) {
+        state.range = range;
+        save();
+        renderAll();
+        loadRange(range).then(renderAll).catch(function () {
+          var e = document.getElementById('mwChartError');
+          e.textContent = 'Couldn’t load chart history.';
+          e.classList.remove('hidden');
         });
       }
-      document.querySelectorAll('.mw-range').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-          RANGE = btn.getAttribute('data-range') || '1m';
-          setActiveRangeBtn();
-          loadHist();
-        });
+
+      document.querySelectorAll('.mw-range').forEach(function (b) {
+        b.addEventListener('click', function () { selectRange(b.getAttribute('data-range')); });
       });
-      document.querySelectorAll('[data-reset]').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-          var s = btn.getAttribute('data-reset');
-          if (charts[s] && charts[s].resetZoom) charts[s].resetZoom();
-        });
-      });
-      setActiveRangeBtn();
-      loadSpot();
-      loadHist();
-      document.addEventListener('webable:currency', function () {
-        loadSpot();
-        loadHist();
-      });
+      var cmp = document.getElementById('mwCompare');
+      cmp.checked = state.compare;
+      cmp.addEventListener('change', function () { state.compare = cmp.checked; save(); renderAll(); });
+      document.addEventListener('webable:currency', renderAll);
+
+      try { applySpot(JSON.parse(document.getElementById('mwInitial').textContent || '{}')); } catch (e) { /* ignore */ }
+      if (['VWCE', 'BTC', 'ETH'].indexOf(state.symbol) < 0) state.symbol = 'VWCE';
+      selectRange(state.range in RANGE_TEXT ? state.range : '1y');
+      setInterval(loadSpot, 5 * 60 * 1000);
     })();
   </script>
   {% include "partials/global_fab_stack.html" %}

@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Workspace Members - {{ instance.name }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+  <div class="flex flex-col md:flex-row min-h-screen">
+    {% include "partials/app_sidebar.html" %}
+    <div class="flex-1 min-w-0 flex flex-col">
+      {% include "partials/app_topbar.html" %}
+      <main class="flex-1 max-w-3xl w-full mx-auto p-6 md:p-8 space-y-8">
+        <header class="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 class="text-3xl font-bold">Workspace members</h1>
+            <p class="text-slate-400 mt-1">
+              {{ instance.name }} · {{ currency }} · you are <strong class="text-slate-300">{{ workspace_role }}</strong>
+              {% if is_shared %}<span class="ml-1 inline-block rounded-full border border-indigo-500/50 bg-indigo-950/50 px-2 py-0.5 text-[11px] text-indigo-200 align-middle">Shared</span>{% endif %}
+            </p>
+            {% if is_shared and source_workspace %}
+            <p class="text-xs text-slate-500 mt-1">Copy of <a href="/workspaces/{{ source_workspace.id }}/members" class="text-indigo-300 hover:text-indigo-200">{{ source_workspace.name }}</a></p>
+            {% endif %}
+          </div>
+          <a href="/instances/{{ instance.id }}" class="text-sm text-indigo-300 hover:text-indigo-200">← Back to workspace</a>
+        </header>
+
+        {% if msg %}
+        <div role="status" class="rounded-xl border border-emerald-700/50 bg-emerald-950/40 p-4 text-sm text-emerald-200">{{ msg }}</div>
+        {% endif %}
+        {% if err %}
+        <div role="alert" class="rounded-xl border border-rose-700/50 bg-rose-950/40 p-4 text-sm text-rose-200">{{ err }}</div>
+        {% endif %}
+
+        <section class="rounded-2xl border border-slate-800 bg-slate-900/80 p-6 space-y-3">
+          <div>
+            <h2 class="text-lg font-semibold">Shared workspaces</h2>
+            <p class="text-xs text-slate-500 mt-1">Shared workspaces aren't listed on the dashboard. Open them from here.</p>
+          </div>
+          {% if shared_workspaces %}
+          <ul class="space-y-2">
+            {% for sw in shared_workspaces %}
+            <li class="flex flex-wrap items-center justify-between gap-3 rounded-xl border {% if sw.id == instance.id %}border-indigo-500/60 bg-indigo-950/30{% else %}border-slate-800{% endif %} px-4 py-3 text-sm">
+              <span class="min-w-0">
+                👥 <strong class="text-slate-100">{{ sw.name }}</strong>
+                <span class="text-slate-500">· {{ sw.currency or 'EUR' }} · {{ sw.members | length }} member{{ '' if sw.members | length == 1 else 's' }}</span>
+                {% if sw.id == instance.id %}<span class="text-xs text-indigo-300">(viewing members)</span>{% endif %}
+              </span>
+              <span class="flex gap-2 shrink-0">
+                <a href="/instances/{{ sw.id }}" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-medium">Open workspace</a>
+                {% if sw.id != instance.id %}
+                <a href="/workspaces/{{ sw.id }}/members" class="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs font-medium">Members</a>
+                {% endif %}
+              </span>
+            </li>
+            {% endfor %}
+          </ul>
+          {% else %}
+          <p class="text-sm text-slate-500">You're not in any shared workspace yet. Invite someone below, or accept an invitation from your notifications.</p>
+          {% endif %}
+        </section>
+
+        {% if is_shared %}
+        <section class="rounded-2xl border border-indigo-800/50 bg-indigo-950/20 p-6 space-y-2 text-sm text-slate-300">
+          <h2 class="text-lg font-semibold text-slate-100">How this shared workspace works</h2>
+          <ul class="list-disc pl-5 space-y-1 text-slate-400">
+            <li><strong class="text-slate-300">Incomes are summed automatically.</strong> Each member links one of their own workspaces, and its incomes appear here as read-only entries (prefixed with the member's name).</li>
+            <li><strong class="text-slate-300">Expenses are entered manually</strong> by default; that's the recommended approach for shared costs. You can also include members' own expenses below.</li>
+            <li>Dashboard, reports, analysis, timeline, market watch and the calculators all work on this shared data. Your personal workspaces stay private.</li>
+          </ul>
+        </section>
+        {% else %}
+        <section class="rounded-2xl border border-slate-800 bg-slate-900/80 p-6 space-y-2 text-sm">
+          <h2 class="text-lg font-semibold">Sharing this workspace</h2>
+          <p class="text-slate-400">This is a <strong class="text-slate-300">personal</strong> workspace. When you invite someone, Webable creates a <strong class="text-slate-300">shared copy</strong> of it and the invitation goes to that copy. Your personal data stays private, and members' incomes are summed in the shared copy.</p>
+          {% if shared_copy %}
+          <a href="/workspaces/{{ shared_copy.id }}/members" class="inline-block mt-1 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm font-medium">Open shared copy: {{ shared_copy.name }} →</a>
+          {% endif %}
+        </section>
+        {% endif %}
+
+        <section class="rounded-2xl border border-slate-800 bg-slate-900/80 p-6">
+          <div class="flex flex-wrap items-baseline justify-between gap-2 mb-4">
+            <h2 class="text-lg font-semibold">Members</h2>
+            {% if is_shared %}
+            <p class="text-sm text-slate-400">Combined monthly income: <strong class="text-emerald-300">{{ currency }} {{ '%.2f' | format(combined_income) }}</strong></p>
+            {% endif %}
+          </div>
+          <ul class="space-y-2">
+            {% for row in members %}
+            {% set contrib = contributions.get(row.user.id) if is_shared else None %}
+            <li class="flex flex-wrap items-center justify-between gap-2 py-2 border-b border-slate-800 text-sm">
+              <span class="min-w-0">
+                {{ row.user.username }}{% if row.user.id == user.id %} <span class="text-slate-500">(you)</span>{% endif %} <span class="text-slate-500">· {{ row.member.role }}</span>
+                {% if is_shared %}
+                <span class="block text-xs text-slate-500 mt-0.5">
+                  {% if contrib %}
+                  Linked: {{ contrib.workspace.name }} · income <span class="text-emerald-300">{{ currency }} {{ '%.2f' | format(contrib.monthly_income) }}</span>/mo
+                  · expenses {{ currency }} {{ '%.2f' | format(contrib.monthly_expenses) }}/mo
+                  {% if contrib.expenses_mirrored %}<span class="text-amber-300">(included)</span>{% else %}<span>(not included)</span>{% endif %}
+                  {% else %}
+                  No linked workspace, so no income contributed
+                  {% endif %}
+                </span>
+                {% endif %}
+              </span>
+              {% if can_manage and row.member.role != 'owner' and row.user.id != user.id and row.user.id != instance.owner_id %}
+              <form method="post" action="/workspaces/{{ instance.id }}/members/{{ row.user.id }}/remove" onsubmit="return confirm('Remove {{ row.user.username }} from this workspace?');">
+                <button type="submit" class="text-rose-400 hover:text-rose-300 text-xs">Remove</button>
+              </form>
+              {% endif %}
+            </li>
+            {% endfor %}
+          </ul>
+          {% if not is_owner and workspace_role != 'owner' %}
+          <form method="post" action="/workspaces/{{ instance.id }}/leave" class="mt-4" onsubmit="return confirm('Leave this workspace? You will lose access to its data.');">
+            <button type="submit" class="text-xs text-rose-300 hover:text-rose-200">Leave this workspace</button>
+          </form>
+          {% endif %}
+        </section>
+
+        {% if is_shared %}
+        <section class="rounded-2xl border border-slate-800 bg-slate-900/80 p-6 space-y-3">
+          <div>
+            <h2 class="text-lg font-semibold">Your contribution</h2>
+            <p class="text-xs text-slate-500 mt-1">Choose which of your own workspaces counts toward this shared workspace. Only personal workspaces you own in {{ currency }} can be linked.</p>
+          </div>
+          <form method="post" action="/workspaces/{{ instance.id }}/link" class="flex flex-wrap gap-3 items-center">
+            <label class="block">
+              <span class="sr-only">Linked workspace</span>
+              <select name="linked_workspace_id" class="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-sm">
+                <option value="" {% if not my_link_id %}selected{% endif %}>Don't contribute</option>
+                {% for ws in linkable_workspaces %}
+                <option value="{{ ws.id }}" {% if ws.id == my_link_id %}selected{% endif %}>{{ ws.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <button type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm font-medium">Save</button>
+          </form>
+          {% if not linkable_workspaces %}
+          <p class="text-xs text-amber-300">You don't own a personal {{ currency }} workspace yet. Create one from the dashboard to contribute your income.</p>
+          {% endif %}
+        </section>
+
+        <section class="rounded-2xl border border-slate-800 bg-slate-900/80 p-6 space-y-3">
+          <div>
+            <h2 class="text-lg font-semibold">Expenses</h2>
+            <p class="text-xs text-slate-500 mt-1">We recommend entering shared expenses manually in this workspace. If you prefer, you can also include every member's own recurring expenses (read-only, kept in sync).</p>
+          </div>
+          {% if can_edit_settings %}
+          <form method="post" action="/workspaces/{{ instance.id }}/shared-settings" class="space-y-3">
+            <label class="flex items-start gap-3 text-sm">
+              <input type="checkbox" name="include_member_expenses" value="1" class="mt-1" {% if instance.include_member_expenses %}checked{% endif %} />
+              <span>
+                Include members' expenses
+                <span class="block text-xs text-slate-500">Expenses from {{ source_workspace.name if source_workspace else 'the original workspace' }} were already copied here when this workspace was created, so they are not added again.</span>
+              </span>
+            </label>
+            <button type="submit" class="px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm font-medium">Save expense setting</button>
+          </form>
+          {% else %}
+          <p class="text-sm text-slate-400">Members' expenses are <strong class="text-slate-300">{{ 'included' if instance.include_member_expenses else 'not included' }}</strong>. An owner or admin can change this.</p>
+          {% endif %}
+        </section>
+        {% endif %}
+
+        {% if can_invite and (is_shared or can_share) %}
+        <section class="rounded-2xl border border-slate-800 bg-slate-900/80 p-6 space-y-4">
+          <div>
+            <h2 class="text-lg font-semibold">Invite a user</h2>
+            <p class="text-xs text-slate-500 mt-1">Enter the <strong class="text-slate-400">username</strong> of a registered account. They get an in-app notification and can accept or decline.{% if not is_shared %} {% if shared_copy %}They will join <strong class="text-slate-400">{{ shared_copy.name }}</strong>.{% else %}A shared copy of this workspace will be created for them.{% endif %}{% endif %}</p>
+          </div>
+          <form method="post" action="/workspaces/{{ instance.id }}/invite" class="grid sm:grid-cols-3 gap-3" autocomplete="off">
+            <label class="sm:col-span-2 block">
+              <span class="sr-only">Username</span>
+              <input type="text" name="username" id="inviteUsername" list="inviteUsernameList" required minlength="1" maxlength="120" placeholder="Username" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" />
+              <datalist id="inviteUsernameList"></datalist>
+            </label>
+            <label class="block">
+              <span class="sr-only">Role</span>
+              <select name="role" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700">
+                <option value="member" selected>Member (view &amp; edit data)</option>
+                <option value="viewer">Viewer (read-only)</option>
+                <option value="admin">Admin (can also invite)</option>
+              </select>
+            </label>
+            <button type="submit" class="sm:col-span-3 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm font-medium w-fit">Send invitation</button>
+          </form>
+
+          <div>
+            <h3 class="text-sm font-semibold text-slate-300 mb-2">Pending invitations</h3>
+            {% if pending_invites %}
+            <ul class="space-y-2 text-sm">
+              {% for inv in pending_invites %}
+              <li class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 px-3 py-2">
+                <span>{{ inv.invitee.username if inv.invitee else inv.email }} <span class="text-slate-500">· {{ inv.role }} · sent {{ inv.created_at.strftime('%Y-%m-%d') }}</span></span>
+                <form method="post" action="/workspaces/{{ instance.id }}/invites/{{ inv.id }}/cancel">
+                  <button type="submit" class="text-xs text-slate-400 hover:text-rose-300">Cancel</button>
+                </form>
+              </li>
+              {% endfor %}
+            </ul>
+            {% else %}
+            <p class="text-sm text-slate-500">No pending invitations.</p>
+            {% endif %}
+          </div>
+
+          {% if recent_invites %}
+          <div>
+            <h3 class="text-sm font-semibold text-slate-300 mb-2">Recent responses</h3>
+            <ul class="space-y-1 text-xs text-slate-400">
+              {% for inv in recent_invites %}
+              <li>{{ inv.invitee.username if inv.invitee else inv.email }} — {{ inv.status }}{% if inv.responded_at %} ({{ inv.responded_at.strftime('%Y-%m-%d') }}){% endif %}</li>
+              {% endfor %}
+            </ul>
+          </div>
+          {% endif %}
+        </section>
+        <script>
+          (function () {
+            var input = document.getElementById('inviteUsername');
+            var list = document.getElementById('inviteUsernameList');
+            if (!input || !list) return;
+            var t;
+            input.addEventListener('input', function () {
+              clearTimeout(t);
+              var q = input.value.trim();
+              if (q.length < 2) { list.innerHTML = ''; return; }
+              t = setTimeout(function () {
+                fetch('/api/users/search?q=' + encodeURIComponent(q), { credentials: 'same-origin' })
+                  .then(function (r) { return r.ok ? r.json() : { usernames: [] }; })
+                  .then(function (d) {
+                    list.innerHTML = '';
+                    (d.usernames || []).forEach(function (u) {
+                      var o = document.createElement('option');
+                      o.value = u;
+                      list.appendChild(o);
+                    });
+                  })
+                  .catch(function () {});
+              }, 250);
+            });
+          })();
+        </script>
+        {% endif %}
+      </main>
+    </div>
+  </div>
+</body>
+</html>

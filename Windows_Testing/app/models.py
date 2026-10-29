@@ -11,13 +11,15 @@ class User(Base):
     username = Column(String(120), unique=True, index=True, nullable=False)
     password_hash = Column(String(256), nullable=False)
     enable_iefp_mode = Column(Boolean, default=False, nullable=False)
+    active_workspace_id = Column(Integer, ForeignKey("database_instances.id"), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
-    databases = relationship("DatabaseInstance", back_populates="owner", cascade="all, delete-orphan")
+    databases = relationship("DatabaseInstance", back_populates="owner", cascade="all, delete-orphan", foreign_keys="DatabaseInstance.owner_id")
     bank_statements = relationship("BankStatement", back_populates="owner_user", cascade="all, delete-orphan")
     audit_logs = relationship("FinanceAuditLog", back_populates="user")
     wishlist_items = relationship("WishlistItem", back_populates="owner", cascade="all, delete-orphan")
     notes = relationship("UserNote", back_populates="owner", cascade="all, delete-orphan")
+    workspace_memberships = relationship("WorkspaceMember", back_populates="user", cascade="all, delete-orphan")
 
 
 class DatabaseInstance(Base):
@@ -27,19 +29,83 @@ class DatabaseInstance(Base):
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     name = Column(String(120), nullable=False)
     mode = Column(String(40), default="general", nullable=False)
+    # ISO 4217 base currency; fixed at creation (no silent conversion of stored amounts).
+    currency = Column(String(3), default="EUR", nullable=False)
     finance_db_path = Column(String(255), nullable=False)
     logic_db_path = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
+    # "personal" or "shared". A shared workspace is a copy of source_workspace_id that members collaborate on.
+    kind = Column(String(20), default="personal", nullable=False)
+    source_workspace_id = Column(Integer, ForeignKey("database_instances.id"), nullable=True, index=True)
+    # Shared workspaces always sum members' incomes; expenses are only mirrored when this is on.
+    include_member_expenses = Column(Boolean, default=False, nullable=False)
     health_status = Column(String(30), default="healthy", nullable=False)
     last_sync_status = Column(String(120), default="Waiting for execution", nullable=False)
     last_activity_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
-    owner = relationship("User", back_populates="databases")
+    owner = relationship("User", back_populates="databases", foreign_keys=[owner_id])
     jobs = relationship("JobRun", back_populates="instance", cascade="all, delete-orphan")
     bank_statements = relationship("BankStatement", back_populates="instance", cascade="all, delete-orphan")
     category_budgets = relationship("CategoryBudget", back_populates="instance", cascade="all, delete-orphan")
     monthly_snapshots = relationship("MonthlySnapshot", back_populates="instance", cascade="all, delete-orphan")
+    members = relationship("WorkspaceMember", back_populates="workspace", cascade="all, delete-orphan", foreign_keys="WorkspaceMember.workspace_id")
+    invites = relationship("WorkspaceInvite", back_populates="workspace", cascade="all, delete-orphan")
+
+
+class WorkspaceMember(Base):
+    __tablename__ = "workspace_members"
+    __table_args__ = (UniqueConstraint("workspace_id", "user_id", name="uq_workspace_member"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    workspace_id = Column(Integer, ForeignKey("database_instances.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    role = Column(String(20), default="member", nullable=False)
+    # Shared workspaces only: the member's own workspace whose incomes (and optionally expenses) count here.
+    linked_workspace_id = Column(Integer, ForeignKey("database_instances.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    workspace = relationship("DatabaseInstance", back_populates="members", foreign_keys=[workspace_id])
+    linked_workspace = relationship("DatabaseInstance", foreign_keys=[linked_workspace_id])
+    user = relationship("User", back_populates="workspace_memberships")
+
+
+class WorkspaceInvite(Base):
+    __tablename__ = "workspace_invites"
+
+    id = Column(Integer, primary_key=True, index=True)
+    workspace_id = Column(Integer, ForeignKey("database_instances.id"), nullable=False, index=True)
+    # Legacy column (email invites); username invites store the invitee's username here.
+    email = Column(String(120), nullable=False, index=True)
+    invitee_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    role = Column(String(20), default="member", nullable=False)
+    status = Column(String(20), default="pending", nullable=False, index=True)
+    token = Column(String(64), unique=True, nullable=False, index=True)
+    invited_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    accepted_at = Column(DateTime, nullable=True)
+    responded_at = Column(DateTime, nullable=True)
+    expires_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    workspace = relationship("DatabaseInstance", back_populates="invites")
+    invitee = relationship("User", foreign_keys=[invitee_user_id])
+    invited_by = relationship("User", foreign_keys=[invited_by_user_id])
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    kind = Column(String(40), nullable=False)
+    title = Column(String(160), nullable=False)
+    body = Column(Text, default="", nullable=False)
+    workspace_id = Column(Integer, ForeignKey("database_instances.id", ondelete="SET NULL"), nullable=True, index=True)
+    invite_id = Column(Integer, ForeignKey("workspace_invites.id", ondelete="SET NULL"), nullable=True, index=True)
+    actor_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    is_read = Column(Boolean, default=False, nullable=False, index=True)
+    read_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
 class JobRun(Base):

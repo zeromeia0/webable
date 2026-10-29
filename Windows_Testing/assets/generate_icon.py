@@ -24,7 +24,7 @@ def main() -> None:
     draw.rectangle((120, 96, 136, 200), fill=(255, 255, 255, 200))
     draw.rectangle((144, 136, 160, 200), fill=(255, 255, 255, 230))
     sizes = [(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
-    img.save(OUT, format="ICO", sizes=[(s, s) for s in sizes])
+    img.save(OUT, format="ICO", sizes=sizes)
     print(f"Wrote {OUT}")
 
 

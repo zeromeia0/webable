@@ -12,7 +12,7 @@ from urllib.error import HTTPError, URLError
 
 from sqlalchemy.orm import Session
 
-from app.models import DatabaseInstance, User
+from app.models import DatabaseInstance, User, WorkspaceMember
 from app.services import dashboard_metrics, eom_summary_service, monthly_snapshot_service as mss, wishlist_service
 
 DEFAULT_OLLAMA_MODEL = "minimax-m2.5:cloud"
@@ -387,6 +387,21 @@ def summarize_workspace_context(
     if mom:
         summary["month_over_month"] = mom
 
+    try:
+        from app.services import net_worth_service
+
+        nw = net_worth_service.summary(instance.finance_db_path)
+        summary["net_worth"] = {
+            "emergency_fund": nw["totals"]["emergency_fund"],
+            "invested": nw["totals"]["invested"],
+            "total_assets": nw["totals"]["assets"],
+            "total_liabilities": nw["totals"]["liabilities"],
+            "net_worth": nw["totals"]["net_worth"],
+            "emergency_fund_months_covered": nw["emergency"]["months_covered"],
+        }
+    except Exception:  # context is best-effort; never block the assistant
+        pass
+
     if db is not None and include_wishlist:
         safe = float(payload.get("safe_to_spend") or 0)
         items = wishlist_service.list_items(db, user.id)[:_TOP_N]
@@ -417,10 +432,11 @@ def summarize_workspace_context(
 
 def summarize_user_context(db: Session, user: User, instance_id: int | None = None) -> dict[str, Any]:
     """Summarized context across workspaces for the global AI panel."""
-    instances_q = db.query(DatabaseInstance).filter(DatabaseInstance.owner_id == user.id)
+    from app.services import workspace_service
+
+    instances = workspace_service.list_user_workspaces(db, user)
     if instance_id is not None:
-        instances_q = instances_q.filter(DatabaseInstance.id == instance_id)
-    instances = instances_q.order_by(DatabaseInstance.created_at.desc()).all()
+        instances = [i for i in instances if i.id == instance_id]
 
     return {
         "user": user.username,
