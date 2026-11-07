@@ -2994,7 +2994,9 @@ async def bank_statement_upload(
 
 
 @app.get("/instances/{instance_id}/bank-statements/{statement_id}/file")
-def bank_statement_download(instance_id: int, statement_id: int, request: Request, db: Session = Depends(get_db)):
+def bank_statement_download(
+    instance_id: int, statement_id: int, request: Request, download: bool = False, db: Session = Depends(get_db)
+):
     user = require_user(request, db)
     inst = require_instance(db, user, instance_id)
     row = bank_statement_service.get_owned(db, user.id, statement_id)
@@ -3007,7 +3009,11 @@ def bank_statement_download(instance_id: int, statement_id: int, request: Reques
     fname = row.original_filename or export_naming.workspace_filename(
         inst, "Bank-Statement", "pdf", month=row.statement_month
     )
-    return FileResponse(path, filename=fname, media_type="application/pdf")
+    return FileResponse(
+        path,
+        media_type="application/pdf",
+        headers={"Content-Disposition": export_naming.content_disposition(fname, inline=not download)},
+    )
 
 
 @app.delete("/instances/{instance_id}/bank-statements/{statement_id}")
@@ -3137,14 +3143,21 @@ async def document_upload(
 
 
 @app.get("/instances/{instance_id}/documents/{document_id}/file")
-def document_download(instance_id: int, document_id: int, request: Request, db: Session = Depends(get_db)):
+def document_download(
+    instance_id: int, document_id: int, request: Request, download: bool = False, db: Session = Depends(get_db)
+):
     user = require_user(request, db)
     require_instance(db, user, instance_id)
     row = _require_document(db, instance_id, document_id)
     path = ROOT / row.storage_rel_path
     if not path.is_file():
         raise HTTPException(status_code=404, detail="File missing")
-    return FileResponse(path, filename=row.original_filename, media_type="application/pdf")
+    fname = row.original_filename or f"Document-{row.id}.pdf"
+    return FileResponse(
+        path,
+        media_type="application/pdf",
+        headers={"Content-Disposition": export_naming.content_disposition(fname, inline=not download)},
+    )
 
 
 @app.patch("/instances/{instance_id}/documents/{document_id}")

@@ -98,6 +98,11 @@ def workspace_filename(inst, report_type: str, extension: str, **period) -> str:
     )
 
 
-def content_disposition(filename: str) -> str:
-    """Attachment header with an ASCII fallback plus RFC 5987 form."""
-    return f"attachment; filename=\"{filename}\"; filename*=UTF-8''{quote(filename)}"
+def content_disposition(filename: str, inline: bool = False) -> str:
+    """Content-Disposition header with an ASCII fallback plus RFC 5987 form.
+
+    ``inline=True`` lets the browser display the file instead of downloading it.
+    """
+    kind = "inline" if inline else "attachment"
+    ascii_name = filename.encode("ascii", "replace").decode("ascii").replace('"', "")
+    return f"{kind}; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}"

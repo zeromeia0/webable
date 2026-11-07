@@ -55,6 +55,7 @@
               <td>{{ (s.file_size / 1024)|round(1) }} KB</td>
               <td class="text-right space-x-2 whitespace-nowrap">
                 <a href="/instances/{{ instance.id }}/bank-statements/{{ s.id }}/file" target="_blank" rel="noopener" class="text-indigo-400 hover:text-indigo-300 text-xs font-medium">View</a>
+                <a href="/instances/{{ instance.id }}/bank-statements/{{ s.id }}/file?download=1" download="{{ s.original_filename }}" class="text-emerald-400 hover:text-emerald-300 text-xs font-medium">Download</a>
                 <button type="button" class="text-amber-300 hover:text-amber-200 text-xs rename-btn" data-url="/instances/{{ instance.id }}/bank-statements/{{ s.id }}" data-field="filename">Edit</button>
                 <button type="button" class="text-rose-400 hover:text-rose-300 text-xs stmt-del" data-id="{{ s.id }}">Delete</button>
               </td>
@@ -109,6 +110,7 @@
                   <td>{{ (d.file_size / 1024)|round(1) }} KB</td>
                   <td class="text-right space-x-2 whitespace-nowrap">
                     <a href="/instances/{{ instance.id }}/documents/{{ d.id }}/file" target="_blank" rel="noopener" class="text-indigo-400 hover:text-indigo-300 text-xs font-medium">View</a>
+                    <a href="/instances/{{ instance.id }}/documents/{{ d.id }}/file?download=1" download="{{ d.original_filename }}" class="text-emerald-400 hover:text-emerald-300 text-xs font-medium">Download</a>
                     <button type="button" class="text-amber-300 hover:text-amber-200 text-xs rename-btn" data-url="/instances/{{ instance.id }}/documents/{{ d.id }}" data-field="filename">Edit</button>
                     <button type="button" class="text-rose-400 hover:text-rose-300 text-xs doc-del" data-id="{{ d.id }}">Delete</button>
                   </td>
