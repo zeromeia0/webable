@@ -50,11 +50,12 @@
             <tr class="border-b border-slate-800/80" data-stmt-id="{{ s.id }}">
               <td class="py-2 font-mono">{{ s.statement_month }}</td>
               <td>{{ s.bank_name or '—' }}</td>
-              <td class="max-w-[10rem] truncate" title="{{ s.original_filename }}">{{ s.original_filename }}</td>
+              <td class="max-w-[14rem] truncate rename-cell" title="{{ s.original_filename }}">{{ s.original_filename }}</td>
               <td class="text-slate-400 text-xs">{{ s.created_at.strftime('%Y-%m-%d %H:%M') if s.created_at else '—' }}</td>
               <td>{{ (s.file_size / 1024)|round(1) }} KB</td>
               <td class="text-right space-x-2 whitespace-nowrap">
                 <a href="/instances/{{ instance.id }}/bank-statements/{{ s.id }}/file" target="_blank" rel="noopener" class="text-indigo-400 hover:text-indigo-300 text-xs font-medium">View</a>
+                <button type="button" class="text-amber-300 hover:text-amber-200 text-xs rename-btn" data-url="/instances/{{ instance.id }}/bank-statements/{{ s.id }}" data-field="filename">Edit</button>
                 <button type="button" class="text-rose-400 hover:text-rose-300 text-xs stmt-del" data-id="{{ s.id }}">Delete</button>
               </td>
             </tr>
@@ -62,6 +63,65 @@
           </tbody>
         </table>
         <p id="stmtEmpty" class="{% if bank_statements|length %}hidden{% endif %} text-sm text-slate-500 py-4">No statements yet. Upload your first bank statement PDF above.</p>
+      </div>
+    </section>
+
+    <section class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 md:p-5" id="otherDocumentsSection">
+      <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-2">Other documents</h2>
+      <p class="text-xs text-slate-500 mb-4">Create your own categories for any other PDFs — reports, tax documents, payslips, contracts… Same rules as bank statements: PDF only, max 10&nbsp;MB, and duplicates (same content or same filename in a category) are rejected.</p>
+      <form id="docCatForm" class="flex flex-wrap gap-3 items-end mb-2">
+        <label class="text-xs text-slate-400">New category<br/><input name="name" maxlength="80" required class="mt-1 rounded-lg bg-slate-800 border border-slate-600 px-2 py-1.5 text-sm w-56" placeholder="e.g. Tax documents" /></label>
+        <button type="submit" id="docCatBtn" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm font-medium">Create category</button>
+        <span id="docCatMsg" class="text-xs text-amber-300/90 max-w-xs"></span>
+      </form>
+      {% if not doc_categories %}
+      <p class="text-sm text-slate-500 py-4">No categories yet. Create one above, then upload PDFs into it.</p>
+      {% endif %}
+      <div class="space-y-5 mt-4">
+        {% for entry in doc_categories %}
+        {% set c = entry.category %}
+        <div class="rounded-xl border border-slate-800 bg-slate-950/40 p-4" data-doc-cat="{{ c.id }}">
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <h3 class="text-sm font-semibold text-slate-200 rename-cell" title="{{ c.name }}">{{ c.name }}</h3>
+            <div class="space-x-3 whitespace-nowrap">
+              <button type="button" class="text-amber-300 hover:text-amber-200 text-xs rename-btn" data-url="/instances/{{ instance.id }}/document-categories/{{ c.id }}" data-field="name">Rename</button>
+              <button type="button" class="text-rose-400 hover:text-rose-300 text-xs doc-cat-del" data-id="{{ c.id }}" data-name="{{ c.name }}" data-count="{{ entry.documents|length }}">Delete category</button>
+            </div>
+          </div>
+          <form class="doc-upload-form flex flex-wrap gap-3 items-end mb-4" data-cat="{{ c.id }}">
+            <label class="text-xs text-slate-400">Month <span class="text-slate-500">(optional)</span><br/><input type="month" name="doc_month" class="mt-1 rounded-lg bg-slate-800 border border-slate-600 px-2 py-1.5 text-sm" /></label>
+            <label class="text-xs text-slate-400">Source (optional)<br/><input name="source" class="mt-1 rounded-lg bg-slate-800 border border-slate-600 px-2 py-1.5 text-sm w-44" placeholder="e.g. Finanças" /></label>
+            <label class="text-xs text-slate-400">PDF file<br/><input type="file" name="file" accept="application/pdf,.pdf" required class="mt-1 block text-sm max-w-[14rem]" /></label>
+            <button type="submit" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm font-medium">Upload</button>
+            <span class="doc-upload-msg text-xs text-amber-300/90 max-w-xs"></span>
+          </form>
+          <div class="overflow-x-auto">
+            {% if entry.documents %}
+            <table class="w-full text-sm text-left">
+              <thead><tr class="text-slate-400 border-b border-slate-800"><th class="py-2">Month</th><th>Source</th><th>File</th><th>Uploaded (UTC)</th><th>Size</th><th class="text-right">Actions</th></tr></thead>
+              <tbody>
+                {% for d in entry.documents %}
+                <tr class="border-b border-slate-800/80" data-doc-id="{{ d.id }}">
+                  <td class="py-2 font-mono">{{ d.doc_month or '—' }}</td>
+                  <td>{{ d.source or '—' }}</td>
+                  <td class="max-w-[14rem] truncate rename-cell" title="{{ d.original_filename }}">{{ d.original_filename }}</td>
+                  <td class="text-slate-400 text-xs">{{ d.created_at.strftime('%Y-%m-%d %H:%M') if d.created_at else '—' }}</td>
+                  <td>{{ (d.file_size / 1024)|round(1) }} KB</td>
+                  <td class="text-right space-x-2 whitespace-nowrap">
+                    <a href="/instances/{{ instance.id }}/documents/{{ d.id }}/file" target="_blank" rel="noopener" class="text-indigo-400 hover:text-indigo-300 text-xs font-medium">View</a>
+                    <button type="button" class="text-amber-300 hover:text-amber-200 text-xs rename-btn" data-url="/instances/{{ instance.id }}/documents/{{ d.id }}" data-field="filename">Edit</button>
+                    <button type="button" class="text-rose-400 hover:text-rose-300 text-xs doc-del" data-id="{{ d.id }}">Delete</button>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            {% else %}
+            <p class="text-sm text-slate-500 py-2">No files in {{ c.name }} yet.</p>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
       </div>
     </section>
 
@@ -685,6 +745,139 @@
         var id = btn.getAttribute('data-id');
         if (!confirm('Delete this statement?')) return;
         var res = await fetch('/instances/' + INSTANCE_ID + '/bank-statements/' + id, { method: 'DELETE', credentials: 'same-origin' });
+        if (res.ok) location.reload();
+      });
+    });
+
+    // Inline rename: only the file/category name changes, never the PDF itself.
+    document.querySelectorAll('.rename-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var holder = btn.closest('tr') || btn.closest('[data-doc-cat]');
+        var cell = holder && holder.querySelector('.rename-cell');
+        if (!cell || cell.querySelector('input')) return;
+        var field = btn.getAttribute('data-field');
+        var original = cell.textContent.trim();
+        var isFile = field === 'filename';
+        var startVal = isFile ? original.replace(/\.pdf$/i, '') : original;
+        cell.classList.remove('truncate');
+        cell.innerHTML = '';
+        var wrap = document.createElement('div');
+        wrap.className = 'flex flex-wrap items-center gap-1';
+        var input = document.createElement('input');
+        input.value = startVal;
+        input.maxLength = isFile ? 176 : 80;
+        input.className = 'rounded bg-slate-800 border border-slate-600 px-2 py-1 text-xs w-48';
+        var suffix = document.createElement('span');
+        suffix.className = 'text-xs text-slate-500';
+        suffix.textContent = isFile ? '.pdf' : '';
+        var save = document.createElement('button');
+        save.type = 'button';
+        save.textContent = 'Save';
+        save.className = 'text-emerald-400 hover:text-emerald-300 text-xs font-medium';
+        var cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.textContent = 'Cancel';
+        cancel.className = 'text-slate-400 hover:text-slate-300 text-xs';
+        var err = document.createElement('span');
+        err.className = 'text-xs text-rose-300 w-full';
+        wrap.append(input, suffix, save, cancel, err);
+        cell.appendChild(wrap);
+        input.focus();
+        input.select();
+        function restore(text) {
+          cell.textContent = text;
+          cell.title = text;
+          if (cell.tagName === 'TD') cell.classList.add('truncate');
+        }
+        async function submit() {
+          var val = input.value.trim();
+          if (!val) { err.textContent = 'Name cannot be empty.'; return; }
+          save.disabled = true;
+          err.textContent = '';
+          try {
+            var payload = {};
+            payload[field] = val;
+            var res = await fetch(btn.getAttribute('data-url'), {
+              method: 'PATCH',
+              credentials: 'same-origin',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            var data = await res.json().catch(function () { return {}; });
+            if (!res.ok) throw new Error(data.detail || 'Could not rename.');
+            if (isFile) restore(data.filename || val);
+            else location.reload();
+          } catch (e) {
+            err.textContent = e.message || 'Could not rename.';
+            save.disabled = false;
+          }
+        }
+        save.addEventListener('click', submit);
+        cancel.addEventListener('click', function () { restore(original); });
+        input.addEventListener('keydown', function (ev) {
+          if (ev.key === 'Enter') { ev.preventDefault(); submit(); }
+          else if (ev.key === 'Escape') { restore(original); }
+        });
+      });
+    });
+
+    document.getElementById('docCatForm').addEventListener('submit', async function (e) {
+      e.preventDefault();
+      var msg = document.getElementById('docCatMsg');
+      var btn = document.getElementById('docCatBtn');
+      msg.textContent = '';
+      btn.disabled = true;
+      try {
+        var res = await fetch('/instances/' + INSTANCE_ID + '/document-categories', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: e.target.elements.name.value })
+        });
+        var data = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error(data.detail || 'Could not create category.');
+        location.reload();
+      } catch (err) {
+        msg.textContent = err.message || 'Could not create category.';
+        btn.disabled = false;
+      }
+    });
+    document.querySelectorAll('.doc-cat-del').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        var n = Number(btn.getAttribute('data-count')) || 0;
+        var q = 'Delete the category "' + btn.getAttribute('data-name') + '"' + (n ? ' and its ' + n + ' file(s)?' : '?');
+        if (!confirm(q)) return;
+        var res = await fetch('/instances/' + INSTANCE_ID + '/document-categories/' + btn.getAttribute('data-id'), { method: 'DELETE', credentials: 'same-origin' });
+        if (res.ok) location.reload();
+      });
+    });
+    document.querySelectorAll('.doc-upload-form').forEach(function (form) {
+      form.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        var msg = form.querySelector('.doc-upload-msg');
+        var btn = form.querySelector('button[type=submit]');
+        msg.textContent = '';
+        msg.className = 'doc-upload-msg text-xs text-amber-300/90 max-w-xs';
+        btn.disabled = true;
+        try {
+          var res = await fetch('/instances/' + INSTANCE_ID + '/document-categories/' + form.getAttribute('data-cat') + '/upload', { method: 'POST', body: new FormData(form), credentials: 'same-origin' });
+          var data = await res.json().catch(function () { return {}; });
+          if (!res.ok) throw new Error(data.detail || 'Upload failed');
+          msg.textContent = 'Saved ' + data.filename + '.';
+          msg.className = 'doc-upload-msg text-xs text-emerald-300 max-w-xs';
+          form.reset();
+          setTimeout(function () { location.reload(); }, 600);
+        } catch (err) {
+          msg.textContent = err.message || 'Upload failed';
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+    document.querySelectorAll('.doc-del').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        if (!confirm('Delete this file?')) return;
+        var res = await fetch('/instances/' + INSTANCE_ID + '/documents/' + btn.getAttribute('data-id'), { method: 'DELETE', credentials: 'same-origin' });
         if (res.ok) location.reload();
       });
     });

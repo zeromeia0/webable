@@ -29,6 +29,7 @@ from .services import (
     currency_service,
     dashboard_metrics,
     db_safety,
+    document_service,
     emergency_fund_service,
     eom_summary_service,
     eom_summary_pdf,
@@ -1000,6 +1001,7 @@ def delete_instance(instance_id: int, request: Request, db: Session = Depends(ge
                 fp.unlink()
         except OSError:
             log.warning("could not remove statement file %s", fp)
+    document_service.delete_instance_files(db, ROOT, inst.id)
     invite_ids = [i.id for i in db.query(WorkspaceInvite.id).filter(WorkspaceInvite.workspace_id == inst.id).all()]
     if invite_ids:
         db.query(Notification).filter(Notification.invite_id.in_(invite_ids)).update(
@@ -1127,6 +1129,10 @@ def reports_page(instance_id: int, request: Request, db: Session = Depends(get_d
     instances = workspace_service.list_user_workspaces(db, user)
     base = build_reports_payload(inst)
     statements = bank_statement_service.list_for_instance(db, inst.id)
+    doc_categories = [
+        {"category": c, "documents": document_service.list_documents(db, c.id)}
+        for c in document_service.list_categories(db, inst.id)
+    ]
     return templates.TemplateResponse(
         request=request,
         name="reports.html",
@@ -1139,6 +1145,7 @@ def reports_page(instance_id: int, request: Request, db: Session = Depends(get_d
             "nav_active": "reports",
             "report_bootstrap": base,
             "bank_statements": statements,
+            "doc_categories": doc_categories,
             "show_back_to_dashboard": True,
         },
     )
@@ -3011,6 +3018,154 @@ def bank_statement_delete(instance_id: int, statement_id: int, request: Request,
     if not row or row.instance_id != instance_id:
         raise HTTPException(status_code=404)
     bank_statement_service.delete_statement(db, ROOT, row)
+    return JSONResponse({"deleted": True})
+
+
+@app.patch("/instances/{instance_id}/bank-statements/{statement_id}")
+async def bank_statement_rename(instance_id: int, statement_id: int, request: Request, db: Session = Depends(get_db)):
+    """Rename the file (display/download name only — the stored PDF is untouched)."""
+    user = require_user(request, db)
+    require_instance(db, user, instance_id, action="edit")
+    row = bank_statement_service.get_owned(db, user.id, statement_id)
+    if not row or row.instance_id != instance_id:
+        raise HTTPException(status_code=404)
+    body = await request.json()
+    err = bank_statement_service.rename_statement(db, row, str((body or {}).get("filename") or ""))
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    return JSONResponse({"id": row.id, "filename": row.original_filename})
+
+
+# --- User-defined document categories (Reports → Other documents) ---
+
+
+def _doc_json(d) -> dict:
+    return {
+        "id": d.id,
+        "category_id": d.category_id,
+        "doc_month": d.doc_month,
+        "source": d.source,
+        "filename": d.original_filename,
+        "uploaded_at": d.created_at.isoformat() + "Z" if d.created_at else None,
+        "file_size": d.file_size,
+    }
+
+
+def _require_doc_category(db: Session, instance_id: int, category_id: int):
+    cat = document_service.get_category(db, instance_id, category_id)
+    if not cat:
+        raise HTTPException(status_code=404, detail="Category not found.")
+    return cat
+
+
+def _require_document(db: Session, instance_id: int, document_id: int):
+    row = document_service.get_document(db, instance_id, document_id)
+    if not row:
+        raise HTTPException(status_code=404)
+    return row
+
+
+@app.get("/instances/{instance_id}/document-categories")
+def document_categories_list(instance_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    inst = require_instance(db, user, instance_id)
+    return JSONResponse(
+        {
+            "items": [
+                {"id": c.id, "name": c.name, "documents": [_doc_json(d) for d in document_service.list_documents(db, c.id)]}
+                for c in document_service.list_categories(db, inst.id)
+            ]
+        }
+    )
+
+
+@app.post("/instances/{instance_id}/document-categories")
+async def document_category_create(instance_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    inst = require_instance(db, user, instance_id, action="create")
+    body = await request.json()
+    cat, err = document_service.create_category(db, inst.id, str((body or {}).get("name") or ""))
+    if err or not cat:
+        raise HTTPException(status_code=400, detail=err or "Could not create category.")
+    return JSONResponse({"id": cat.id, "name": cat.name})
+
+
+@app.patch("/instances/{instance_id}/document-categories/{category_id}")
+async def document_category_rename(instance_id: int, category_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    require_instance(db, user, instance_id, action="edit")
+    cat = _require_doc_category(db, instance_id, category_id)
+    body = await request.json()
+    err = document_service.rename_category(db, cat, str((body or {}).get("name") or ""))
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    return JSONResponse({"id": cat.id, "name": cat.name})
+
+
+@app.delete("/instances/{instance_id}/document-categories/{category_id}")
+def document_category_delete(instance_id: int, category_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    require_instance(db, user, instance_id, action="delete")
+    cat = _require_doc_category(db, instance_id, category_id)
+    document_service.delete_category(db, ROOT, cat)
+    return JSONResponse({"deleted": True})
+
+
+@app.post("/instances/{instance_id}/document-categories/{category_id}/upload")
+async def document_upload(
+    instance_id: int,
+    category_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    file: UploadFile = File(...),
+    doc_month: str = Form(""),
+    source: str | None = Form(None),
+):
+    user = require_user(request, db)
+    inst = require_instance(db, user, instance_id, action="create")
+    cat = _require_doc_category(db, instance_id, category_id)
+    if not file.filename or not str(file.filename).lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF uploads are allowed.")
+    content = await file.read()
+    row, err = document_service.save_document(
+        db, ROOT, inst, cat, user.id, content=content, original_filename=file.filename, doc_month=doc_month, source=source
+    )
+    if err or not row:
+        log.warning("document upload rejected: %s", err)
+        raise HTTPException(status_code=400, detail=err or "Upload failed")
+    return JSONResponse(_doc_json(row))
+
+
+@app.get("/instances/{instance_id}/documents/{document_id}/file")
+def document_download(instance_id: int, document_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    require_instance(db, user, instance_id)
+    row = _require_document(db, instance_id, document_id)
+    path = ROOT / row.storage_rel_path
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="File missing")
+    return FileResponse(path, filename=row.original_filename, media_type="application/pdf")
+
+
+@app.patch("/instances/{instance_id}/documents/{document_id}")
+async def document_rename(instance_id: int, document_id: int, request: Request, db: Session = Depends(get_db)):
+    """Rename the file (display/download name only — the stored PDF is untouched)."""
+    user = require_user(request, db)
+    require_instance(db, user, instance_id, action="edit")
+    row = _require_document(db, instance_id, document_id)
+    body = await request.json()
+    err = document_service.rename_document(db, row, str((body or {}).get("filename") or ""))
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    return JSONResponse(_doc_json(row))
+
+
+@app.delete("/instances/{instance_id}/documents/{document_id}")
+def document_delete(instance_id: int, document_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request, db)
+    require_instance(db, user, instance_id, action="delete")
+    row = _require_document(db, instance_id, document_id)
+    document_service.delete_document(db, ROOT, row)
     return JSONResponse({"deleted": True})
 
 

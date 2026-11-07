@@ -47,6 +47,7 @@ class DatabaseInstance(Base):
     owner = relationship("User", back_populates="databases", foreign_keys=[owner_id])
     jobs = relationship("JobRun", back_populates="instance", cascade="all, delete-orphan")
     bank_statements = relationship("BankStatement", back_populates="instance", cascade="all, delete-orphan")
+    document_categories = relationship("DocumentCategory", back_populates="instance", cascade="all, delete-orphan")
     category_budgets = relationship("CategoryBudget", back_populates="instance", cascade="all, delete-orphan")
     monthly_snapshots = relationship("MonthlySnapshot", back_populates="instance", cascade="all, delete-orphan")
     members = relationship("WorkspaceMember", back_populates="workspace", cascade="all, delete-orphan", foreign_keys="WorkspaceMember.workspace_id")
@@ -157,6 +158,42 @@ class BankStatement(Base):
 
     instance = relationship("DatabaseInstance", back_populates="bank_statements")
     owner_user = relationship("User", back_populates="bank_statements")
+
+
+class DocumentCategory(Base):
+    """User-defined group of PDFs in Reports (e.g. "Tax documents", "Payslips")."""
+
+    __tablename__ = "document_categories"
+    __table_args__ = (UniqueConstraint("instance_id", "name", name="uq_doc_category_instance_name"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    instance_id = Column(Integer, ForeignKey("database_instances.id"), nullable=False, index=True)
+    name = Column(String(80), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    instance = relationship("DatabaseInstance", back_populates="document_categories")
+    documents = relationship("Document", back_populates="category", cascade="all, delete-orphan")
+
+
+class Document(Base):
+    """A PDF stored in a user-defined category; same storage rules as BankStatement."""
+
+    __tablename__ = "documents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    instance_id = Column(Integer, ForeignKey("database_instances.id"), nullable=False, index=True)
+    category_id = Column(Integer, ForeignKey("document_categories.id"), nullable=False, index=True)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    original_filename = Column(String(255), nullable=False)
+    stored_filename = Column(String(120), nullable=False)
+    doc_month = Column(String(7), nullable=True, index=True)
+    source = Column(String(120), nullable=True)
+    file_size = Column(Integer, nullable=False)
+    sha256 = Column(String(64), nullable=False, index=True)
+    storage_rel_path = Column(String(512), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    category = relationship("DocumentCategory", back_populates="documents")
 
 
 class MarketQuote(Base):

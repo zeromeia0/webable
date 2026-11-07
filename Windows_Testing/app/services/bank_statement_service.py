@@ -32,6 +32,48 @@ def sanitize_original_filename(name: str) -> str:
     return base[:180]
 
 
+_FORBIDDEN_NAME_CHARS = re.compile(r'[\x00-\x1f<>:"/\\|?*]')
+
+
+def sanitize_display_filename(name: str) -> str | None:
+    """
+    Clean a user-typed new name for a stored PDF. Only the download/display name changes,
+    never the stored file. Spaces and accents are kept; path and reserved characters are not.
+    Returns None when nothing usable is left.
+    """
+    base = _FORBIDDEN_NAME_CHARS.sub("_", (name or "").strip())
+    base = re.sub(r"\s+", " ", base).strip()
+    if base.lower().endswith(".pdf"):
+        base = base[:-4]
+    base = base.strip(" .")
+    if not base:
+        return None
+    return base[:176] + ".pdf"
+
+
+def rename_statement(db: Session, row: BankStatement, new_name: str) -> str | None:
+    """Change only the filename shown and used for downloads. Returns an error message or None."""
+    safe = sanitize_display_filename(new_name)
+    if not safe:
+        return "Please enter a file name."
+    if safe == row.original_filename:
+        return None
+    clash = (
+        db.query(BankStatement)
+        .filter(
+            BankStatement.instance_id == row.instance_id,
+            BankStatement.original_filename == safe,
+            BankStatement.id != row.id,
+        )
+        .first()
+    )
+    if clash:
+        return "Another statement in this workspace already has that name."
+    row.original_filename = safe
+    db.commit()
+    return None
+
+
 def validate_pdf_bytes(content: bytes) -> tuple[bool, str]:
     if not content:
         return False, "Empty file."
