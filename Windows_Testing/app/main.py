@@ -2996,7 +2996,10 @@ def bank_statement_download(instance_id: int, statement_id: int, request: Reques
     path = ROOT / row.storage_rel_path
     if not path.is_file():
         raise HTTPException(status_code=404, detail="File missing")
-    fname = export_naming.workspace_filename(inst, "Bank-Statement", "pdf", month=row.statement_month)
+    # Keep the same name the user uploaded (and sees in the Reports list).
+    fname = row.original_filename or export_naming.workspace_filename(
+        inst, "Bank-Statement", "pdf", month=row.statement_month
+    )
     return FileResponse(path, filename=fname, media_type="application/pdf")
 
 
