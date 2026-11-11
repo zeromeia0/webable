@@ -121,6 +121,78 @@ docker compose up -d
 
 ---
 
+## Spending report from the terminal (`create_relatorio`)
+
+`create_relatorio` turns a Crédito Agrícola **Extracto Integrado** (PDF) into a **Relatório de Gastos** (PDF). It's the same 5-page report as the existing `Relatorio_Gastos_<Mês>_<Ano>.pdf` files: summary cards, the "Resumo" paragraph, the three charts, the category table, "Fora dos gastos", "Entradas", "Observações" and the list of all outgoing payments.
+
+It runs entirely on your machine. It doesn't need the website, Docker or the internet.
+
+### Run it
+
+From the `webable` folder:
+
+```bash
+./create_relatorio ~/Downloads/Extracto_Integrado_Novembro_2026.pdf
+```
+
+This creates `Relatorio_Gastos_Novembro_2026.pdf` in the folder you're in, then prints the main totals plus any purchases it couldn't put in a category.
+
+| Option | What it does |
+|--------|--------------|
+| `-o FILE.pdf` | Saves the report somewhere else, e.g. `-o ~/money/Relatorio_Gastos_Novembro_2026.pdf` |
+| `--list` | Doesn't create a PDF. Prints every transaction with its category, so you can check the classification. |
+
+You can run it from any folder (`~/42_Lisboa/personal/webable/create_relatorio extracto.pdf`). For a short command, add an alias to `~/.bashrc`:
+`alias create_relatorio=~/42_Lisboa/personal/webable/create_relatorio`
+
+### Requirements
+
+- **Python packages:** `reportlab`, `matplotlib` and `pypdf`. They're already in `.venv`, and the `create_relatorio` wrapper uses `.venv/bin/python` automatically. If `.venv` is missing, run `make install`, or `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`.
+- **Optional:** `pdftotext` (package `poppler` on Arch, `poppler-utils` on Debian/Ubuntu). If it isn't installed, the script falls back to `pypdf`, and both give the same result.
+
+### Files
+
+| File | What |
+|------|------|
+| `create_relatorio` | Small bash wrapper that picks the right Python and runs the script |
+| `scripts/create_relatorio.py` | All the logic, in one file, split into 6 numbered sections (search for `SECÇÃO`) |
+
+### How the numbers are calculated
+
+- **Debit or credit** is worked out from the running balance, not from the column position. If `previous balance − amount = new balance`, it's a debit.
+- **Gastos reais** are all debits *except* Revolut investments and family help.
+- **Investido (Revolut)** is the total of `AFT VISA Revolut` debits minus the `IPS/...-VINICIUS VAZ CA` credits (money you sent back to yourself). Those credits are shown in red and are **not** counted as income.
+- **Ajuda familiar** is any `Trf ...` debit to `JESLIN`.
+- **Entradas** are grouped into: salaries (`ORDENADOS -CAPGEMINI` + `REAL VIDA`, `ORDENADOS -IEFP`), insurance refunds (`SEGUROS`), Jeslin, friends (other `IPS/...` credits) and "Outras entradas".
+- **Saídas líquidas** = gastos reais + net investment + family help. The percentages in "Resumo" are of this total.
+
+### Fixing things (most common first)
+
+All of these are edits to the top of `scripts/create_relatorio.py` (**SECÇÃO 1 — CONFIGURAÇÃO**). You don't have to touch the rest.
+
+| Problem | Fix |
+|---------|-----|
+| A shop shows up as **"Outros (por identificar)"** | Add a word from its name to the right category in `CATEGORY_RULES`. For example, to make `COMPRA MAESTRO DA L 4446629/98` restaurant spending, add `"MAESTRO"` to the `"Restauração"` list. Rules are checked top to bottom, and the first match wins. Use `--list` to check. |
+| A shop is in the **wrong category** | Find which word matched it in `CATEGORY_RULES` (an earlier category wins). Make that word more specific, or move your rule above it. |
+| You want a **new category** | Add a new `("Nome da categoria", ["WORD1", "WORD2"])` line to `CATEGORY_RULES`. The tables and charts pick it up automatically. |
+| A shop name **looks ugly** in the report | Add a `(regex, "NICE NAME")` line to `DISPLAY_ALIASES`, e.g. `(r"^KIBO.*", "KIBO SUSHI")`. |
+| **New job or salary** source | Add a line to `SALARY_SOURCES`: `("ORDENADOS -NEWCOMPANY", "NewCompany", "Salário — NewCompany")`. Copy the text exactly as it appears in the statement. |
+| Your **name, family member or investment account** changed | Edit `OWNER_MATCH` / `OWNER_FULL_NAME`, `FAMILY_MATCH` / `FAMILY_FULL_NAME` / `FAMILY_SHORT`, or `INVEST_MATCH`. |
+| `ERRO: não encontrei 'EXTRACTO Nº ... Período ...'` | The PDF isn't a Crédito Agrícola Extracto Integrado, or the bank changed the header. Run `pdftotext -layout extracto.pdf - \| head -60` to see the text, then fix the `re.search(r"EXTRACTO N...` line in `parse_statement()` (SECÇÃO 2). |
+| `ERRO: nenhum movimento encontrado` | The transaction lines changed format. Each line must look like `DD-MM-YY  DD-MM-YY  DESCRIPTION  AMOUNT  BALANCE`. Compare the `pdftotext -layout` output with the `TX_RE` regex in SECÇÃO 2. |
+| `AVISO: saldo não bate na linha: ...` | A line was read wrong, often because a description contains a number formatted like money. Look at that line in `pdftotext -layout` output. The report is still generated, but check that line's category with `--list`. |
+| Text or spacing looks different | Colours are in SECÇÃO 1 (`C_TEXT`, `C_BLUE`, …). Fonts, sizes and spacing are in SECÇÃO 6 (`sty = {...}`). Charts are in SECÇÃO 5. |
+| `ModuleNotFoundError: reportlab` / `matplotlib` | The wrapper didn't find `.venv`. Run `make install`, or `.venv/bin/pip install -r requirements.txt`. |
+
+### Differences from the older reports
+
+The script reproduces the layout, numbers and text of the August–October 2026 reports. The only intentional differences are:
+- Shop names are always cleaned the same way (`COMPRA BOLT` rather than `COMPRA BOLT EU D 26`), as in the October report.
+- **Observações** always follows the same template as August and September: restaurants, Bolt, health, cash withdrawals, unidentified purchases, bank fees, minimum and maximum balance. The October observations were written by hand.
+- The "Por identificar" note says to add the shop to `CATEGORY_RULES`, instead of "diz-me e eu recategorizo".
+
+---
+
 ## Optional: AI chat
 
 The AI assistant uses [Ollama](https://ollama.com) with the cloud model `minimax-m2.5:cloud`. It's off by default, so nothing gets downloaded unless you turn it on.
@@ -182,7 +254,8 @@ Run the tests with `python -m unittest discover -s tests`.
 ```
 app/              FastAPI app: main.py (routes), models.py, services/, templates/, static/
 tests/            unit tests
-scripts/          install, backup, migrate and update scripts
+scripts/          install, backup, migrate and update scripts, create_relatorio.py
+create_relatorio  terminal spending report from a bank statement (see above)
 docs/             static GitHub Pages install page (no backend, no data)
 Windows_Testing/  Windows desktop build without Docker (see its README)
 data/             your data, created on first run (not in git)

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Gera o Relatório de Gastos a partir de um Extracto Integrado (PDF).
+# Uso: ./create_relatorio Extracto_Integrado_Outubro_2026.pdf [-o saida.pdf]
+# Ver README.md -> secção "create_relatorio".
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+PY="$DIR/.venv/bin/python"
+[ -x "$PY" ] || PY="$(command -v python3)"
+exec "$PY" "$DIR/scripts/create_relatorio.py" "$@"
