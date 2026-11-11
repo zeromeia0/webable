@@ -142,6 +142,8 @@ This creates `Relatorio_Gastos_Novembro_2026.pdf` in the folder you're in, then 
 | `-o FILE.pdf` | Saves the report somewhere else, e.g. `-o ~/money/Relatorio_Gastos_Novembro_2026.pdf` |
 | `--list` | Doesn't create a PDF. Prints every transaction with its category, so you can check the classification. |
 
+**Shortcut: `./Create_relatorio.sh`** does it all in one go. It takes the newest `Extracto*.pdf` in `~/Downloads`, or the file you pass it. It then lists every transaction with its category, saves the report to `~/money/`, and opens it. To use different folders, change `OUT_DIR` / `SEARCH_DIR` at the top of the script.
+
 You can run it from any folder (`~/42_Lisboa/personal/webable/create_relatorio extracto.pdf`). For a short command, add an alias to `~/.bashrc`:
 `alias create_relatorio=~/42_Lisboa/personal/webable/create_relatorio`
 
